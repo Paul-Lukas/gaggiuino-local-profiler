@@ -181,6 +181,8 @@ Click **Open Web UI** in the app page — or open it directly from your HA sideb
 | `sync_interval` | `5` | Auto-sync interval in minutes (1–60) |
 | `switch_entity` | *(empty)* | HA switch entity to power the machine on/off |
 
+Updates run through the Home Assistant Add-on Store — the app itself only checks and shows whether a newer version is available, it never triggers an install (no elevated Supervisor role required).
+
 ---
 
 ## 🏠 Embed in HA Dashboard

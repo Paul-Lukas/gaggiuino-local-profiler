@@ -517,23 +517,6 @@ router.get('/api/version', async (req, res) => {
     });
 });
 
-router.post('/api/update', async (req, res) => {
-    if (!HA_TOKEN) return res.status(503).json({ error: 'Not running inside Home Assistant' });
-    try {
-        const r = await fetch('http://supervisor/addons/self/update', {
-            method:  'POST',
-            headers: { Authorization: `Bearer ${HA_TOKEN}` },
-            signal:  AbortSignal.timeout(10000),
-        });
-        if (!r.ok) return res.status(r.status).json({ error: await r.text() });
-        log('Add-on update triggered via Supervisor API');
-        res.json({ ok: true });
-    } catch (e) {
-        log(`Update trigger error: ${e.message}`, true);
-        res.status(500).json({ error: e.message });
-    }
-});
-
 // ── Debug ─────────────────────────────────────────────────────────────────
 
 // H2: only available outside production to avoid leaking internal network topology
