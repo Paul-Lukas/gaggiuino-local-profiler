@@ -293,6 +293,8 @@ components:
         preheatTime: { type: integer, description: Configured preheat time in minutes }
         temp:        { type: number, description: Current boiler temperature °C, nullable: true }
         targetTemp:  { type: number, description: Target boiler temperature °C, nullable: true }
+        readyByTargetAt:   { type: integer, nullable: true, description: "Epoch-ms wall-clock target set via POST /api/preheat/ready-by, or null if none is pending" }
+        plannedSwitchOnAt: { type: integer, nullable: true, description: "Epoch-ms when the preheat watcher will turn the switch on to hit readyByTargetAt, or null" }
 
     LiveData:
       type: object
@@ -1150,6 +1152,34 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PreheatStatus' }
+
+  /api/preheat/ready-by:
+    post:
+      tags: [System]
+      summary: Set (or clear) a target "ready by" wall-clock time for automatic preheat scheduling
+      description: |
+        Backend capability for a future HA-integration service to schedule an automatic preheat
+        switch-on so the machine is thermally ready by a target wall-clock time. The existing 30s
+        preheat watcher computes `plannedSwitchOnAt = targetAt - preheat_time` and flips the
+        configured switch on once that time is reached and the machine is off — one-shot, no
+        re-fire. Rejected with 400 if `targetAt` is non-null and `switch_entity`/the HA token isn't
+        configured, since the watcher could never fulfill it. `targetAt: null` always clears any
+        pending target regardless of configuration state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                targetAt: { type: integer, nullable: true, description: Epoch-ms target time, or null to clear }
+      responses:
+        "200":
+          description: Updated preheat status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PreheatStatus' }
+        "400": { description: "targetAt is not a valid epoch-ms number/null, or switch_entity/HA token isn't configured" }
 
   /api/live/data:
     get:
