@@ -1,3 +1,12 @@
+## [2.20.0] – 2026-07-27
+
+### Added
+- **New backend endpoint `POST /api/preheat/ready-by`** lets a caller set a target wall-clock "ready by" time (`{ targetAt: epoch-ms | null }`); `lib/preheat.js` computes `plannedSwitchOnAt = targetAt - preheat_time` and persists it alongside the existing `switchOnAt`/`switchOffAt` state. The existing 30s preheat watcher now also checks this target and turns the configured switch on via the same `callHaService('switch', 'turn_on', ...)` path `/api/switch/toggle` already uses, once the planned time is reached and the machine is off — one-shot, no re-fire. Rejects (400) an attempt to set a target when `switch_entity`/the HA token isn't configured, so a target that could never be fulfilled doesn't silently no-op later. `GET /api/preheat` and the new route now share one response builder so both expose `readyByTargetAt`/`plannedSwitchOnAt`. **Backend capability only** — this release does not include a UI to set the target. It becomes end-user-usable once the companion HA-integration service (glp-integration v1.22.0) and Lovelace-card control (glp-lovelace-card v2.17.0) ship. Closes #541
+
+### Fixed
+- **Two overlapping-request races on shared UI state could clobber it with stale data.** `loadMachineProfileList()` (`views/library-profile-editor.js`) fires unawaited from several init/machine-switch call sites while also being awaited elsewhere; an overlapping call could resolve out of order and overwrite `S.machineProfiles` with an older response. `_sendUpdatedProfile()` (`views/profile-dialin-wizard.js`) had the same shape on the shared dial-in session object, reachable via a double-click on the accept/override buttons. Both now use a monotonic request-token guard so only the still-current call writes state when its response lands; this also let the two `eslint-disable-next-line require-atomic-updates` suppressions at these sites be removed, since the guard resolves the underlying race honestly instead of just silencing the linter. Closes #521
+- **Mobile sidebar drawer (shot list) could be covered by the fixed bottom-nav bar.** `#shots`, the shot list's actual scroll container, had no `padding-bottom` reserving space for `#bottom-nav` — the same problem `#main` already solves. Added the equivalent padding to `#shots`, plus a safety-net `padding-bottom` on `#sidebar.sidebar-drawer-mode`. Closes #540
+
 ## [2.19.3] – 2026-07-27
 
 ### Fixed

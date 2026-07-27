@@ -226,6 +226,8 @@ When `switch_entity` is set, the **Live** tab is hidden while the machine is off
 
 Once the machine turns on, a preheat progress bar and countdown are shown in the Live tab. The machine is considered ready when **thermal stability** is detected: temperature must remain within ±1.5 °C over the last 30 seconds while at or near the target temperature. The fixed `preheat_time` timer acts as a safety ceiling — the machine will always be marked ready after that many minutes even if stability was not detected. The timer does **not** reset on brief power cycles (off for < 5 minutes, still above 80 °C). The preheat state is exposed as HA sensors via the companion integration (`binary_sensor.…preheat_ready`, `sensor.…preheat_elapsed`, `sensor.…preheat_remaining`).
 
+**"Ready by" scheduling (backend, v2.20.0+):** `POST /api/preheat/ready-by` lets a caller set a target wall-clock time by which the machine should be thermally ready; the existing 30s preheat watcher works backward from `preheat_time` and turns `switch_entity` on automatically once the planned switch-on time is reached, then clears the target (one-shot). ⚠ This is a backend capability only — there is currently no UI in this app, the HA integration, or the Lovelace card to set a target. It becomes usable once the companion HA-integration service and Lovelace-card control ship in a later release.
+
 ### Import from kaffeebraun.com
 
 In the Library tab, click **🔗 URL** next to "Add Bean", paste any product URL from [kaffeebraun.com](https://kaffeebraun.com) and press Import. The app fetches the product page server-side and pre-fills the bean form with:

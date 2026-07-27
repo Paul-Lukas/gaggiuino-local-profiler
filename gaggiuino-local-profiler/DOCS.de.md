@@ -226,6 +226,8 @@ Wenn `switch_entity` gesetzt ist, wird der **Live**-Tab ausgeblendet solange die
 
 Nach dem Einschalten zeigt der Live-Tab einen Fortschrittsbalken und einen Countdown. Die Maschine gilt als bereit wenn **thermische Stabilität** erkannt wird: die Temperatur muss die letzten 30 Sekunden innerhalb von ±1,5 °C bei oder nahe dem Zielwert liegen. Der feste `preheat_time`-Timer dient als Sicherheits-Ceiling — nach Ablauf wird die Maschine in jedem Fall als bereit markiert, auch ohne erkannte Stabilität. Der Timer wird **nicht** zurückgesetzt bei kurzen Stromunterbrechungen (< 5 Minuten, Temperatur noch über 80 °C). Der Aufwärmstatus wird auch als HA-Sensoren bereitgestellt (`binary_sensor.…preheat_ready`, `sensor.…preheat_elapsed`, `sensor.…preheat_remaining`).
 
+**"Ready by"-Zeitplanung (Backend, ab v2.20.0):** Über `POST /api/preheat/ready-by` lässt sich eine wall-clock Zielzeit setzen, zu der die Maschine thermisch bereit sein soll; der bestehende 30-Sekunden-Preheat-Watcher rechnet ausgehend von `preheat_time` zurück und schaltet `switch_entity` automatisch ein, sobald der berechnete Einschaltzeitpunkt erreicht ist — danach wird das Ziel gelöscht (einmalig). ⚠ Dies ist aktuell nur eine Backend-Fähigkeit — weder in dieser App noch in der HA-Integration oder der Lovelace-Card gibt es bisher eine Oberfläche zum Setzen eines Ziels. Nutzbar wird es erst, sobald der zugehörige HA-Integrationsdienst und die Lovelace-Card-Steuerung in einer späteren Version erscheinen.
+
 ### Import von kaffeebraun.com
 
 Im Bibliothek-Tab auf **🔗 URL** neben „Bohne hinzufügen" klicken, eine Produkt-URL von [kaffeebraun.com](https://kaffeebraun.com) einfügen und auf „Importieren" drücken. Das App lädt die Produktseite serverseitig und befüllt das Bohnen-Formular mit:
