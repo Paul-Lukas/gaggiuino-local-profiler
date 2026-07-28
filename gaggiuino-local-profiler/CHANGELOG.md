@@ -1,3 +1,16 @@
+## [2.20.1] – 2026-07-28
+
+### Fixed
+- **`GET /api/orders/mine` did not verify identity — any authenticated non-admin user could read another household member's order history, including free-text notes, by passing their (non-secret) HA user ID as a query parameter.** The route now prefers the HA-proxy-verified `x-glp-ha-user-id` header, mirroring the precedence `POST /api/orders` already used; the query parameter remains only as a fallback for direct-port mode, where there is no proxy to set the header. Affects installations with the Order feature enabled and more than one HA user. Closes #547
+
+### Changed
+- `DOCS.md`/`DOCS.de.md`: new paragraph in the trust-model section spelling out that port 8099 is open by default — even for Ingress-only users — and that an open port removes the token as a meaningful boundary on the LAN; includes how to close it (Settings → Add-ons → GLP → Configuration → Network). No behavior change; the port default itself is unchanged (see #546, investigated and declined this round — changing it to opt-in would silently break direct-port/PWA access on any install that never touched the Network settings UI, since Home Assistant Supervisor only persists a port override when a user explicitly saves one).
+- `config.yaml`: corrected a stale comment that attributed the `hassio_api` grant to a Supervisor-token verification check on `/api/token` — that check was removed in #534. No functional change.
+
+### Dependencies
+- `express-rate-limit` 8.6.0 → 8.6.1 (patch, no known CVE)
+- `playwright` (dev) 1.61.1 → 1.62.0
+
 ## [2.20.0] – 2026-07-27
 
 ### Added
