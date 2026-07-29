@@ -218,6 +218,7 @@ components:
         shotId:        { type: integer, description: "Last shot ID when order completed — resolved from the order's own machineId (#326), not the global latest shot", nullable: true }
         machine:       { type: string, maxLength: 100, nullable: true, description: "Optional machine name/slug target as supplied by the client (#317/glp-order-card #29)" }
         machineId:     { type: integer, nullable: true, description: "machine's registry id, resolved server-side from `machine` (#326) — always set on orders placed since #326, falls back to the default machine when `machine` is unset/unmatched" }
+        beanId:        { type: integer, nullable: true, description: "Library bean id for stable order-to-bean attribution (#563, glp-order-card #35). Resolved server-side against the library's actual beans — a stale/unknown id becomes null." }
 
     OrdersSettings:
       type: object
@@ -689,6 +690,7 @@ paths:
                 note:     { type: string, maxLength: 200 }
                 haUserId: { type: string, maxLength: 100, description: Overridden by X-GLP-HA-User-ID header if present }
                 machine:  { type: string, maxLength: 100, description: "Optional machine name/slug target (#317/glp-order-card #29). Resolved server-side (#326) into machineId against the machine registry — falls back to the default machine when unset or unmatched." }
+                beanId:   { type: integer, description: "Optional library bean id for stable order-to-bean attribution (#563, glp-order-card #35). Resolved server-side against the library's actual beans — a stale/unknown id becomes null rather than failing order placement." }
       responses:
         "200": { description: Created order, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
         "400": { description: Validation error }

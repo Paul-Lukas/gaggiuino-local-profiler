@@ -69,6 +69,8 @@ Eine kunden-seitige Lovelace-Karte für das Bestellsystem. Kunden wählen ein Ge
 
 Bohnen-Varianten kommen aus der Kaffee-Bibliothek über `/api/orders/active-beans`: Angeboten werden nur Bohnen, die tatsächlich noch vorrätig sind (Rest = Packungsvorrat minus der in Shot-Annotationen erfassten Dosen), und jede Bohne liefert ihre kundengerechte Beschreibung mit (Geschmacksnoten, Herkunft, Aufbereitung), damit die Karte zeigen kann, was den Kaffee ausmacht. Blend-Bohnen liefern ihre vollständigen Mehrfach-Herkunfts-Daten als `origins[]` (`{code, percent?}`) zusätzlich zur bisherigen einzelnen `origin`-Zeichenkette mit, sodass eine Card-Version, die das unterstützt, alle Länder eines Blends anzeigen kann. Eine Bohne kann auch manuell aus der Auswahl ausgeschlossen werden, ohne sie zu löschen oder den Bestand zu ändern — siehe der Auge/Auge-durchgestrichen-Umschalter in der Kaffee-Bibliothek weiter unten.
 
+**Stabile Bestellung-zu-Bohne-Zuordnung (Backend, ab v2.21.0):** `POST /api/orders` akzeptiert jetzt optional `beanId`, serverseitig gegen die tatsächlichen Bohnen der Bibliothek aufgelöst (eine veraltete oder unbekannte ID wird zu `null`, statt die Bestellung fehlschlagen zu lassen), und liefert sie fortan bei der Bestellung zurück (#563). ⚠ Das ist reine Backend-/Datenmodell-Korrektur — weder diese App noch die Order Card zeigen oder bearbeiten `beanId` aktuell in der Oberfläche; die Angabe existiert, damit Bestellungen eine stabile Bohnen-Referenz mitführen, sobald eine künftige Version sie nutzt.
+
 Installation via HACS: [github.com/mxkissnr/glp-order-card](https://github.com/mxkissnr/glp-order-card)
 
 ### API-Token
