@@ -1,5 +1,5 @@
 # Build stage — always runs on host platform (amd64); no QEMU, pure JS tooling
-FROM --platform=$BUILDPLATFORM node:22-slim AS builder
+FROM --platform=$BUILDPLATFORM node:22-slim@sha256:f32b81066cde10a75dbac96646099533316d94bac4150c55da1636e1f0ffdc46 AS builder
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ RUN npm run build
 # QEMU when cross-building), so npm's own os/cpu-scoped optionalDependency
 # resolution and any native compilation naturally target the right arch
 # without a hand-rolled cross-compiler/arch mapping.
-FROM node:22-slim AS prod-deps
+FROM node:22-slim@sha256:f32b81066cde10a75dbac96646099533316d94bac4150c55da1636e1f0ffdc46 AS prod-deps
 ARG TARGETARCH
 
 WORKDIR /app
@@ -39,7 +39,7 @@ RUN if [ "$TARGETARCH" != "amd64" ]; then \
     fi
 
 # Runtime stage — only copies pre-built artifacts; no compilation at all
-FROM node:22-slim
+FROM node:22-slim@sha256:f32b81066cde10a75dbac96646099533316d94bac4150c55da1636e1f0ffdc46
 
 ENV NODE_ENV=production
 
