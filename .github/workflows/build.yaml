@@ -10,12 +10,14 @@ env:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   build:
     name: Build ${{ matrix.arch }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     strategy:
       fail-fast: false
