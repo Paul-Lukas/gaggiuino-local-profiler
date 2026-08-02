@@ -41,7 +41,7 @@ export function switchMode(mode) {
   document.getElementById('library-view').style.display     = mode === 'library'     ? 'flex' : 'none';
   document.getElementById('maintenance-view').style.display = mode === 'maintenance' ? 'flex' : 'none';
   document.getElementById('orders-view').style.display      = mode === 'orders'      ? 'flex' : 'none';
-  document.getElementById('settings-view').style.display    = mode === 'settings'    ? 'flex' : 'none';
+  document.getElementById('settings-view').style.display    = mode === 'settings'    ? 'grid' : 'none';
 
   if (mode === 'live') {
     if (window.populateRefSelector) window.populateRefSelector();
