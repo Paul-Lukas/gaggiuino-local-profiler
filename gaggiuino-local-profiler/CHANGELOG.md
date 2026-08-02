@@ -1,3 +1,9 @@
+## [2.23.1] – 2026-08-02
+
+### Fixed
+- **Bibliothek and Einstellungen still left large unused width after #585.** That fix only switched `.dialin-grid`/`#settings-view` from `auto-fill` to `auto-fit`, but two hardcoded width caps were missed: `#library-view > .lib-page`'s `max-width:780px` capped the whole library page (not just the card grid), and `#settings-view`'s `minmax(340px,520px)` capped each settings card at 520px regardless of available space. Raised the library page cap to 1400px, switched `.bean-cards` to `auto-fit` for consistency, and changed the settings grid to `minmax(340px,1fr)` so cards actually stretch to fill the window. Closes #589
+- **Machine power on/off icon in the mobile sidebar footer wasn't visibly rendering.** `#powerBtn` used the Unicode character `⏻` (U+23FB) directly, which several mobile browser/system fonts don't ship a glyph for — worked fine on desktop, showed as an empty pill on mobile. Replaced with an inline SVG icon (same `.rail-icon` pattern used everywhere else in the app), which inherits the existing green/gray on/off coloring via `currentColor`. Closes #590
+
 ## [2.23.0] – 2026-08-02
 
 ### Changed
