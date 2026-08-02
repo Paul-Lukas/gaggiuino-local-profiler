@@ -194,7 +194,7 @@ The editor covers a profile's name, water temperature, recipe (dose/yield/ratio)
 
 **Bean-based suggestions** reuse a fixed 4-phase skeleton (adaptive preinfusion → bloom rest → linear pressure ramp → declining-flow finish) rather than inventing a different structure per bean — only the parameters vary: decaf and natural-process beans (more porous, easier to channel) get a longer, gentler preinfusion, a lower ramp pressure and a lower brew temperature; washed beans get a shorter preinfusion and standard espresso pressure.
 
-"Send to machine" asks for confirmation, then creates or updates the profile directly on the Gaggiuino controller over its WebSocket API (the machine has no REST endpoint for writing profiles) — a failed send surfaces an error toast rather than failing silently.
+"Send to machine" asks for confirmation, then creates or updates the profile directly on the Gaggiuino controller — new profiles are created over REST on firmware that supports it (falling back to the WebSocket API on older firmware), while updates and deletes always go over the WebSocket API (the machine has no REST endpoint for either) — a failed send surfaces an error toast rather than failing silently.
 
 ### Guided Dial-In wizard
 
