@@ -4,16 +4,19 @@
 // live against a real machine: GetProfileDict, GetProfileById, CreateNewProfile,
 // UpdateProfile and DeleteProfile were all round-tripped successfully.
 //
-// The machine has no plain-REST endpoint for writing profiles — creating,
-// updating or deleting a profile only works over this binary WebSocket
-// protocol (`ws://<host>/ws`). Reads (GET /api/profiles/all, the list) exist
-// as REST and are used elsewhere in this app (routes/system.js). Profile
+// Updating or deleting a profile only works over this binary WebSocket
+// protocol (`ws://<host>/ws`) — no REST equivalent exists for either
+// (live-verified, #580). Reads (GET /api/profiles/all, the list) exist as
+// REST and are used elsewhere in this app (routes/system.js). Profile
 // *detail* also gained a REST read on newer firmware (build 7889b7d+,
 // GET /api/profile/:id, same JSON shape as ProfileDto below) — GLP tries
 // that first and falls back to this module's getProfileById on older
-// firmware (see lib/machines/gaggiuino/adapter.js's getProfile()). This
-// module remains required for the write path (create/update/delete) on
-// every firmware version, and as the detail-read fallback.
+// firmware (see lib/machines/gaggiuino/adapter.js's getProfile()). Newer
+// firmware also gained a REST *create* (POST /api/profile, create-only —
+// an `id` in the body is ignored, always minting a new one, #580), tried
+// first by this module's createProfile() equivalent in the adapter. This
+// module remains required for update/delete on every firmware version, and
+// as the create/detail-read fallback for older firmware.
 const { MessageType } = require('@protobuf-ts/runtime');
 
 // ── Enums ──

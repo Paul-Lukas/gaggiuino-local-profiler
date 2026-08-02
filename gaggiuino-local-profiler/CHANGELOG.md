@@ -1,4 +1,7 @@
-## [2.22.1] – 2026-08-02
+## [2.23.0] – 2026-08-02
+
+### Changed
+- **Profile create now tries the machine's `POST /api/profile` REST endpoint first, falling back to the existing WebSocket path.** Live-verified against a real machine (build 7889b7d+, #580) before writing any code: the endpoint is create-only — sending an `id` in the body is silently ignored and a fresh id is always minted, duplicate names are accepted without conflict, and a malformed/incomplete body gets a `422` with a plain-text error (e.g. "Profile needs a name and at least one phase"). Since there's no REST update or delete equivalent, `updateProfile`/`deleteProfile` stay WebSocket-only unchanged. Cheaper than a full WS handshake on firmware that has it; older firmware (404 there) keeps working exactly as before via the WebSocket fallback. Closes #580
 
 ### Fixed
 - **Guided dial-in shot count reset to 5 on every reload instead of remembering the last-picked value.** The `#dialinCount` select only lived in the DOM with a hardcoded `selected="5"` default; `renderDialin()` read it straight from the DOM with no persistence layer. Now persisted to `localStorage` (same pattern as theme/accent) and restored on every render. Closes #584

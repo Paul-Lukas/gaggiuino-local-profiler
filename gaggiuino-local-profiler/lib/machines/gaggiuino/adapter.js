@@ -79,9 +79,29 @@ async function getProfile(machine, id) {
 }
 
 async function createProfile(machine, profile) {
-    return gaggiuinoWs.createProfile(await baseUrlFor(machine), profile);
+    const baseUrl = await baseUrlFor(machine);
+    // Newer firmware (build 7889b7d+) exposes POST /api/profile as REST
+    // create — live-verified (#580) against a real machine: the endpoint is
+    // create-only (an `id` in the body is silently ignored, always minting a
+    // fresh id — duplicate names are accepted too, no conflict check), so
+    // this is the REST equivalent of createProfile only; updateProfile and
+    // deleteProfile below stay WebSocket-only since there is no verified
+    // REST path for either. Mirrors getProfile()'s try-REST-first,
+    // fall-back-to-WS pattern: cheaper than a WS handshake on firmware that
+    // has it, and the WS path is the known-working baseline for a 404 on
+    // older firmware or any other transient failure.
+    try {
+        const r = await axios.post(`${baseUrl}/api/profile`, profile, { timeout: 5000 });
+        return { id: r.data.id, name: r.data.name };
+    } catch {
+        return gaggiuinoWs.createProfile(baseUrl, profile);
+    }
 }
 
+// WebSocket-only, unchanged by #580: the machine's only REST profile-write
+// endpoint (POST /api/profile) is create-only (see createProfile() above) —
+// live-verified there is no REST update/delete equivalent, so these keep
+// using the known-working WS path rather than guessing at one.
 async function updateProfile(machine, profile) {
     return gaggiuinoWs.updateProfile(await baseUrlFor(machine), profile);
 }

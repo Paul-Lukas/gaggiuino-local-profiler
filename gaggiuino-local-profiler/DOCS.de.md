@@ -194,7 +194,7 @@ Der Editor deckt Name, Wassertemperatur, Rezept (Dosis/Ausbeute/Ratio) und die P
 
 **Bohnen-basierte Vorschläge** nutzen ein festes 4-Phasen-Skelett (adaptive Preinfusion → Bloom-Pause → lineare Druckrampe → Declining-Flow-Finish) statt für jede Bohne eine andere Struktur zu erfinden — nur die Parameter variieren: Decaf- und Natural-Process-Bohnen (poröser, kanalisieren leichter) bekommen eine längere, sanftere Preinfusion, einen niedrigeren Rampen-Zieldruck und eine niedrigere Brühtemperatur; gewaschene Bohnen bekommen eine kürzere Preinfusion und den Standard-Espresso-Druck.
 
-„An Maschine senden" fragt vorher um Bestätigung, dann wird das Profil direkt auf dem Gaggiuino-Controller über dessen WebSocket-API erstellt oder geändert (die Maschine hat keinen REST-Endpunkt zum Schreiben von Profilen) — ein fehlgeschlagenes Senden zeigt eine Fehlermeldung statt still zu scheitern.
+„An Maschine senden" fragt vorher um Bestätigung, dann wird das Profil direkt auf dem Gaggiuino-Controller erstellt oder geändert — neue Profile werden auf Firmware mit entsprechender Unterstützung über REST angelegt (mit Fallback auf die WebSocket-API bei älterer Firmware), Änderungen und Löschungen laufen immer über die WebSocket-API (dafür gibt es keinen REST-Endpunkt) — ein fehlgeschlagenes Senden zeigt eine Fehlermeldung statt still zu scheitern.
 
 ### Geführter Einwähl-Assistent
 
