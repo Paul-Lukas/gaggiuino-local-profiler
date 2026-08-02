@@ -233,6 +233,7 @@ export default {
     maint_gaskets:'Gaskets & Screens', maint_waterfilter:'Water Filter',
     maint_due:'Due', maint_soon:'Due soon', maint_never:'Never done',
     maint_never_done:'Never done', maint_today:'Today',
+    maint_auto_synced:'Auto', maint_auto_synced_hint:'Automatically detected from the machine',
     maint_ago_days:(n)=>`${n} day${n===1?'':'s'} ago`,
     maint_shots_since:(n)=>`${n} shot${n===1?'':'s'} since last`,
     maint_thresh_shots:'Threshold shots', maint_thresh_days:'Threshold days',

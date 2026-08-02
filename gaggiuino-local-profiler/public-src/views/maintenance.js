@@ -234,6 +234,7 @@ function _buildMaintMiniTile(tile) {
     <div class="n">
       ${machineTagText ? `<span class="shot-machine-badge">${esc(machineTagText)}</span>` : ''}
       <span class="num">${esc(countText)}</span>
+      ${d.machineSyncedAt ? `<span class="maint-auto-synced" title="${esc(t('maint_auto_synced_hint'))}">${esc(t('maint_auto_synced'))}</span>` : ''}
     </div>
     <button class="maint-detail-toggle" type="button" data-action="toggle-maint-detail">${esc(t('maint_tile_details'))}</button>
     <div class="detail">

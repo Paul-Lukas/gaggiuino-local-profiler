@@ -135,6 +135,23 @@ describe('computeBeanRemaining beanId-first matching (#456 regression)', () => {
         const bean = lib.beans[0];
         expect(libraryService.computeBeanRemaining(bean, shotRepo.getAnnotatedDoses(), lib.beans)).toBe(232);
     });
+
+    it('a shot pulled before the bean/bag existed still deducts stock once retroactively assigned', () => {
+        // Shot pulled first...
+        shotRepo.upsertMany([{ id: 1, timestamp: 1000, duration: 250 }]);
+        // ...bean (and its only bag) only added to the library afterwards.
+        libraryService.saveLibrary({ beans: [
+            { id: 1, name: 'Lasso Lassi', stock_g: 250, bags: [{ id: 1, openedAt: 5000 * 1000, stock_g: 250 }] },
+        ], grinders: [], recipes: [] });
+        // ...then the shot is retroactively assigned to that bean.
+        shotRepo.saveAnnotation(1, { coffee: 'Lasso Lassi', beanId: 1, dose: '18' });
+
+        const lib  = libraryService.getLibrary();
+        const bean = lib.beans[0];
+        // The dose predates the only bag on record — it must still count
+        // against that bag's stock, not be silently dropped (reported bug).
+        expect(libraryService.computeBeanRemaining(bean, shotRepo.getAnnotatedDoses(), lib.beans)).toBe(232);
+    });
 });
 
 describe('ShotService.computeScore uses resolveBeanForAnnotation (#456)', () => {

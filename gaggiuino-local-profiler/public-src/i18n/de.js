@@ -223,6 +223,7 @@ export default {
     maint_gaskets:'Dichtungen & Siebe', maint_waterfilter:'Wasserfilter',
     maint_due:'Fällig', maint_soon:'Bald fällig', maint_never:'Nie erledigt',
     maint_never_done:'Noch nie erledigt', maint_today:'Heute',
+    maint_auto_synced:'Auto', maint_auto_synced_hint:'Automatisch von der Maschine erkannt',
     maint_ago_days:(n)=>`Vor ${n} Tag${n===1?'':'en'}`,
     maint_shots_since:(n)=>`${n} Shot${n===1?'':'s'} seit letztem`,
     maint_thresh_shots:'Grenze Shots', maint_thresh_days:'Grenze Tage',

@@ -3,7 +3,7 @@ if (typeof File === 'undefined') {
     try { global.File = require('buffer').File; } catch { global.File = class File {}; }
 }
 
-const GLP_VERSION  = '2.21.0';
+const GLP_VERSION  = '2.22.0';
 const DEFAULT_PORT = 8099;
 
 const DATA_DIR             = '/data';
@@ -60,9 +60,13 @@ const DEFAULT_MENU = [
     { id: 'flat_white', name: 'Flat White',       emoji: '🥛' },
 ];
 
+// machineSyncedAt (descaling/backflush only): the raw machine-reported Unix
+// timestamp last applied by lib/maintenance-sync.js's auto-sync, kept apart
+// from lastDate so a manual "done" click (which sets lastDate alone) is
+// never mistaken for an already-applied machine event.
 const MAINTENANCE_DEFAULTS = {
-    descaling:   { lastDate: null, threshold_shots: 200, threshold_days: 60  },
-    backflush:   { lastDate: null, threshold_shots: 20,  threshold_days: null },
+    descaling:   { lastDate: null, threshold_shots: 200, threshold_days: 60,  machineSyncedAt: null },
+    backflush:   { lastDate: null, threshold_shots: 20,  threshold_days: null, machineSyncedAt: null },
     grouphead:   { lastDate: null, threshold_shots: null, threshold_days: 180 },
     gaskets:     { lastDate: null, threshold_shots: null, threshold_days: 365 },
     waterfilter: { lastDate: null, threshold_shots: null, threshold_days: 90  },

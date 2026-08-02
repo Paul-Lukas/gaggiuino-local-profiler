@@ -6,6 +6,8 @@ const { MAINTENANCE_DEFAULTS, isGlobalMaintenanceTask } = require('../constants'
 const GLOBAL_MAINTENANCE_MACHINE_ID = 1;
 
 class LibraryRepository {
+    _lastLogId = 0;
+
     getLibrary() {
         const db  = getDb();
         const row = db.prepare("SELECT data FROM library WHERE key = 'main'").get();
@@ -86,8 +88,16 @@ class LibraryRepository {
 
     addMaintenanceLogEntry(task, notes, machine, shotCount, machineId = 1) {
         const db    = getDb();
+        // #578: Date.now() alone collides when this is called more than once
+        // in the same millisecond — never happened with the previous sole
+        // caller (one HTTP request at a time), but lib/maintenance-sync.js's
+        // multi-machine/multi-task sync loop can legitimately do exactly
+        // that. _lastLogId keeps ids monotonic even across a same-ms burst,
+        // without changing the column type or existing entries' meaning.
+        const id = Math.max(Date.now(), this._lastLogId + 1);
+        this._lastLogId = id;
         const entry = {
-            id:      Date.now(),
+            id,
             ts:      Math.floor(Date.now() / 1000),
             date:    new Date().toISOString().split('T')[0],
             task,

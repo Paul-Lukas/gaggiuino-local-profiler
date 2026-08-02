@@ -37,14 +37,33 @@ export function sumConsumedDoses(bean, doseRows, allBeans, sinceMs = 0) {
 }
 
 // Remaining grams for a stock-tracked bean — consumed = sum of annotated
-// doses of shots matching this bean since the active bag was opened;
-// without bags, all matching shots count. Returns null when stock is
-// untracked (mirrors the backend's `bean.stock_g > 0` guard).
+// doses of shots matching this bean and belonging to the active bag; without
+// bags, all matching shots count. Returns null when stock is untracked
+// (mirrors the backend's `bean.stock_g > 0` guard).
 export function computeBeanRemaining(bean, doseRows, allBeans) {
   if (!(bean.stock_g > 0)) return null;
   const bags      = Array.isArray(bean.bags) ? bean.bags : [];
   const activeBag = bags.length ? bags[bags.length - 1] : null;
-  const openedAt  = activeBag?.openedAt || 0;
-  const consumed  = sumConsumedDoses(bean, doseRows, allBeans, activeBag ? openedAt : 0);
+  const idExists  = new Set((allBeans || []).map(b => b.id));
+  const consumed  = (doseRows || []).reduce((sum, r) => {
+    const d = parseFloat(r.dose);
+    if (!d) return sum;
+    if (!matchesBean(r, bean, idExists)) return sum;
+    if (activeBag) {
+      // Which bag was active when this shot was pulled — same "bag active
+      // at shot time" resolution used for roast-date/frozen-portion lookups
+      // (shots/utils.js, annotation.js). A dose that predates every
+      // recorded bag (bean/bag added to the library only after the shot was
+      // already pulled, then assigned to it retroactively) still belongs to
+      // the oldest bag on record — there was nothing else it could have
+      // come from, so it must not be silently dropped from the sum.
+      const shotMs = r.timestamp * 1000;
+      const bagAtShotTime = bags
+        .filter(b => (b.openedAt || 0) <= shotMs)
+        .sort((a, b) => b.openedAt - a.openedAt)[0] || bags[0];
+      if (bagAtShotTime !== activeBag) return sum;
+    }
+    return sum + d;
+  }, 0);
   return Math.round(bean.stock_g - Math.round(consumed));
 }

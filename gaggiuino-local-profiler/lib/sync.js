@@ -7,6 +7,7 @@ const state      = require('./state');
 const { getMachineRuntimeState } = require('./machine-runtime-state');
 const registry   = require('./machines/registry');
 const { getAdapter, toGlobalShotId, toNativeShotId } = require('./machines');
+const { syncNativeMaintenance } = require('./maintenance-sync');
 
 // #549: same single-default-machine assumption as lib/poll.js/lib/preheat.js.
 const defaultRuntime = getMachineRuntimeState();
@@ -158,6 +159,11 @@ async function syncAllMachines() {
     const ok = await syncShots();
     try { await syncOtherMachines(); }
     catch (err) { log(`Multi-machine sync failed: ${err.message}`, true); }
+    // #578: native descale/backflush "Service Log" sync, every enabled
+    // machine (including the default one) — independent of shot syncing
+    // above, so a failure here never affects shot-sync's ok/retry result.
+    try { await syncNativeMaintenance(); }
+    catch (err) { log(`Native maintenance sync failed: ${err.message}`, true); }
     return ok;
 }
 

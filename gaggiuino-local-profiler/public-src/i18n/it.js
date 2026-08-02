@@ -233,6 +233,7 @@ export default {
     maint_gaskets:'Guarnizioni & Filtri', maint_waterfilter:'Filtro acqua',
     maint_due:'Scaduto', maint_soon:'In scadenza', maint_never:'Mai fatto',
     maint_never_done:'Mai fatto', maint_today:'Oggi',
+    maint_auto_synced:'Auto', maint_auto_synced_hint:'Rilevato automaticamente dalla macchina',
     maint_ago_days:(n)=>`${n} giorno${n===1?'':'i'} fa`,
     maint_shots_since:(n)=>`${n} shot dall'ultimo`,
     maint_thresh_shots:'Soglia shots', maint_thresh_days:'Soglia giorni',

@@ -1,3 +1,18 @@
+## [2.22.0] – 2026-08-02
+
+### Added
+- **Auto-sync descaling/backflush maintenance status from newer firmware's native Service Log.** Gaggiuino firmware build 7889b7d+ exposes `GET /api/maintenance` on the machine itself (`lastDescaleTimestamp`/`lastBackflushTimestamp`). GLP now checks this every sync cycle (per configured/enabled machine, properly multi-machine scoped) and, when the machine reports a newer descale/backflush event than last seen, automatically marks GLP's own task done for that machine — backdated to the machine's real timestamp, with a maintenance-log entry noting it was auto-synced, and a small "Auto" tag on the maintenance tile so the status change is never silent. Older firmware without this endpoint is unaffected. Closes #578
+
+### Changed
+- **Profile detail read now tries the new `GET /api/profile/:id` REST endpoint first, falling back to the existing WebSocket path.** Same firmware build adds this as a plain REST read (same JSON shape GLP already decodes from the WebSocket path) — cheaper than a full WS handshake for updated firmware, while older firmware (which 404s there) keeps working exactly as before via the WebSocket fallback. Closes #577
+- Fixed a latent id-collision bug in `addMaintenanceLogEntry()` (`Date.now()`-only ids could collide when called more than once in the same millisecond) — surfaced by the new multi-machine auto-sync above, which is the first caller that can legitimately do that.
+
+## [2.21.1] – 2026-08-02
+
+### Fixed
+- **Bean stock was not deducted when a shot was retroactively assigned to a bean added after the shot was pulled.** `computeBeanRemaining()`/`sumConsumedDoses()` (`lib/services/LibraryService.js`, `public-src/bean-math.js`) scoped consumption to doses at/after the *current* bag's `openedAt`, so a dose whose shot predated the bag's creation was silently excluded from the consumed sum even once correctly annotated with the bean's `beanId`. Now resolves, per dose row, which bag was active at that dose's own shot timestamp (same pattern already used by `calcBeanAgeAtShot`/`_activeFrozenPortionsForBean`), falling back to the oldest bag on record for doses that predate every bag. Closes #576
+- **Frozen-portion badge and import-source text overflowed the bean card on narrow (mobile) viewports.** `.lib-frozen-badge` was a non-wrapping flex row (freeze-date text + thaw/edit buttons); `.lib-item-source` and `.flavor-chip` had no overflow handling for long text. Closes #575
+
 ## [2.21.0] – 2026-07-29
 
 ### Added

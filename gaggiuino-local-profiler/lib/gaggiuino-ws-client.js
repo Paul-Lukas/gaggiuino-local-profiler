@@ -1,7 +1,11 @@
 // WebSocket client for the Gaggiuino machine's binary protobuf protocol
 // (see lib/gaggiuino-proto.js for the message schema and where it came
 // from). The machine has no REST endpoint for writing profiles — only this
-// WebSocket channel supports create/update/delete.
+// WebSocket channel supports create/update/delete. Newer firmware (build
+// 7889b7d+) adds a REST GET /api/profile/:id for detail reads, so
+// getProfileById here is now a fallback for that (used when the REST call
+// fails, e.g. older firmware) rather than the only read path — see
+// lib/machines/gaggiuino/adapter.js's getProfile().
 //
 // Each exported function opens its own short-lived connection, sends one
 // request, waits for the matching push-response action, then closes — the

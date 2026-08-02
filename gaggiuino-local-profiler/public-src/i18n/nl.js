@@ -233,6 +233,7 @@ export default {
     maint_gaskets:'Pakkingen & Zeven', maint_waterfilter:'Waterfilter',
     maint_due:'Vervallen', maint_soon:'Bijna vervallen', maint_never:'Nooit gedaan',
     maint_never_done:'Nooit gedaan', maint_today:'Vandaag',
+    maint_auto_synced:'Auto', maint_auto_synced_hint:'Automatisch gedetecteerd door de machine',
     maint_ago_days:(n)=>`${n} dag${n===1?'':'en'} geleden`,
     maint_shots_since:(n)=>`${n} shot${n===1?'':'s'} sinds laatste`,
     maint_thresh_shots:'Shot limiet', maint_thresh_days:'Dag limiet',
