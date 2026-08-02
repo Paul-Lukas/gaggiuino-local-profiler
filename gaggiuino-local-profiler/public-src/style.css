@@ -304,6 +304,9 @@
             font-size: .85rem;
             font-family: 'Figtree', sans-serif;
             transition: all .2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         #powerBtn:hover          { background: var(--gray-800); color: #fff; }
         #powerBtn:disabled       { opacity: .4; cursor: not-allowed; }
@@ -537,7 +540,7 @@
         }
 
         /* Bean cards */
-        .bean-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 10px; }
+        .bean-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 10px; }
         .bean-card {
             background: var(--gray-800); border: 1px solid var(--gray-700);
             border-radius:var(--radius); padding: 12px;
@@ -555,7 +558,7 @@
         }
 
         /* ── Settings view ── */
-        #settings-view { display:none; grid-template-columns:repeat(auto-fit,minmax(340px,520px)); align-content:start; flex:1; min-width:0; min-height:0; overflow-x:hidden; overflow-y:auto; padding:24px; gap:16px; }
+        #settings-view { display:none; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); align-content:start; flex:1; min-width:0; min-height:0; overflow-x:hidden; overflow-y:auto; padding:24px; gap:16px; }
         .settings-card { background:var(--gray-900); border:1px solid var(--gray-700); border-radius:var(--radius); padding:20px; display:flex; flex-direction:column; gap:12px; }
         .settings-card-title { margin:0; font-size:.95rem; font-weight:600; color:var(--gray-200); }
         .settings-card-desc { margin:0; font-size:.8rem; color:var(--gray-500); line-height:1.5; }
@@ -837,7 +840,7 @@
         .lib-open-btn { background: none; border: 1px solid var(--gray-700); border-radius:var(--radius); color: var(--gray-400); font-size: .75rem; padding: 3px 8px; cursor: pointer; transition: border-color .15s, color .15s; }
         .lib-open-btn:hover { border-color: var(--gray-500); color: var(--gray-200); }
         #library-view { display: none; flex-direction: column; flex: 1; overflow-y: auto; padding: 24px; }
-        #library-view > .lib-page { max-width: 780px; width: 100%; }
+        #library-view > .lib-page { max-width: 1400px; width: 100%; }
         .lib-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
         .lib-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--gray-500); font-size: .8rem; font-weight: 500; padding: 6px 12px; cursor: pointer; transition: color .15s; }
         .lib-tab { position: relative; }
