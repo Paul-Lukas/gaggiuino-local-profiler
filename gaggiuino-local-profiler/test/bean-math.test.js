@@ -42,6 +42,12 @@ describe('computeBeanRemaining (#551, ported from #456 regression)', () => {
         expect(computeBeanRemaining(bean, doseRows, [bean])).toBe(250 - 18);
     });
 
+    it('a dose that predates the only recorded bag still counts against it (retroactive bean/shot assignment)', () => {
+        const bean = { id: 1, name: 'Lasso Lassi', stock_g: 250, bags: [{ id: 1, openedAt: 5000 * 1000 }] };
+        const doseRows = [{ coffee: 'Lasso Lassi', beanId: 1, dose: '18', timestamp: 1000 }];
+        expect(computeBeanRemaining(bean, doseRows, [bean])).toBe(250 - 18);
+    });
+
     it('returns null for beans without stock tracking', () => {
         const bean = { id: 1, name: 'Untracked' };
         expect(computeBeanRemaining(bean, [], [bean])).toBeNull();

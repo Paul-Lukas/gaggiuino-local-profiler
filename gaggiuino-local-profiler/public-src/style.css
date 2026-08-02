@@ -884,7 +884,7 @@
            blue-ish to read distinctly as "on ice" rather than a freshness state. */
         .lib-frozen-row { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
         .lib-frozen-badge {
-            display: inline-flex; align-items: center; gap: 4px;
+            display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px;
             background: rgba(56,189,248,.1); border: 1px solid rgba(56,189,248,.3); color: #38bdf8;
             border-radius: var(--radius); padding: 1px 5px; font-size: .65rem; font-weight: 600;
         }
@@ -903,7 +903,7 @@
         .lib-form-hint { font-size: .68rem; color: var(--gray-500); margin-top: 2px; }
         .flavor-chips-wrap { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; background: var(--gray-900); border: 1px solid var(--gray-700); border-radius:var(--radius); padding: 5px 8px; }
         .flavor-chips-wrap input { background: transparent; border: none; outline: none; color: var(--gray-200); font-size: .82rem; flex: 1; min-width: 110px; padding: 3px 0; }
-        .flavor-chip { display: inline-flex; align-items: center; gap: 4px; background: rgba(168,85,247,.12); border: 1px solid rgba(168,85,247,.3); color: #c084fc; border-radius:var(--radius); padding: 2px 7px; font-size: .72rem; font-weight: 600; }
+        .flavor-chip { display: inline-flex; align-items: center; gap: 4px; background: rgba(168,85,247,.12); border: 1px solid rgba(168,85,247,.3); color: #c084fc; border-radius:var(--radius); padding: 2px 7px; font-size: .72rem; font-weight: 600; overflow-wrap: break-word; max-width: 100%; }
         .flavor-chip-x { background: none; border: none; color: inherit; cursor: pointer; font-size: .68rem; padding: 0; opacity: .7; }
         .flavor-chip-x:hover { opacity: 1; }
         /* #404: read-only display pills (bean cards) go quiet-outline
@@ -988,7 +988,7 @@
         .lib-url-input:focus { border-color:var(--gray-500); }
         .lib-url-btn { background:none; border:1px solid var(--gray-700); border-radius:var(--radius); color:var(--gray-500); font-size:.78rem; padding:7px 12px; cursor:pointer; white-space:nowrap; transition:border-color .15s,color .15s; }
         .lib-url-btn:hover { border-color:var(--gray-500); color:var(--gray-200); }
-        .lib-item-source { font-size:.65rem; color:var(--gray-600); margin-top:3px; }
+        .lib-item-source { font-size:.65rem; color:var(--gray-600); margin-top:3px; overflow-wrap: break-word; word-break: break-word; }
         .lib-variant-picker { margin-top:6px; background:var(--gray-900); border:1px solid var(--gray-700); border-radius:var(--radius); padding:10px 12px; }
         .lib-variant-picker-label { font-size:.78rem; color:var(--gray-300); margin-bottom:6px; }
         .lib-variant-picker-option { display:flex; align-items:center; gap:6px; font-size:.78rem; color:var(--gray-200); padding:4px 0; cursor:pointer; }

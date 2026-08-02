@@ -1,3 +1,9 @@
+## [2.21.1] – 2026-08-02
+
+### Fixed
+- **Bean stock was not deducted when a shot was retroactively assigned to a bean added after the shot was pulled.** `computeBeanRemaining()`/`sumConsumedDoses()` (`lib/services/LibraryService.js`, `public-src/bean-math.js`) scoped consumption to doses at/after the *current* bag's `openedAt`, so a dose whose shot predated the bag's creation was silently excluded from the consumed sum even once correctly annotated with the bean's `beanId`. Now resolves, per dose row, which bag was active at that dose's own shot timestamp (same pattern already used by `calcBeanAgeAtShot`/`_activeFrozenPortionsForBean`), falling back to the oldest bag on record for doses that predate every bag. Closes #576
+- **Frozen-portion badge and import-source text overflowed the bean card on narrow (mobile) viewports.** `.lib-frozen-badge` was a non-wrapping flex row (freeze-date text + thaw/edit buttons); `.lib-item-source` and `.flavor-chip` had no overflow handling for long text. Closes #575
+
 ## [2.21.0] – 2026-07-29
 
 ### Added

@@ -41,7 +41,6 @@ class LibraryService {
         if (!(bean.stock_g > 0)) return null;
         const bags      = Array.isArray(bean.bags) ? bean.bags : [];
         const activeBag = bags.length ? bags[bags.length - 1] : null;
-        const openedAt  = activeBag?.openedAt || 0;
         const name      = String(bean.name || '').toLowerCase();
         const idExists  = new Set((allBeans || []).map(b => b.id));
         const consumed  = doseRows.reduce((sum, r) => {
@@ -51,7 +50,21 @@ class LibraryService {
                 ? r.beanId === bean.id
                 : String(r.coffee || '').toLowerCase() === name;
             if (!matches) return sum;
-            if (activeBag && r.timestamp * 1000 < openedAt) return sum;
+            if (activeBag) {
+                // Which bag was active when this shot was pulled — same
+                // "bag active at shot time" resolution used for roast-date/
+                // frozen-portion lookups (shots/utils.js, annotation.js). A
+                // dose that predates every recorded bag (bean/bag added to
+                // the library only after the shot was already pulled, then
+                // assigned to it retroactively) still belongs to the oldest
+                // bag on record — there was nothing else it could have come
+                // from, so it must not be silently dropped from the sum.
+                const shotMs = r.timestamp * 1000;
+                const bagAtShotTime = bags
+                    .filter(b => (b.openedAt || 0) <= shotMs)
+                    .sort((a, b) => b.openedAt - a.openedAt)[0] || bags[0];
+                if (bagAtShotTime !== activeBag) return sum;
+            }
             return sum + d;
         }, 0);
         return Math.round(bean.stock_g - Math.round(consumed));
