@@ -655,7 +655,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('trendBtn30').addEventListener('click', () => setTrendWindow(30));
   document.getElementById('trendBtn90').addEventListener('click', () => setTrendWindow(90));
   document.getElementById('trendBtnAll').addEventListener('click', () => setTrendWindow(0));
-  document.getElementById('dialinCount').addEventListener('change', renderDialin);
+  document.getElementById('dialinCount').addEventListener('change', e => {
+    localStorage.setItem('glp_dialin_count', e.target.value);
+    renderDialin();
+  });
   document.querySelectorAll('.theme-btn').forEach(btn => {
     // eslint-disable-next-line no-undef -- setTheme is assigned onto window above (Object.assign), resolves as a global at runtime
     btn.addEventListener('click', () => setTheme(btn.dataset.themeVal));

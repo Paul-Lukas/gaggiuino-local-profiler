@@ -4,7 +4,11 @@ import { LOCALE_MAP } from '../constants.js';
 import { esc, scoreColor } from '../utils.js';
 
 export function renderDialin() {
-  const n    = parseInt(document.getElementById('dialinCount')?.value || 5);
+  const select = document.getElementById('dialinCount');
+  const saved  = localStorage.getItem('glp_dialin_count');
+  if (select && saved && select.value !== saved) select.value = saved;
+
+  const n    = parseInt(select?.value || 5);
   const grid = document.getElementById('dialinGrid');
   if (!grid) return;
 
