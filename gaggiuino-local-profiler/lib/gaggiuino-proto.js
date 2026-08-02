@@ -6,10 +6,14 @@
 //
 // The machine has no plain-REST endpoint for writing profiles — creating,
 // updating or deleting a profile only works over this binary WebSocket
-// protocol (`ws://<host>/ws`). Reads (GET /api/profiles/all) exist as REST
-// and are used elsewhere in this app (routes/system.js); this module is only
-// needed for the write path (and profile *detail*, which also has no REST
-// equivalent).
+// protocol (`ws://<host>/ws`). Reads (GET /api/profiles/all, the list) exist
+// as REST and are used elsewhere in this app (routes/system.js). Profile
+// *detail* also gained a REST read on newer firmware (build 7889b7d+,
+// GET /api/profile/:id, same JSON shape as ProfileDto below) — GLP tries
+// that first and falls back to this module's getProfileById on older
+// firmware (see lib/machines/gaggiuino/adapter.js's getProfile()). This
+// module remains required for the write path (create/update/delete) on
+// every firmware version, and as the detail-read fallback.
 const { MessageType } = require('@protobuf-ts/runtime');
 
 // ── Enums ──

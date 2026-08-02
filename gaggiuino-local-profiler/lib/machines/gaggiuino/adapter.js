@@ -63,7 +63,19 @@ async function listProfiles(machine) {
 }
 
 async function getProfile(machine, id) {
-    return gaggiuinoWs.getProfileById(await baseUrlFor(machine), parseInt(id));
+    const baseUrl = await baseUrlFor(machine);
+    // Newer firmware (build 7889b7d+) exposes profile detail as plain REST,
+    // same JSON shape the WS path already decodes into (phases with string
+    // type/curve enums) — try that first since it's cheaper (one HTTP
+    // request vs a WS handshake), and fall back to the WebSocket path for
+    // older firmware (404) or any other transient failure, which is the
+    // known-working baseline for every firmware version.
+    try {
+        const r = await axios.get(`${baseUrl}/api/profile/${id}`, { timeout: 5000 });
+        return r.data;
+    } catch {
+        return gaggiuinoWs.getProfileById(baseUrl, parseInt(id));
+    }
 }
 
 async function createProfile(machine, profile) {
