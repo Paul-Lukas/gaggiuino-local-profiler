@@ -96,11 +96,22 @@ async function selectProfile(machine, id) {
     return { ok: true };
 }
 
+// Newer firmware (build 7889b7d+)'s own descale/backflush "Service Log" —
+// a separate accounting system from GLP's own maintenance tracking (see
+// lib/maintenance-sync.js), never called getMaintenance to avoid confusion
+// with LibraryService.getMaintenance(), which is a wholly different thing.
+async function getNativeMaintenanceLog(machine) {
+    const baseUrl = await baseUrlFor(machine);
+    const r = await axios.get(`${baseUrl}/api/maintenance`, { timeout: 5000 });
+    return r.data;
+}
+
 function capabilities() {
-    return { profileEdit: true, brewStart: false, preheat: true, volumetric: true, history: true };
+    return { profileEdit: true, brewStart: false, preheat: true, volumetric: true, history: true, nativeMaintenanceLog: true };
 }
 
 module.exports = {
     baseUrlFor, getStatus, getLatestShotId, getShot, listProfiles, getProfile,
     createProfile, updateProfile, deleteProfile, selectProfile, capabilities,
+    getNativeMaintenanceLog,
 };

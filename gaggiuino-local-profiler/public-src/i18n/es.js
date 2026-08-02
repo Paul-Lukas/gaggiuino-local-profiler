@@ -233,6 +233,7 @@ export default {
     maint_gaskets:'Juntas & Filtros', maint_waterfilter:'Filtro agua',
     maint_due:'Vencido', maint_soon:'Por vencer', maint_never:'Nunca hecho',
     maint_never_done:'Nunca hecho', maint_today:'Hoy',
+    maint_auto_synced:'Auto', maint_auto_synced_hint:'Detectado automáticamente por la máquina',
     maint_ago_days:(n)=>`Hace ${n} día${n===1?'':'s'}`,
     maint_shots_since:(n)=>`${n} shot${n===1?'':'s'} desde último`,
     maint_thresh_shots:'Límite shots', maint_thresh_days:'Límite días',

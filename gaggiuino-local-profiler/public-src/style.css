@@ -410,6 +410,13 @@
             display: inline-block; font-size: .68rem; color: var(--gray-500); background: var(--gray-800);
             border-radius:var(--radius); padding: 1px 6px; margin-left: 6px; vertical-align: middle;
         }
+        /* #578: small tag on a maintenance mini-tile whose last "done" came
+           from the machine's own native Service Log, not a manual click. */
+        .maint-auto-synced {
+            display: inline-block; font-size: .65rem; font-weight: 600; color: #38bdf8;
+            background: rgba(56,189,248,.1); border: 1px solid rgba(56,189,248,.3);
+            border-radius:var(--radius); padding: 1px 6px; margin-left: 6px; vertical-align: middle;
+        }
         .live-dot {
             position: absolute; bottom: -1px; right: -1px;
             width: 7px; height: 7px; border-radius: 50%;
