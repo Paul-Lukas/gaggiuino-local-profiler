@@ -1104,6 +1104,13 @@
                 <button class="theme-btn" data-theme-val="light"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2 12h2.5M19.5 12H22M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg> <span data-i18n="theme_light">Light</span></button>
             </div>
             <h3 class="settings-card-title" style="margin-top:14px" data-i18n="settings_accent">Farbschema</h3>
+            <!-- #604: shown when the default machine has its own colour theme
+                 (see machines-settings.js's applyDefaultMachineAccentTheme()) —
+                 that theme drives the whole app's accent instead of this
+                 picker, whose swatches stay clickable/functional (so the
+                 preference is still recorded for when the machine theme is
+                 later cleared) but visually have no effect while overridden. -->
+            <p class="settings-card-desc" id="accentMachineThemeNote" style="display:none" data-i18n="settings_accent_machine_theme_note">Die Standardmaschine hat ein eigenes Farbthema — dieses bestimmt aktuell den App-Akzent statt der Auswahl unten.</p>
             <div class="accent-swatches" id="accentSwatches">
                 <button class="accent-swatch" data-accent="amber"  title="Amber"  style="background:linear-gradient(135deg,#f59e0b,#f97316)"></button>
                 <button class="accent-swatch" data-accent="ocean"  title="Ocean"  style="background:linear-gradient(135deg,#3b82f6,#06b6d4)"></button>
@@ -1122,6 +1129,37 @@
             <h3 class="settings-card-title" data-i18n="settings_bottom_nav">Mobile Navigationsleiste</h3>
             <p class="settings-card-desc" data-i18n="settings_bottom_nav_desc">Wähle bis zu 4 Ziele für die untere Navigationsleiste auf dem Handy. Alles andere landet unter "Mehr".</p>
             <div id="bottomNavConfigList" class="bottom-nav-config-list"></div>
+        </div>
+        <!-- Live-data transport (#598) — self-contained card, does not touch
+             the machine registry card below it. Connection fields are only
+             shown once "MQTT" is picked (renderMqttSettingsCard() toggles
+             #mqttConnFields); host/port/user/pass are pre-filled from
+             Supervisor auto-discovery when available, editable either way. -->
+        <div class="settings-card" id="mqttSettingsCard">
+            <h3 class="settings-card-title" data-i18n="settings_mqtt_title">Live-Verbindung</h3>
+            <p class="settings-card-desc" data-i18n="settings_mqtt_desc">Wie GLP Live-Sensordaten von der Maschine bezieht.</p>
+            <div class="theme-toggle-group" id="mqttTransportToggle">
+                <button type="button" class="theme-btn" data-mqtt-transport="websocket" data-i18n="settings_mqtt_transport_ws">WebSocket (Standard)</button>
+                <button type="button" class="theme-btn" data-mqtt-transport="mqtt" data-i18n="settings_mqtt_transport_mqtt">MQTT</button>
+            </div>
+            <div id="mqttConnFields" style="display:none">
+                <p class="settings-card-desc" id="mqttDiscoveryHint"></p>
+                <label class="machine-form-label" data-i18n="settings_mqtt_host">Broker-Host</label>
+                <input type="text" id="mqttHost" class="machine-form-input" placeholder="core-mosquitto">
+                <label class="machine-form-label" data-i18n="settings_mqtt_port">Port</label>
+                <input type="number" id="mqttPort" class="machine-form-input" placeholder="1883">
+                <label class="machine-form-label" data-i18n="settings_mqtt_username">Benutzername (optional)</label>
+                <input type="text" id="mqttUsername" class="machine-form-input">
+                <label class="machine-form-label" data-i18n="settings_mqtt_password">Passwort (optional)</label>
+                <input type="password" id="mqttPassword" class="machine-form-input">
+                <label class="machine-form-label" data-i18n="settings_mqtt_prefix">Topic-Präfix</label>
+                <input type="text" id="mqttPrefix" class="machine-form-input" placeholder="gaggiuino">
+                <div class="machine-form-actions">
+                    <button id="mqttSaveBtn" type="button" class="backup-btn" data-i18n="settings_mqtt_save">Speichern</button>
+                    <button id="mqttApplyToMachineBtn" type="button" class="backup-btn" data-i18n="settings_mqtt_apply">Auf Maschine übertragen</button>
+                </div>
+                <div id="mqttSettingsResult" class="machine-form-test-result"></div>
+            </div>
         </div>
         <!-- Multi-machine registry (#319) -->
         <div class="settings-card" id="machinesCard">
