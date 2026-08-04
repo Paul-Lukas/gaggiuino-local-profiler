@@ -7,20 +7,28 @@ const { getDb }                    = require('../lib/db');
 const { GLP_VERSION, MAX_SHOT_ID } = require('../lib/constants');
 const { log, rateLimit }           = require('../lib/helpers');
 const { annotationSchema }         = require('../lib/validation/schemas');
-const { sanitizeBeanFields, sanitizeGrinderFields, sanitizeRecipeFields } = require('../lib/sanitize-bean');
+const { sanitizeBeanFields, sanitizeGrinderFields, sanitizeRecipeFields,
+        sanitizeMilkFields, sanitizeBasketFields, sanitizePuckScreenFields } = require('../lib/sanitize-bean');
 
 // A restored coffee_library bypasses the regular POST/PUT bean/grinder/recipe
 // routes entirely (it's written straight to the DB), so it never went through
 // their field sanitizers — a crafted backup could otherwise inject
 // unsanitized strings (e.g. into bean.notes/flavors) that later render
 // unescaped in the frontend. Re-run the same per-field sanitizers here.
+//
+// #635: milks used to be missing from this list entirely (bug/inconsistency
+// — every other library entity was already covered); fixed alongside adding
+// baskets/puckScreens rather than leaving it for a separate round.
 function sanitizeRestoredLibrary(lib) {
     if (!lib || typeof lib !== 'object') return lib;
     return {
         ...lib,
-        beans:    Array.isArray(lib.beans) ? lib.beans.map(sanitizeBeanFields) : lib.beans,
-        grinders: Array.isArray(lib.grinders) ? lib.grinders.map(sanitizeGrinderFields) : lib.grinders,
-        recipes:  Array.isArray(lib.recipes) ? lib.recipes.map(sanitizeRecipeFields) : lib.recipes,
+        beans:       Array.isArray(lib.beans)       ? lib.beans.map(sanitizeBeanFields)             : lib.beans,
+        grinders:    Array.isArray(lib.grinders)    ? lib.grinders.map(sanitizeGrinderFields)        : lib.grinders,
+        recipes:     Array.isArray(lib.recipes)     ? lib.recipes.map(sanitizeRecipeFields)          : lib.recipes,
+        milks:       Array.isArray(lib.milks)       ? lib.milks.map(sanitizeMilkFields)               : lib.milks,
+        baskets:     Array.isArray(lib.baskets)     ? lib.baskets.map(sanitizeBasketFields)           : lib.baskets,
+        puckScreens: Array.isArray(lib.puckScreens) ? lib.puckScreens.map(sanitizePuckScreenFields)   : lib.puckScreens,
     };
 }
 

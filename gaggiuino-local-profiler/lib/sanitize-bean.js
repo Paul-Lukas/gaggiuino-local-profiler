@@ -202,6 +202,67 @@ function sanitizeGrinderFields(grinder) {
     };
 }
 
+// Mirrors the field set from the milk POST/PUT routes (routes/library/milks.js).
+// Previously the only library entity NOT re-sanitized on /api/restore (#635
+// side-fix) — beans/grinders/recipes already went through this treatment,
+// milks silently didn't.
+function sanitizeMilkFields(milk) {
+    if (!milk || typeof milk !== 'object') return milk;
+    const stockMl = parseFloat(milk.stockMl);
+    return {
+        ...milk,
+        name: s(milk.name, 100) || milk.name,
+        emoji: s(milk.emoji, 4) || '🥛',
+        stockMl: Number.isFinite(stockMl) && stockMl >= 0 ? stockMl : 0,
+    };
+}
+
+// #635: portafilter baskets. wallType/shape are enum fields validated the
+// same way species/category/roastType are above — a crafted backup can't
+// smuggle an out-of-whitelist value through /api/restore.
+const BASKET_WALL_TYPES = new Set(['pressurized', 'single-wall', 'precision-machined', 'high-flow']);
+function sanitizeBasketWallType(v) {
+    return typeof v === 'string' && BASKET_WALL_TYPES.has(v) ? v : '';
+}
+const BASKET_SHAPES = new Set(['straight', 'tapered']);
+function sanitizeBasketShape(v) {
+    return typeof v === 'string' && BASKET_SHAPES.has(v) ? v : '';
+}
+
+// Mirrors the field set/limits from the regular basket POST/PUT routes
+// (routes/library/baskets.js).
+function sanitizeBasketFields(basket) {
+    if (!basket || typeof basket !== 'object') return basket;
+    return {
+        ...basket,
+        name: s(basket.name, 200) || basket.name,
+        doseCapacity: s(basket.doseCapacity, 50),
+        wallType: sanitizeBasketWallType(basket.wallType),
+        shape: sanitizeBasketShape(basket.shape),
+        holeCount: s(basket.holeCount, 50),
+        notes: s(basket.notes, 1000),
+    };
+}
+
+// #635: puck screens.
+const PUCK_SCREEN_THICKNESSES = new Set(['very-thin', 'thin', 'medium', 'thick']);
+function sanitizePuckScreenThickness(v) {
+    return typeof v === 'string' && PUCK_SCREEN_THICKNESSES.has(v) ? v : '';
+}
+
+// Mirrors the field set/limits from the regular puck screen POST/PUT routes
+// (routes/library/puckscreens.js).
+function sanitizePuckScreenFields(puckScreen) {
+    if (!puckScreen || typeof puckScreen !== 'object') return puckScreen;
+    return {
+        ...puckScreen,
+        name: s(puckScreen.name, 200) || puckScreen.name,
+        thickness: sanitizePuckScreenThickness(puckScreen.thickness),
+        material: s(puckScreen.material, 200),
+        notes: s(puckScreen.notes, 1000),
+    };
+}
+
 function safeUrl(v) {
     if (!v) return '';
     try {
@@ -242,4 +303,5 @@ module.exports = {
     sanitizeAltitude, sanitizePrice, sanitizeBrewTemp, sanitizeBrewTime, sanitizeEnabled,
     sanitizeFrozenPortions,
     sanitizeBeanFields, sanitizeGrinderFields, sanitizeRecipeFields, safeUrl,
+    sanitizeMilkFields, sanitizeBasketFields, sanitizePuckScreenFields,
 };
