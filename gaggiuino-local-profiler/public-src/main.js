@@ -93,7 +93,10 @@ import { loadLibrary, updateLibraryDatalist, switchLibTab, renderBeanList, rende
          toggleUrlImport, importFromUrl,
          toggleImportSettings, addCustomShopifyDomain,
          openScanModal, closeScanModal, _runScanLoop, _handleScanResult,
-         renderMilkList, openMilkForm, closeMilkForm, saveMilk, restockMilk, deleteMilk } from './views/library.js';
+         renderMilkList, openMilkForm, closeMilkForm, saveMilk, restockMilk, deleteMilk,
+         renderBasketList, openBasketForm, closeBasketForm, editBasket, saveBasket, deleteBasket, uploadBasketImage,
+         renderPuckScreenList, openPuckScreenForm, closePuckScreenForm, editPuckScreen, savePuckScreen, deletePuckScreen, uploadPuckScreenImage
+       } from './views/library.js';
 
 import { loadMachineProfileList, updateProfileDatalist, renderProfileList,
          editProfile, deleteMachineProfile, openProfileForm, closeProfileForm, openNewProfileForm,
@@ -367,6 +370,18 @@ Object.assign(window, {
   saveMilk,
   restockMilk,
   deleteMilk,
+  renderBasketList,
+  openBasketForm,
+  closeBasketForm,
+  editBasket,
+  saveBasket,
+  deleteBasket,
+  renderPuckScreenList,
+  openPuckScreenForm,
+  closePuckScreenForm,
+  editPuckScreen,
+  savePuckScreen,
+  deletePuckScreen,
 
   // profile editor view
   loadMachineProfileList,
@@ -648,6 +663,24 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('closeMilkFormBtn').addEventListener('click', closeMilkForm);
   document.getElementById('saveMilkBtn').addEventListener('click', saveMilk);
   document.getElementById('milkAddTrigger').addEventListener('click', openMilkForm);
+  document.getElementById('libTabBaskets').addEventListener('click', () => switchLibTab('baskets'));
+  document.getElementById('libTabPuckScreens').addEventListener('click', () => switchLibTab('puckscreens'));
+  document.getElementById('closeBasketFormBtn').addEventListener('click', closeBasketForm);
+  document.getElementById('saveBasketBtn').addEventListener('click', saveBasket);
+  document.getElementById('basketAddTrigger').addEventListener('click', openBasketForm);
+  document.getElementById('basketFormImagePickBtn').addEventListener('click', () => document.getElementById('basketFormImage').click());
+  document.getElementById('basketFormImage').addEventListener('change', function () {
+    if (S.basketEditId) uploadBasketImage(S.basketEditId, this);
+  });
+  document.getElementById('closePuckScreenFormBtn').addEventListener('click', closePuckScreenForm);
+  document.getElementById('savePuckScreenBtn').addEventListener('click', savePuckScreen);
+  document.getElementById('puckScreenAddTrigger').addEventListener('click', openPuckScreenForm);
+  document.getElementById('puckScreenFormImagePickBtn').addEventListener('click', () => document.getElementById('puckScreenFormImage').click());
+  document.getElementById('puckScreenFormImage').addEventListener('change', function () {
+    if (S.puckScreenEditId) uploadPuckScreenImage(S.puckScreenEditId, this);
+  });
+  document.getElementById('annBasket').addEventListener('change', scheduleAutoSave);
+  document.getElementById('annPuckScreen').addEventListener('change', scheduleAutoSave);
   document.getElementById('profileAddTrigger').addEventListener('click', openNewProfileForm);
   document.getElementById('closeProfileFormBtn').addEventListener('click', closeProfileForm);
   document.getElementById('cancelProfileFormBtn').addEventListener('click', closeProfileForm);
@@ -740,6 +773,10 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'remove-recipe-step': removeRecipeStep(Number(el.dataset.idx)); break;
       case 'delete-milk':        deleteMilk(numId()); break;
       case 'restock-milk':       restockMilk(numId()); break;
+      case 'edit-basket':        editBasket(numId()); break;
+      case 'delete-basket':      deleteBasket(numId()); break;
+      case 'edit-puckscreen':    editPuckScreen(numId()); break;
+      case 'delete-puckscreen':  deletePuckScreen(numId()); break;
       case 'edit-profile':          editProfile(numId()); break;
       case 'delete-profile':        deleteMachineProfile(numId()); break;
       case 'remove-profile-phase':  removeProfilePhase(Number(el.dataset.idx)); break;

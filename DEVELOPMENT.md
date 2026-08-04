@@ -8,29 +8,29 @@ The GLP ecosystem (this app + 3 companion repos) has been in development since *
 
 | Repo | First commit | Last commit | Commits | Claude co-authored |
 |---|---|---|---|---|
-| gaggiuino-local-profiler | 2026-05-20 | 2026-08-04 | 760 | 563 (74%) |
-| glp-integration | 2026-05-22 | 2026-08-03 | 145 | 97 (67%) |
-| glp-lovelace-card | 2026-05-24 | 2026-08-04 | 120 | 92 (77%) |
-| glp-order-card | 2026-05-25 | 2026-08-03 | 95 | 70 (74%) |
-| **Combined** | **2026-05-20** | **2026-08-04** | **1120** | **822 (73%)** |
+| gaggiuino-local-profiler | 2026-05-20 | 2026-08-04 | 796 | 573 (72%) |
+| glp-integration | 2026-05-22 | 2026-08-04 | 159 | 99 (62%) |
+| glp-lovelace-card | 2026-05-24 | 2026-08-04 | 129 | 95 (74%) |
+| glp-order-card | 2026-05-25 | 2026-08-04 | 104 | 73 (70%) |
+| **Combined** | **2026-05-20** | **2026-08-04** | **1188** | **840 (71%)** |
 
 ![Commits per repo](docs/dev-stats/commits-per-repo.png)
 
-Combined line changes (insertions + deletions across all commits): **312.576**, of which **233.653** landed in Claude-co-authored commits.
+Combined line changes (insertions + deletions across all commits): **317.225**, of which **235.597** landed in Claude-co-authored commits.
 
 Commits without a Claude co-author line are presumed human-only (manual fixes, merges, config tweaks) — not independently verified.
 
 ## Hours of development (lower-bound estimate)
 
-Clustering each repo's commit timestamps into working sessions — commits within 2h of each other join the same session, and each session gets a 30-minute lead-in credited ahead of its first commit — gives a combined **300.2 hours** across all four repos.
+Clustering each repo's commit timestamps into working sessions — commits within 2h of each other join the same session, and each session gets a 30-minute lead-in credited ahead of its first commit — gives a combined **314.9 hours** across all four repos.
 
 | Repo | Hours (session-clustered) |
 |---|---|
-| gaggiuino-local-profiler | 172.1 |
-| glp-integration | 48.9 |
-| glp-lovelace-card | 42.5 |
-| glp-order-card | 36.6 |
-| **Combined** | **300.2** |
+| gaggiuino-local-profiler | 178.1 |
+| glp-integration | 51.1 |
+| glp-lovelace-card | 45.8 |
+| glp-order-card | 39.9 |
+| **Combined** | **314.9** |
 
 This is a **lower-bound estimate derived from git commit timestamps only**, not measured time — it undercounts real work because a long AI-agentic session (orchestration, agent dispatch, review between infrequent commits) can run for hours between commits.
 
@@ -38,7 +38,7 @@ This is a **lower-bound estimate derived from git commit timestamps only**, not 
 
 | Model | Commits |
 |---|---|
-| Claude Sonnet 5 | 369 |
+| Claude Sonnet 5 | 387 |
 | Claude Sonnet 4.6 | 348 |
 | Claude Opus 4.8 | 47 |
 | Claude Fable 5 | 40 |
