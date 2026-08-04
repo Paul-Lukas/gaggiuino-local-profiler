@@ -32,5 +32,7 @@ require('./beans')(router);
 require('./milks')(router);
 require('./grinders')(router);
 require('./recipes')(router);
+require('./baskets')(router);
+require('./puckscreens')(router);
 
 module.exports = router;

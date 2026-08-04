@@ -98,10 +98,20 @@ function _buildAnnotationPayload(shot) {
   // an empty selection or a stale name no longer in the library.
   const beanIdAttr = coffeeSelect.selectedOptions[0]?.dataset.beanId;
   const beanId = beanIdAttr ? parseInt(beanIdAttr, 10) : null;
+  // #635: same data-attribute pattern as beanId above — real <select>s, ID-
+  // based, no free-text/name matching involved.
+  const basketSelect = document.getElementById('annBasket');
+  const basketIdAttr = basketSelect?.selectedOptions[0]?.dataset.basketId;
+  const basketId = basketIdAttr ? parseInt(basketIdAttr, 10) : null;
+  const puckScreenSelect = document.getElementById('annPuckScreen');
+  const puckScreenIdAttr = puckScreenSelect?.selectedOptions[0]?.dataset.puckscreenId;
+  const puckScreenId = puckScreenIdAttr ? parseInt(puckScreenIdAttr, 10) : null;
   return {
     rating:       S.currentRating || null,
     coffee,
     beanId,
+    basketId,
+    puckScreenId,
     grinder:      document.getElementById('annGrinder').value.trim(),
     grindSetting: document.getElementById('annGrindSetting').value.trim(),
     dose:         parseFloat(document.getElementById('annDose').value) || null,
@@ -308,6 +318,26 @@ export function _renderBeanSelect(selectedName) {
     options.map(o => `<option value="${esc(o.name)}"${o.id != null ? ` data-bean-id="${o.id}"` : ''}${o.name === selectedName ? ' selected' : ''}>${esc(o.name)}</option>`).join('');
 }
 
+// #635: baskets/puck screens are pure ID-based library selections (unlike
+// beans, there's no free-text legacy value to preserve) — value and
+// data-basket-id/data-puckscreen-id both carry the id, mirroring
+// _renderBeanSelect's data-attribute pattern for _buildAnnotationPayload.
+export function _renderBasketSelect(selectedId) {
+  const select = document.getElementById('annBasket');
+  if (!select) return;
+  const baskets = S.coffeeLibrary?.baskets || [];
+  select.innerHTML = `<option value="">${t('ann_basket_none')}</option>` +
+    baskets.map(b => `<option value="${b.id}" data-basket-id="${b.id}"${selectedId === b.id ? ' selected' : ''}>${esc(b.name)}</option>`).join('');
+}
+
+export function _renderPuckScreenSelect(selectedId) {
+  const select = document.getElementById('annPuckScreen');
+  if (!select) return;
+  const puckScreens = S.coffeeLibrary?.puckScreens || [];
+  select.innerHTML = `<option value="">${t('ann_puckscreen_none')}</option>` +
+    puckScreens.map(p => `<option value="${p.id}" data-puckscreen-id="${p.id}"${selectedId === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+}
+
 export function _renderRecipeSelect(selectedId) {
   const field  = document.getElementById('recipeField');
   const select = document.getElementById('annRecipe');
@@ -422,6 +452,8 @@ export function renderAnnotationPanel(shot) {
   S.currentRating = ann.rating || 0;
   renderStars(S.currentRating);
   _renderBeanSelect(ann.coffee || null);
+  _renderBasketSelect(ann.basketId ?? null);
+  _renderPuckScreenSelect(ann.puckScreenId ?? null);
   _renderFrozenPortionPills(ann.coffee || null, shot?.timestamp ? shot.timestamp * 1000 : Date.now(), ann.frozenPortionId ?? null);
   document.getElementById('annGrinder').value      = ann.grinder      || '';
   document.getElementById('annGrindSetting').value = ann.grindSetting || '';
@@ -476,6 +508,11 @@ export function quickClone() {
   document.getElementById('annGrindSetting').value = suggested.grindSetting || ann.grindSetting || '';
   document.getElementById('annDose').value         = suggested.dose         || ann.dose         || '';
   updateDegassing(_roastDateFromLibrary(beanName, currentShot?.timestamp, beanId) || '');
+  // Basket/puck screen are equipment, not per-shot state — carried over from
+  // the previous shot like the grinder above, rather than reset like the
+  // frozen-portion choice below.
+  _renderBasketSelect(ann.basketId ?? null);
+  _renderPuckScreenSelect(ann.puckScreenId ?? null);
   _renderDrinkPills(ann.drinkType || '');
   _renderMilkPills('');
   _updateMilkFieldVisibility();

@@ -15,9 +15,18 @@ const memDb     = new Database(':memory:');
 realDb.initSchema(memDb);
 require.cache[dbPath].exports = { getDb: () => memDb, initSchema: realDb.initSchema };
 
+// #635: the restore route rate-limits at 3/min per IP — plenty for real
+// usage, but this file's own test count exceeds it (same 127.0.0.1 for every
+// call). Patch it permissive here, same require-cache-swap trick as the db
+// patch above, rather than trim test coverage to fit the limit.
+const helpersPath = require.resolve('../lib/helpers');
+const realHelpers = require(helpersPath);
+require.cache[helpersPath].exports = { ...realHelpers, rateLimit: () => true };
+
 const express      = require('express');
 const backupRouter = require('../routes/backup');
 const shotRepo      = require('../lib/repositories/ShotRepository');
+const libService    = require('../lib/services/LibraryService');
 const { getDb }     = require('../lib/db');
 
 function makeApp() {
@@ -101,6 +110,35 @@ describe('POST /api/restore', () => {
 
         const remaining = shotRepo.findAll().map(s => s.id).sort();
         expect(remaining).toEqual([5, 6]);
+    });
+
+    // #635: milks used to be the one library entity NOT sanitized on restore
+    // (bug/inconsistency — beans/grinders/recipes already were); fixed
+    // alongside adding baskets/puckScreens sanitization.
+    it('sanitizes milks, baskets and puckScreens the same way beans/grinders/recipes already are', async () => {
+        seedOneShot();
+        const backup = {
+            glp_backup: true,
+            shots: [{ id: 5, timestamp: 1700000100, duration: 200 }],
+            coffee_library: {
+                milks: [{ id: 1, name: '  Oat  '.padEnd(150, 'x'), emoji: 'not-an-emoji-way-too-long', stockMl: -50 }],
+                baskets: [{ id: 2, name: 'IMS Precision', wallType: 'not-a-real-type', shape: 'also-fake', notes: 'x'.repeat(2000) }],
+                puckScreens: [{ id: 3, name: 'Slayer mesh', thickness: 'ultra-thick', material: 'x'.repeat(300) }],
+            },
+        };
+        const r = await fetch(`${baseUrl}/api/restore`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(backup),
+        });
+        expect(r.status).toBe(200);
+
+        const lib = libService.getLibrary();
+        expect(lib.milks[0].name.length).toBeLessThanOrEqual(100);
+        expect(lib.milks[0].stockMl).toBe(0); // negative value rejected, falls back to 0
+        expect(lib.baskets[0].wallType).toBe(''); // out-of-whitelist value dropped
+        expect(lib.baskets[0].shape).toBe('');
+        expect(lib.baskets[0].notes.length).toBeLessThanOrEqual(1000);
+        expect(lib.puckScreens[0].thickness).toBe(''); // out-of-whitelist value dropped
+        expect(lib.puckScreens[0].material.length).toBeLessThanOrEqual(200);
     });
 });
 

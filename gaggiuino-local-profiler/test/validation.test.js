@@ -59,6 +59,28 @@ describe('annotationSchema', () => {
         const result = annotationSchema.safeParse({ coffee: 'Bean', frozenPortionId: 1.5 });
         expect(result.success).toBe(false);
     });
+
+    // #635: basketId/puckScreenId link to library.baskets[]/puckScreens[],
+    // same nullable-int shape and rationale as beanId above.
+    it('accepts numeric basketId and puckScreenId', () => {
+        const result = annotationSchema.safeParse({ coffee: 'Bean', basketId: 5, puckScreenId: 9 });
+        expect(result.success).toBe(true);
+    });
+
+    it('accepts basketId/puckScreenId: null (nothing selected)', () => {
+        const result = annotationSchema.safeParse({ coffee: 'Bean', basketId: null, puckScreenId: null });
+        expect(result.success).toBe(true);
+    });
+
+    it('rejects a non-integer basketId', () => {
+        const result = annotationSchema.safeParse({ coffee: 'Bean', basketId: 1.5 });
+        expect(result.success).toBe(false);
+    });
+
+    it('rejects a non-integer puckScreenId', () => {
+        const result = annotationSchema.safeParse({ coffee: 'Bean', puckScreenId: 1.5 });
+        expect(result.success).toBe(false);
+    });
 });
 
 describe('beanSchema', () => {

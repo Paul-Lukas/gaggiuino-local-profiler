@@ -38,6 +38,11 @@ const annotationSchema = z.object({
     // _maybeAdjustFrozenPortion, mirroring the existing milk-deduction
     // pattern), not here — this field is just the durable record.
     frozenPortionId: z.number().int().nullable().optional(),
+    // #635: stable links to library.baskets[].id / library.puckScreens[].id —
+    // same nullable-int shape and rationale as beanId above (select-based,
+    // ID-first, never name-matched).
+    basketId:      z.number().int().nullable().optional(),
+    puckScreenId:  z.number().int().nullable().optional(),
 }).passthrough();
 
 const beanSchema = z.object({

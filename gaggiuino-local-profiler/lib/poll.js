@@ -4,6 +4,7 @@ const { TEMP_HISTORY_MAX } = require('./constants');
 const { log } = require('./helpers');
 const { loadOptions, getMachineBaseUrl } = require('./data');
 const { getSwitchState, HA_TOKEN } = require('./ha');
+const registry = require('./machines/registry');
 const state = require('./state');
 const { getMachineRuntimeState } = require('./machine-runtime-state');
 const { deriveMachineState, isStillWarm } = require('./machine-state');
@@ -47,9 +48,19 @@ async function pollLive(runtime = defaultRuntime) {
 }
 
 async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
-    const opts    = loadOptions();
-    const baseUrl = getMachineBaseUrl(opts);
+    const opts = loadOptions();
     try {
+        // #638: prefer the registry's live default-machine host (kept current
+        // by Settings UI edits via registry.updateMachine()) over the
+        // possibly-stale options.json value -- mirrors the pattern lib/sync.js's
+        // syncOtherMachines()/syncMachineShots() already use for non-default
+        // machines. Falls back to options.json's machine_host only when the
+        // registry has no usable host yet (defensive; ensureDefaultMachine()
+        // normally seeds one from options.json before polling ever starts).
+        const defaultMachine = registry.getDefaultMachine();
+        const baseUrl = getMachineBaseUrl(
+            defaultMachine && defaultMachine.host ? { ...opts, machine_host: defaultMachine.host } : opts
+        );
         const statusRes = await axios.get(`${baseUrl}/api/system/status`, { timeout: 3000 });
         state.machineReachable   = true;
         state.lastMachineError   = null;
@@ -141,7 +152,15 @@ async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
 
 async function checkAndApplyMachinePower(runtime = defaultRuntime) {
     const opts   = loadOptions();
-    const entity = opts.switch_entity;
+    // #643: prefer the registry's live default-machine switch_entity (kept
+    // current by Settings UI edits via registry.updateMachine()) over the
+    // possibly-stale options.json value -- same pattern #638/#641 established
+    // for machine_host. Falls back to options.json's switch_entity only when
+    // there's no default-machine row at all -- an explicitly empty/null
+    // registry switchEntity means "not configured" and must NOT fall through
+    // to a stale options.json value.
+    const defaultMachine = registry.getDefaultMachine();
+    const entity = (defaultMachine ? defaultMachine.switchEntity : opts.switch_entity);
     if (!entity || !HA_TOKEN) {
         if (!runtime.livePollTimer) startLivePolling(runtime);
         return;

@@ -6,7 +6,8 @@ import { esc, roastAgeDays, frozenPortionAgeDays, freshnessState, calcBeanRating
 import { COFFEE_COUNTRIES, VARIETY_SUGGESTIONS, PROCESS_SUGGESTIONS, LOCALE_MAP, countryName, flagEmoji } from '../constants.js';
 import { setBeanFilter } from '../components/sidebar.js';
 import { switchMode } from '../components/mode.js';
-import { loadBeanImageBlobUrl, loadGrinderImageBlobUrl, invalidateGrinderImage, invalidateBeanImage } from '../bean-image.js';
+import { loadBeanImageBlobUrl, loadGrinderImageBlobUrl, invalidateGrinderImage, invalidateBeanImage,
+         loadBasketImageBlobUrl, invalidateBasketImage, loadPuckScreenImageBlobUrl, invalidatePuckScreenImage } from '../bean-image.js';
 import { openImageCropEditor } from '../components/image-crop.js';
 import { openLightbox } from '../components/lightbox.js';
 import { generateBeanQR, parseGlpQrParams } from '../glp-qr.js';
@@ -37,11 +38,15 @@ export async function loadLibrary() {
     const r = await apiFetch('api/library');
     if (!r.ok) return;
     S.coffeeLibrary = await r.json();
-    if (!S.coffeeLibrary.recipes) S.coffeeLibrary.recipes = [];
-    if (!S.coffeeLibrary.milks)   S.coffeeLibrary.milks   = [];
+    if (!S.coffeeLibrary.recipes)     S.coffeeLibrary.recipes     = [];
+    if (!S.coffeeLibrary.milks)       S.coffeeLibrary.milks       = [];
+    if (!S.coffeeLibrary.baskets)     S.coffeeLibrary.baskets     = [];
+    if (!S.coffeeLibrary.puckScreens) S.coffeeLibrary.puckScreens = [];
     updateLibraryDatalist();
     renderRecipeList();
     renderMilkList();
+    renderBasketList();
+    renderPuckScreenList();
     // #526: this fetch is fired unawaited from main.js's init sequence, racing
     // switchMode('library') (mode.js), which renders the bean/grinder lists
     // straight off S.coffeeLibrary the moment the user opens Library — before
@@ -68,11 +73,15 @@ export function switchLibTab(tab) {
   document.getElementById('libTabGrinders').classList.toggle('active',    tab === 'grinders');
   document.getElementById('libTabRecipes').classList.toggle('active',     tab === 'recipes');
   document.getElementById('libTabMilk')?.classList.toggle('active',      tab === 'milk');
+  document.getElementById('libTabBaskets')?.classList.toggle('active',   tab === 'baskets');
+  document.getElementById('libTabPuckScreens')?.classList.toggle('active', tab === 'puckscreens');
   document.getElementById('libTabProfiles')?.classList.toggle('active',  tab === 'profiles');
   document.getElementById('libSectionBeans').classList.toggle('active',   tab === 'beans');
   document.getElementById('libSectionGrinders').classList.toggle('active', tab === 'grinders');
   document.getElementById('libSectionRecipes').classList.toggle('active', tab === 'recipes');
   document.getElementById('libSectionMilk')?.classList.toggle('active',  tab === 'milk');
+  document.getElementById('libSectionBaskets')?.classList.toggle('active', tab === 'baskets');
+  document.getElementById('libSectionPuckScreens')?.classList.toggle('active', tab === 'puckscreens');
   document.getElementById('libSectionProfiles')?.classList.toggle('active', tab === 'profiles');
 }
 
@@ -144,7 +153,7 @@ export function renderBeanList() {
         <div class="lib-bag-history-title">${t('lib_bag_history')}</div>
         ${bags.slice().reverse().map((bg, i) => `
           <div class="lib-bag-row${i === 0 ? ' active' : ''}">
-            <span>${bg.roastDate || '–'}</span>
+            <span>${bg.roastDate ? esc(bg.roastDate) : '–'}</span>
             <span>${bg.stock_g ? bg.stock_g + ' g' : '–'}</span>
             <span>${bg.batchNumber ? esc(bg.batchNumber) : '–'}</span>
             <button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">✕</button>
@@ -1537,4 +1546,239 @@ export async function deleteMilk(id) {
   if (!r.ok) return;
   S.coffeeLibrary.milks = (S.coffeeLibrary.milks || []).filter(m => m.id !== id);
   renderMilkList();
+}
+
+// ── Baskets (#635) ───────────────────────────────────────────────────────
+
+function _basketWallTypeLabel(wallType) {
+  return wallType ? t(`basket_wall_type_${wallType.replace(/-/g, '_')}`) : '';
+}
+
+function _basketShapeLabel(shape) {
+  return shape ? t(`basket_shape_${shape}`) : '';
+}
+
+export function renderBasketList() {
+  const el = document.getElementById('basketListUI');
+  if (!el) return;
+  const baskets = S.coffeeLibrary?.baskets || [];
+  if (!baskets.length) { el.innerHTML = `<div class="lib-empty">${t('lib_empty_baskets')}</div>`; return; }
+  el.innerHTML = baskets.map(b => {
+    const extra = [b.doseCapacity, _basketWallTypeLabel(b.wallType), _basketShapeLabel(b.shape), b.holeCount].filter(Boolean).join(' · ');
+    return `
+    <div class="lib-item">
+      ${b.image ? `<img class="lib-basket-thumb" data-basket-id="${b.id}" alt="">` : ''}
+      <div class="lib-item-info">
+        <div class="lib-item-name">${esc(b.name)}</div>
+        ${extra ? `<div class="lib-item-sub lib-item-extra">${esc(extra)}</div>` : ''}
+        ${b.notes ? `<div class="lib-item-sub">${esc(b.notes)}</div>` : ''}
+      </div>
+      <div class="lib-item-actions">
+        <button class="lib-btn-sm lib-btn-icon" data-action="edit-basket" data-id="${b.id}" title="${t('lib_btn_edit')}">${ICON_PENCIL}</button>
+        <button class="lib-btn-sm del lib-btn-icon" data-action="delete-basket" data-id="${b.id}" title="${t('lib_btn_delete')}">${ICON_TRASH}</button>
+      </div>
+    </div>`;
+  }).join('');
+  loadBasketThumbnails();
+}
+
+// Basket images need the auth token, so <img src> can't point at the API
+// directly (see bean-image.js) — set the blob-url src async after render,
+// same pattern as loadGrinderThumbnails.
+function loadBasketThumbnails() {
+  document.querySelectorAll('.lib-basket-thumb[data-basket-id]').forEach(img => {
+    const id = Number(img.dataset.basketId);
+    loadBasketImageBlobUrl(id).then(url => {
+      if (!url) return;
+      img.src = url;
+      img.onclick = e => { e.stopPropagation(); openLightbox(img.src); };
+    });
+  });
+}
+
+export function openBasketForm(basket) {
+  S.basketEditId = basket ? basket.id : null;
+  document.getElementById('basketFormName').value         = basket?.name         || '';
+  document.getElementById('basketFormDoseCapacity').value = basket?.doseCapacity || '';
+  document.getElementById('basketFormWallType').value     = basket?.wallType     || '';
+  document.getElementById('basketFormShape').value        = basket?.shape        || '';
+  document.getElementById('basketFormHoleCount').value    = basket?.holeCount    || '';
+  document.getElementById('basketFormNotes').value        = basket?.notes        || '';
+  document.getElementById('basketFormImageField').style.display = basket ? '' : 'none';
+  document.getElementById('basketAddForm').classList.add('open');
+  document.getElementById('basketAddTrigger').style.display = 'none';
+  document.getElementById('basketFormName').focus();
+}
+
+export function closeBasketForm() {
+  S.basketEditId = null;
+  document.getElementById('basketAddForm').classList.remove('open');
+  document.getElementById('basketAddTrigger').style.display = '';
+}
+
+export function editBasket(id) {
+  const b = (S.coffeeLibrary.baskets || []).find(b => b.id === id);
+  if (b) openBasketForm(b);
+}
+
+export async function saveBasket() {
+  const name         = document.getElementById('basketFormName').value.trim();
+  const doseCapacity = document.getElementById('basketFormDoseCapacity').value.trim();
+  const wallType     = document.getElementById('basketFormWallType').value;
+  const shape        = document.getElementById('basketFormShape').value;
+  const holeCount    = document.getElementById('basketFormHoleCount').value.trim();
+  const notes        = document.getElementById('basketFormNotes').value.trim();
+  if (!name) { document.getElementById('basketFormName').focus(); return; }
+  const body = JSON.stringify({ name, doseCapacity, wallType, shape, holeCount, notes });
+  const url  = S.basketEditId ? `api/library/basket/${S.basketEditId}` : 'api/library/basket';
+  const r    = await apiFetch(url, { method: S.basketEditId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  if (!r.ok) return;
+  const saved = await r.json();
+  if (!S.coffeeLibrary.baskets) S.coffeeLibrary.baskets = [];
+  if (S.basketEditId) {
+    const idx = S.coffeeLibrary.baskets.findIndex(b => b.id === S.basketEditId);
+    if (idx !== -1) S.coffeeLibrary.baskets[idx] = saved;
+  } else {
+    S.coffeeLibrary.baskets.push(saved);
+  }
+  closeBasketForm();
+  renderBasketList();
+}
+
+export async function uploadBasketImage(id, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const blob = await openImageCropEditor(file, { shape: 'square' });
+  // eslint-disable-next-line require-atomic-updates -- `input` is a per-call function parameter (the DOM element passed in), not shared state
+  input.value = '';
+  if (!blob) return;
+  const r = await apiFetch(`api/library/basket/${id}/image`, {
+    method: 'POST', headers: { 'Content-Type': blob.type }, body: blob,
+  });
+  if (!r.ok) { alert(t('error_generic', (await r.json().catch(() => ({}))).error || r.statusText)); return; }
+  const saved = await r.json();
+  const idx = (S.coffeeLibrary.baskets || []).findIndex(b => b.id === id);
+  if (idx !== -1) S.coffeeLibrary.baskets[idx] = saved;
+  invalidateBasketImage(id);
+  renderBasketList();
+}
+
+export async function deleteBasket(id) {
+  if (!confirm(t('lib_confirm_delete_basket'))) return;
+  const r = await apiFetch(`api/library/basket/${id}`, { method: 'DELETE' });
+  if (!r.ok) return;
+  S.coffeeLibrary.baskets = (S.coffeeLibrary.baskets || []).filter(b => b.id !== id);
+  renderBasketList();
+}
+
+// ── Puck Screens (#635) ──────────────────────────────────────────────────
+
+function _puckScreenThicknessLabel(thickness) {
+  return thickness ? t(`puckscreen_thickness_${thickness.replace(/-/g, '_')}`) : '';
+}
+
+export function renderPuckScreenList() {
+  const el = document.getElementById('puckScreenListUI');
+  if (!el) return;
+  const puckScreens = S.coffeeLibrary?.puckScreens || [];
+  if (!puckScreens.length) { el.innerHTML = `<div class="lib-empty">${t('lib_empty_puckscreens')}</div>`; return; }
+  el.innerHTML = puckScreens.map(p => {
+    const extra = [_puckScreenThicknessLabel(p.thickness), p.material].filter(Boolean).join(' · ');
+    return `
+    <div class="lib-item">
+      ${p.image ? `<img class="lib-puckscreen-thumb" data-puckscreen-id="${p.id}" alt="">` : ''}
+      <div class="lib-item-info">
+        <div class="lib-item-name">${esc(p.name)}</div>
+        ${extra ? `<div class="lib-item-sub lib-item-extra">${esc(extra)}</div>` : ''}
+        ${p.notes ? `<div class="lib-item-sub">${esc(p.notes)}</div>` : ''}
+      </div>
+      <div class="lib-item-actions">
+        <button class="lib-btn-sm lib-btn-icon" data-action="edit-puckscreen" data-id="${p.id}" title="${t('lib_btn_edit')}">${ICON_PENCIL}</button>
+        <button class="lib-btn-sm del lib-btn-icon" data-action="delete-puckscreen" data-id="${p.id}" title="${t('lib_btn_delete')}">${ICON_TRASH}</button>
+      </div>
+    </div>`;
+  }).join('');
+  loadPuckScreenThumbnails();
+}
+
+function loadPuckScreenThumbnails() {
+  document.querySelectorAll('.lib-puckscreen-thumb[data-puckscreen-id]').forEach(img => {
+    const id = Number(img.dataset.puckscreenId);
+    loadPuckScreenImageBlobUrl(id).then(url => {
+      if (!url) return;
+      img.src = url;
+      img.onclick = e => { e.stopPropagation(); openLightbox(img.src); };
+    });
+  });
+}
+
+export function openPuckScreenForm(puckScreen) {
+  S.puckScreenEditId = puckScreen ? puckScreen.id : null;
+  document.getElementById('puckScreenFormName').value      = puckScreen?.name      || '';
+  document.getElementById('puckScreenFormThickness').value = puckScreen?.thickness || '';
+  document.getElementById('puckScreenFormMaterial').value  = puckScreen?.material  || '';
+  document.getElementById('puckScreenFormNotes').value     = puckScreen?.notes     || '';
+  document.getElementById('puckScreenFormImageField').style.display = puckScreen ? '' : 'none';
+  document.getElementById('puckScreenAddForm').classList.add('open');
+  document.getElementById('puckScreenAddTrigger').style.display = 'none';
+  document.getElementById('puckScreenFormName').focus();
+}
+
+export function closePuckScreenForm() {
+  S.puckScreenEditId = null;
+  document.getElementById('puckScreenAddForm').classList.remove('open');
+  document.getElementById('puckScreenAddTrigger').style.display = '';
+}
+
+export function editPuckScreen(id) {
+  const p = (S.coffeeLibrary.puckScreens || []).find(p => p.id === id);
+  if (p) openPuckScreenForm(p);
+}
+
+export async function savePuckScreen() {
+  const name      = document.getElementById('puckScreenFormName').value.trim();
+  const thickness = document.getElementById('puckScreenFormThickness').value;
+  const material  = document.getElementById('puckScreenFormMaterial').value.trim();
+  const notes     = document.getElementById('puckScreenFormNotes').value.trim();
+  if (!name) { document.getElementById('puckScreenFormName').focus(); return; }
+  const body = JSON.stringify({ name, thickness, material, notes });
+  const url  = S.puckScreenEditId ? `api/library/puckscreen/${S.puckScreenEditId}` : 'api/library/puckscreen';
+  const r    = await apiFetch(url, { method: S.puckScreenEditId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  if (!r.ok) return;
+  const saved = await r.json();
+  if (!S.coffeeLibrary.puckScreens) S.coffeeLibrary.puckScreens = [];
+  if (S.puckScreenEditId) {
+    const idx = S.coffeeLibrary.puckScreens.findIndex(p => p.id === S.puckScreenEditId);
+    if (idx !== -1) S.coffeeLibrary.puckScreens[idx] = saved;
+  } else {
+    S.coffeeLibrary.puckScreens.push(saved);
+  }
+  closePuckScreenForm();
+  renderPuckScreenList();
+}
+
+export async function uploadPuckScreenImage(id, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const blob = await openImageCropEditor(file, { shape: 'square' });
+  // eslint-disable-next-line require-atomic-updates -- `input` is a per-call function parameter (the DOM element passed in), not shared state
+  input.value = '';
+  if (!blob) return;
+  const r = await apiFetch(`api/library/puckscreen/${id}/image`, {
+    method: 'POST', headers: { 'Content-Type': blob.type }, body: blob,
+  });
+  if (!r.ok) { alert(t('error_generic', (await r.json().catch(() => ({}))).error || r.statusText)); return; }
+  const saved = await r.json();
+  const idx = (S.coffeeLibrary.puckScreens || []).findIndex(p => p.id === id);
+  if (idx !== -1) S.coffeeLibrary.puckScreens[idx] = saved;
+  invalidatePuckScreenImage(id);
+  renderPuckScreenList();
+}
+
+export async function deletePuckScreen(id) {
+  if (!confirm(t('lib_confirm_delete_puckscreen'))) return;
+  const r = await apiFetch(`api/library/puckscreen/${id}`, { method: 'DELETE' });
+  if (!r.ok) return;
+  S.coffeeLibrary.puckScreens = (S.coffeeLibrary.puckScreens || []).filter(p => p.id !== id);
+  renderPuckScreenList();
 }

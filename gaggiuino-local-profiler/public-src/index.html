@@ -322,6 +322,14 @@
                         <datalist id="beanList"></datalist>
                         <div id="beanAgeHint" class="bean-age-hint" style="display:none"></div>
                     </div>
+                    <div class="annotation-field">
+                        <label data-i18n="ann_basket">Sieb</label>
+                        <select id="annBasket"></select>
+                    </div>
+                    <div class="annotation-field">
+                        <label data-i18n="ann_puckscreen">Puck Screen</label>
+                        <select id="annPuckScreen"></select>
+                    </div>
                     <div class="annotation-field full-width" id="frozenPortionField" style="display:none">
                         <label data-i18n="ann_frozen_portion">Portion</label>
                         <div class="drink-pills" id="frozenPortionPillsContainer"></div>
@@ -470,6 +478,8 @@
                 <button class="lib-tab" id="libTabGrinders" data-i18n="lib_grinders">Mühlen</button>
                 <button class="lib-tab" id="libTabRecipes" data-i18n="lib_recipes">Rezepte</button>
                 <button class="lib-tab" id="libTabMilk" data-i18n="lib_milk">Milch</button>
+                <button class="lib-tab" id="libTabBaskets" data-i18n="lib_baskets">Siebe</button>
+                <button class="lib-tab" id="libTabPuckScreens" data-i18n="lib_puckscreens">Puck Screens</button>
                 <button class="lib-tab" id="libTabProfiles" data-i18n="lib_profiles">Profile</button>
             </div>
             <div class="lib-body">
@@ -796,6 +806,102 @@
                         </div>
                     </div>
                     <button class="lib-add-trigger" id="milkAddTrigger" data-i18n="lib_add_milk">+ Milch hinzufügen</button>
+                </div>
+                <!-- Baskets (#635) -->
+                <div class="lib-section" id="libSectionBaskets">
+                    <div class="lib-list" id="basketListUI"></div>
+                    <div class="lib-add-form" id="basketAddForm">
+                        <div class="lib-form-grid single">
+                            <div class="lib-form-field">
+                                <label data-i18n="lib_basket_name">Name *</label>
+                                <input type="text" id="basketFormName" data-i18n-placeholder="lib_basket_name_ph" placeholder="IMS Precision">
+                            </div>
+                            <div class="lib-form-field">
+                                <label data-i18n="lib_basket_dose_capacity">Dosis-Kapazität</label>
+                                <input type="text" id="basketFormDoseCapacity" data-i18n-placeholder="lib_basket_dose_capacity_ph" placeholder="18-20g">
+                            </div>
+                            <div class="lib-form-field">
+                                <label data-i18n="lib_basket_wall_type">Wandtyp</label>
+                                <select id="basketFormWallType">
+                                    <option value="" data-i18n="basket_wall_type_none">– keine Angabe –</option>
+                                    <option value="pressurized" data-i18n="basket_wall_type_pressurized">Pressurized</option>
+                                    <option value="single-wall" data-i18n="basket_wall_type_single_wall">Single-Wall</option>
+                                    <option value="precision-machined" data-i18n="basket_wall_type_precision_machined">Precision-Machined</option>
+                                    <option value="high-flow" data-i18n="basket_wall_type_high_flow">High-Flow</option>
+                                </select>
+                            </div>
+                            <div class="lib-form-field">
+                                <label data-i18n="lib_basket_shape">Form</label>
+                                <select id="basketFormShape">
+                                    <option value="" data-i18n="basket_shape_none">– keine Angabe –</option>
+                                    <option value="straight" data-i18n="basket_shape_straight">Gerade</option>
+                                    <option value="tapered" data-i18n="basket_shape_tapered">Konisch</option>
+                                </select>
+                            </div>
+                            <div class="lib-form-field">
+                                <label data-i18n="lib_basket_hole_count">Lochanzahl</label>
+                                <input type="text" id="basketFormHoleCount" data-i18n-placeholder="lib_basket_hole_count_ph" placeholder="~600 Löcher">
+                            </div>
+                            <div class="lib-form-field">
+                                <label data-i18n="lib_basket_notes">Notizen</label>
+                                <input type="text" id="basketFormNotes" data-i18n-placeholder="lib_basket_notes_ph" placeholder="Notizen …">
+                            </div>
+                            <div class="lib-form-field" id="basketFormImageField" style="display:none">
+                                <label data-i18n="lib_basket_image">Bild</label>
+                                <input type="file" id="basketFormImage" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none">
+                                <div class="photo-picker-row">
+                                    <button type="button" class="lib-open-btn" id="basketFormImagePickBtn" data-i18n="photo_pick_btn">Foto auswählen</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="lib-form-actions">
+                            <button class="lib-btn-sm" id="closeBasketFormBtn" data-i18n="lib_cancel">Abbrechen</button>
+                            <button class="lib-save-btn" id="saveBasketBtn" data-i18n="lib_save">Speichern</button>
+                        </div>
+                    </div>
+                    <button class="lib-add-trigger" id="basketAddTrigger" data-i18n="lib_add_basket">+ Sieb hinzufügen</button>
+                </div>
+                <!-- Puck Screens (#635) -->
+                <div class="lib-section" id="libSectionPuckScreens">
+                    <div class="lib-list" id="puckScreenListUI"></div>
+                    <div class="lib-add-form" id="puckScreenAddForm">
+                        <div class="lib-form-grid single">
+                            <div class="lib-form-field">
+                                <label data-i18n="lib_puckscreen_name">Name *</label>
+                                <input type="text" id="puckScreenFormName" data-i18n-placeholder="lib_puckscreen_name_ph" placeholder="Slayer mesh">
+                            </div>
+                            <div class="lib-form-field">
+                                <label data-i18n="lib_puckscreen_thickness">Dicke</label>
+                                <select id="puckScreenFormThickness">
+                                    <option value="" data-i18n="puckscreen_thickness_none">– keine Angabe –</option>
+                                    <option value="very-thin" data-i18n="puckscreen_thickness_very_thin">Sehr dünn</option>
+                                    <option value="thin" data-i18n="puckscreen_thickness_thin">Dünn</option>
+                                    <option value="medium" data-i18n="puckscreen_thickness_medium">Mittel</option>
+                                    <option value="thick" data-i18n="puckscreen_thickness_thick">Dick</option>
+                                </select>
+                            </div>
+                            <div class="lib-form-field">
+                                <label data-i18n="lib_puckscreen_material">Material</label>
+                                <input type="text" id="puckScreenFormMaterial" data-i18n-placeholder="lib_puckscreen_material_ph" placeholder="Porous Sintered Mesh">
+                            </div>
+                            <div class="lib-form-field">
+                                <label data-i18n="lib_puckscreen_notes">Notizen</label>
+                                <input type="text" id="puckScreenFormNotes" data-i18n-placeholder="lib_puckscreen_notes_ph" placeholder="Notizen …">
+                            </div>
+                            <div class="lib-form-field" id="puckScreenFormImageField" style="display:none">
+                                <label data-i18n="lib_puckscreen_image">Bild</label>
+                                <input type="file" id="puckScreenFormImage" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none">
+                                <div class="photo-picker-row">
+                                    <button type="button" class="lib-open-btn" id="puckScreenFormImagePickBtn" data-i18n="photo_pick_btn">Foto auswählen</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="lib-form-actions">
+                            <button class="lib-btn-sm" id="closePuckScreenFormBtn" data-i18n="lib_cancel">Abbrechen</button>
+                            <button class="lib-save-btn" id="savePuckScreenBtn" data-i18n="lib_save">Speichern</button>
+                        </div>
+                    </div>
+                    <button class="lib-add-trigger" id="puckScreenAddTrigger" data-i18n="lib_add_puckscreen">+ Puck Screen hinzufügen</button>
                 </div>
                 <!-- Profiles -->
                 <div class="lib-section" id="libSectionProfiles">

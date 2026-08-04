@@ -44,6 +44,8 @@ export const S = {
   beanEditId: null,
   _beanStockEditId: null,
   grinderEditId: null,
+  basketEditId: null,
+  puckScreenEditId: null,
   trendChart: null,
   profileBarChart: null,
   doseDistChart: null,

@@ -19,19 +19,43 @@ import { openLightbox }                                       from '../../compon
 
 // ── Data loading ──────────────────────────────────────────────────────────
 
+// Guards against overlapping calls (loadData() is fired unawaited from at
+// least 6 independent triggers — main.js init, the reload-data button, live.js's
+// post-brew setTimeout, status.js, sidebar.js, onboarding.js — with no
+// coordination between them): a monotonic token is captured before the fetch
+// and only the call that is still the latest one when its response lands is
+// allowed to write state, same pattern as loadMachineProfileList() in
+// library-profile-editor.js (#521, #644).
+let _loadDataReqToken = 0;
+
+// #635: baskets/puck screens are pure ID-based library selections (see
+// annotation.js's _renderBasketSelect/_renderPuckScreenSelect) — this
+// resolves an annotation's basketId/puckScreenId to the current library
+// entry's name for display/export, the same way ann.coffee already carries
+// the bean's name directly (no lookup needed there since beans store the
+// name on the annotation itself).
+function _equipmentName(list, id) {
+  if (id == null) return null;
+  return (list || []).find(e => e.id === id)?.name || null;
+}
+
 export async function loadData() {
+  const token = ++_loadDataReqToken;
   const shotsEl = document.getElementById('shots');
   shotsEl.innerHTML = `<div class="loading-state">${t('loading')}</div>`;
 
   let fetched;
   try {
     const r = await apiFetch('shots.json');
+    if (token !== _loadDataReqToken) return;
     if (!r.ok) {
       shotsEl.innerHTML = `<div class="loading-state" style="color:#ef4444">HTTP ${r.status}</div>`;
       return;
     }
     fetched = await r.json();
+    if (token !== _loadDataReqToken) return;
   } catch {
+    if (token !== _loadDataReqToken) return;
     shotsEl.innerHTML =
       `<div class="loading-state" style="color:#ef4444">Verbindungsfehler<br>` +
       `<button data-action="reload-data" style="margin-top:10px;padding:4px 12px;cursor:pointer;` +
@@ -294,7 +318,11 @@ export function updateView() {
   // Bean + grinder + grind setting (#429) — the shot's own annotation,
   // shown regardless of compare mode.
   const grinderLabel = ann.grindSetting ? t('recipe_grinder_grind', ann.grinder || '', ann.grindSetting) : ann.grinder;
-  const beanGrinder = [ann.coffee, grinderLabel].filter(Boolean).join(' · ');
+  // #635: appended only when actually set (most shots won't have either yet),
+  // so this stays a no-op on mobile space until the equipment library is used.
+  const basketName     = _equipmentName(S.coffeeLibrary?.baskets, ann.basketId);
+  const puckScreenName = _equipmentName(S.coffeeLibrary?.puckScreens, ann.puckScreenId);
+  const beanGrinder = [ann.coffee, grinderLabel, basketName, puckScreenName].filter(Boolean).join(' · ');
   document.getElementById('beanGrinderVal').textContent = beanGrinder || '–';
 
   // Grind-setting baseline chip (#429): only while viewing the newest shot
@@ -578,13 +606,16 @@ function shotToCSVRow(shot) {
     avgT   != null ? avgT.toFixed(1)   : '',
     ann.rating || '', ann.coffee || '', ann.grinder || '',
     ann.grindSetting || '',
+    _equipmentName(S.coffeeLibrary?.baskets, ann.basketId) || '',
+    _equipmentName(S.coffeeLibrary?.puckScreens, ann.puckScreenId) || '',
     (ann.notes || '').replace(/\n/g, ' ')
   ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
 }
 
 async function downloadCSV(rows, filename) {
   const header = ['Shot ID','Date','Profile','Duration (s)','Avg Pressure (bar)','Max Weight (g)',
-                  'Dose (g)','Ratio','Avg Temp (C)','Rating','Coffee','Grinder','Grind Setting','Notes'];
+                  'Dose (g)','Ratio','Avg Temp (C)','Rating','Coffee','Grinder','Grind Setting',
+                  'Basket','Puck Screen','Notes'];
   const csv  = [header.join(','), ...rows].join('\r\n');
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
   await shareOrDownloadBlob(blob, filename, { title: t('export_csv_title') });
@@ -616,6 +647,8 @@ export async function exportShot() {
   const finalWeight = d.shotWeight || d.weight || [];
   const lastW = finalWeight.length ? (finalWeight[finalWeight.length - 1] / 10).toFixed(1) : '0.0';
   const date  = new Date(shot.timestamp * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  const basketName     = _equipmentName(S.coffeeLibrary?.baskets, ann.basketId);
+  const puckScreenName = _equipmentName(S.coffeeLibrary?.puckScreens, ann.puckScreenId);
 
   const lines = [
     `clock ${shot.timestamp}`,
@@ -624,6 +657,8 @@ export async function exportShot() {
     ann.coffee       ? `bean_desc {${ann.coffee.replace(/[{}]/g, '')}}` : '',
     ann.grinder      ? `grinder_model {${ann.grinder.replace(/[{}]/g, '')}}` : '',
     ann.grindSetting ? `grinder_setting {${ann.grindSetting.replace(/[{}]/g, '')}}` : '',
+    basketName       ? `basket {${basketName.replace(/[{}]/g, '')}}` : '',
+    puckScreenName   ? `puck_screen {${puckScreenName.replace(/[{}]/g, '')}}` : '',
     ann.dose         ? `bean_weight ${ann.dose}` : '',
     ann.notes        ? `espresso_notes {${ann.notes.replace(/[{}]/g, '')}}` : '',
     `espresso_elapsed ${tcl(timeArr)}`,

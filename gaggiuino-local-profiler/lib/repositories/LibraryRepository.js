@@ -13,10 +13,12 @@ class LibraryRepository {
         const row = db.prepare("SELECT data FROM library WHERE key = 'main'").get();
         const lib = row ? JSON.parse(row.data) : {};
         return {
-            beans:    lib.beans    ?? [],
-            grinders: lib.grinders ?? [],
-            recipes:  lib.recipes  ?? [],
-            milks:    lib.milks    ?? [],
+            beans:       lib.beans       ?? [],
+            grinders:    lib.grinders    ?? [],
+            recipes:     lib.recipes     ?? [],
+            milks:       lib.milks       ?? [],
+            baskets:     lib.baskets     ?? [],
+            puckScreens: lib.puckScreens ?? [],
         };
     }
 
