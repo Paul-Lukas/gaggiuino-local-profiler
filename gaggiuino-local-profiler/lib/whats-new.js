@@ -18,6 +18,9 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.29.0', date: '2026-08-04', highlights: [
+        'Added Baskets and Puck Screens as new Coffee Library entity types, with photo upload and shot linkage like beans.',
+    ] },
     { version: '2.28.0', date: '2026-08-04', highlights: [
         'Added an in-app "What\'s New" changelog to Settings — this list.',
     ] },
@@ -39,9 +42,6 @@ const WHATS_NEW_ENTRIES = [
     ] },
     { version: '2.26.0', date: '2026-08-03', highlights: [
         'Added per-notification-type toggles (preheat-ready, low-stock, shop open/close, new order, order status) in Settings.',
-    ] },
-    { version: '2.25.0', date: '2026-08-03', highlights: [
-        "The default machine's colour theme now drives the whole app's accent colour, not just its icon.",
     ] },
 ];
 
