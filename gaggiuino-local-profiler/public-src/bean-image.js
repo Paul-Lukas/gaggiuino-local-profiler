@@ -35,6 +35,23 @@ export function invalidateBeanImage(beanId) {
   _cache.delete(`bean:${beanId}`);
 }
 
+// #635: basket/puck screen photos — same pattern as bean/grinder images.
+export function loadBasketImageBlobUrl(basketId) {
+  return _load(`basket:${basketId}`, `api/library/basket/${basketId}/image`);
+}
+
+export function invalidateBasketImage(basketId) {
+  _cache.delete(`basket:${basketId}`);
+}
+
+export function loadPuckScreenImageBlobUrl(puckScreenId) {
+  return _load(`puckscreen:${puckScreenId}`, `api/library/puckscreen/${puckScreenId}/image`);
+}
+
+export function invalidatePuckScreenImage(puckScreenId) {
+  _cache.delete(`puckscreen:${puckScreenId}`);
+}
+
 export function loadShotImageBlobUrl(shotId) {
   return _load(`shot:${shotId}`, `api/shots/${shotId}/image`);
 }
