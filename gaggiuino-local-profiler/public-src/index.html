@@ -1344,7 +1344,7 @@
         </div>
         <div class="settings-card">
             <h3 class="settings-card-title" data-i18n="backup_title">Backup & Restore</h3>
-            <p class="settings-card-desc" data-i18n="backup_desc">Alle Shots, Notizen und die Kaffee-Bibliothek als JSON-Datei sichern oder wiederherstellen.</p>
+            <p class="settings-card-desc" data-i18n="backup_desc">Die komplette Datenbank (Shots, Bibliothek, Wartung, Bestellungen, Maschinen, Einstellungen) als JSON-Datei sichern oder wiederherstellen. MQTT-Zugangsdaten sind aus Sicherheitsgründen nicht enthalten.</p>
             <button id="backupDownloadBtn" type="button" class="backup-btn" data-i18n="backup_download">Backup herunterladen</button>
             <!-- Translation text must live in its own span: applyTranslations sets
                  textContent on [data-i18n] nodes, which would wipe the file input -->
@@ -1380,6 +1380,40 @@
         <span data-i18n="scan_attribution">Produktdaten von</span> <a href="https://world.openfoodfacts.org" target="_blank" style="color:#71717a">Open Food Facts</a> (ODbL)
     </p>
     <button class="scan-close-btn" id="closeScanModalBtn" data-i18n="scan_close">Schließen</button>
+</div>
+
+<!-- ── Backup export/restore modal ── shared by both flows, see
+     public-src/components/backup-modal.js for why. -->
+<div id="backupModal">
+    <div class="backup-modal-card">
+        <h3 id="backupModalTitle"></h3>
+        <p id="backupModalDesc" class="settings-card-desc"></p>
+
+        <div id="backupModalSections" class="backup-modal-sections"></div>
+
+        <label id="backupSecretsRow" class="backup-section-row backup-secrets-row">
+            <input type="checkbox" id="backupSecretsCb">
+            <span data-i18n="backup_section_secrets">API-Token &amp; MQTT-Login (verschlüsselt)</span>
+        </label>
+
+        <div id="backupPassphraseRow" class="backup-passphrase-row" style="display:none">
+            <label class="machine-form-label" data-i18n="backup_passphrase_label">Passwort für Token &amp; MQTT-Login</label>
+            <input type="password" id="backupPassphraseInput" class="machine-form-input" autocomplete="new-password" data-i18n-placeholder="backup_passphrase_placeholder">
+            <p class="backup-modal-hint" data-i18n="backup_passphrase_hint">Nur du kennst dieses Passwort — GLP speichert es nirgends. Vergisst du es, bleibt der Rest des Backups nutzbar, nur Token und MQTT-Login können dann nicht wiederhergestellt werden.</p>
+        </div>
+        <div id="backupPassphraseConfirmRow" class="backup-passphrase-row" style="display:none">
+            <label class="machine-form-label" data-i18n="backup_passphrase_confirm_label">Passwort bestätigen</label>
+            <input type="password" id="backupPassphraseConfirm" class="machine-form-input" autocomplete="new-password">
+        </div>
+
+        <div id="backupPreview" class="backup-preview" style="display:none"></div>
+        <div id="backupModalError" class="backup-modal-error" style="display:none"></div>
+
+        <div class="machine-form-actions">
+            <button id="backupModalConfirmBtn" type="button" class="backup-btn"></button>
+            <button id="backupModalCancelBtn" type="button" class="backup-btn" data-i18n="backup_modal_cancel">Abbrechen</button>
+        </div>
+    </div>
 </div>
 
 <script type="module" src="./main.js"></script>

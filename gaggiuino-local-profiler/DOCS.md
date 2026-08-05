@@ -350,6 +350,18 @@ Independent of the Dark/Light toggle, ⚙ Settings → Color scheme offers six a
 
 ⚙ Settings → **What's New** shows the last 8 GLP releases, newest first, each with a short list of highlights — so you can see what changed without leaving the app or digging through GitHub. This card is a curated, hand-maintained subset (`lib/whats-new.js`) rather than a rendered copy of the full history: **`CHANGELOG.md` stays the source of truth** for every change ever shipped; the in-app card only ever shows a short highlight per release, capped at the last 8. Highlight text is English-only regardless of your UI language — only the card's own title and description are translated, the same approach taken for shot annotations and tasting notes.
 
+### Backup & Restore
+
+⚙ Settings → **Backup & Restore** opens a modal for downloading or restoring your GLP database as a JSON file: shots (including trash), annotations, the coffee library (beans, grinders, recipes, milks, baskets, puck screens) with their photos, maintenance tasks and the maintenance log, orders, all configured machines, and app settings (order menu, notification routing, import preferences, MQTT transport settings).
+
+**Selective sections.** Six independent sections — Shots & library, Maintenance, Orders, Machines, Settings, and API token & MQTT login (below) — can each be included or skipped, for both export and restore. A scoped restore only touches the sections you selected; every other section in your database is left exactly as it was, not wiped. Restoring a scoped backup file without re-selecting sections falls back to whatever it was scoped to on export.
+
+**Preview before restoring.** Before you confirm a restore, the modal shows exactly what would change — how many shots, maintenance rows, orders and machines would be applied (and how many would be skipped as invalid), and whether a given passphrase can actually decrypt the secrets section — computed by running the real restore's own validation, without writing anything yet.
+
+**API token and MQTT login, encrypted with a passphrase you choose.** Both are excluded from the backup by default: the API token grants full API access (including the restore endpoint itself) and the MQTT username/password are real broker credentials, and this JSON file routinely ends up in Downloads or synced to cloud storage. Check the "API token & MQTT login" section and enter a passphrase to include them, encrypted (AES-256-GCM). You'll need the same passphrase to restore them — GLP never stores it anywhere, so if you forget it, the rest of the backup is still fully usable, only the token and MQTT login can't be restored from that file. A wrong or missing passphrase never blocks the rest of a restore.
+
+**Older backups** (from before this feature was added — see `CHANGELOG.md`) contain shots, annotations, the coffee library and blocklist only. Maintenance data, orders, machine configuration, app settings, the trash bin and bean/grinder photos were not part of the export yet and cannot be recovered from an older backup file. Take a fresh backup after upgrading if you rely on those.
+
 ### HA theme
 
 A matching Home Assistant theme (`glp-ha-theme.yaml`) is included in the repository root. It provides **GLP Dark** and **GLP Light** variants for the full HA interface (sidebar, cards, inputs, switches, status colours).

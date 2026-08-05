@@ -162,6 +162,14 @@ class ShotRepository {
         getDb().prepare('INSERT OR REPLACE INTO trash (shot_id, deleted_at) VALUES (?,?)').run(shotId, Date.now());
     }
 
+    // Restore-only counterpart to moveToTrash() — takes the deletedAt timestamp
+    // from the backup instead of always stamping Date.now(), so a restored
+    // trash entry keeps the original deletion time rather than resetting the
+    // 30-day TTL clock.
+    setTrashEntry(shotId, deletedAt) {
+        getDb().prepare('INSERT OR REPLACE INTO trash (shot_id, deleted_at) VALUES (?,?)').run(shotId, deletedAt);
+    }
+
     restoreFromTrash(shotId) {
         getDb().prepare('DELETE FROM trash WHERE shot_id = ?').run(shotId);
     }

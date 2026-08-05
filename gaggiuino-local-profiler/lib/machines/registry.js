@@ -125,6 +125,61 @@ function deleteMachine(id) {
     return true;
 }
 
+// ── Restore (backup/restore) ────────────────────────────────────────────────
+// Distinct from createMachine() above: a restore must preserve the *same*
+// ids the backup's shots/orders/maintenance rows reference via their own
+// machine_id columns (restored from the same file in the same transaction),
+// not mint fresh autoincrement ids. Only ever called from routes/backup.js's
+// POST /api/restore, never part of the interactive machine CRUD surface.
+function restoreMachines(machines) {
+    const db = getDb();
+    const { machineSchema } = require('../validation/schemas');
+
+    const oldHosts = listMachines().map(m => m.host).filter(Boolean);
+
+    const valid = [];
+    for (const m of machines) {
+        if (!m || typeof m !== 'object') continue;
+        if (!Number.isInteger(m.id) || m.id <= 0) {
+            log(`Machines: restore skipped an entry with an invalid id (${m.id})`, true);
+            continue;
+        }
+        const parsed = machineSchema.safeParse(m);
+        if (!parsed.success) {
+            log(`Machines: restore skipped machine #${m.id} (${parsed.error.issues[0]?.message || 'invalid'})`, true);
+            continue;
+        }
+        const createdAt = Number.isFinite(m.createdAt) ? m.createdAt : Date.now();
+        valid.push({ ...parsed.data, id: m.id, createdAt, isDefault: !!m.isDefault });
+    }
+
+    db.transaction(() => {
+        db.prepare('DELETE FROM machines').run();
+        const ins = db.prepare(
+            `INSERT INTO machines (id, name, type, host, switch_entity, theme, is_default, enabled, created_at)
+             VALUES (?,?,?,?,?,?,?,?,?)`
+        );
+        for (const m of valid) {
+            ins.run(m.id, m.name, m.type, m.host, m.switchEntity || null,
+                m.theme ? JSON.stringify(m.theme) : null, m.isDefault ? 1 : 0, m.enabled ? 1 : 0, m.createdAt);
+        }
+
+        // Enforce exactly one is_default row (lowest id wins on a tie/absence).
+        const rows = db.prepare('SELECT id, is_default FROM machines ORDER BY id ASC').all();
+        const defaults = rows.filter(r => r.is_default);
+        if (defaults.length !== 1 && rows.length) {
+            const winnerId = (defaults[0] || rows[0]).id;
+            db.prepare('UPDATE machines SET is_default = (id = ?)').run(winnerId);
+            log(`Machines: restore corrected is_default — exactly one machine (#${winnerId}) is now default`);
+        }
+    })();
+
+    for (const host of oldHosts) evictLiveSession(host);
+
+    log(`Machines: restored ${valid.length}/${machines.length} machine(s)`);
+    return valid.length;
+}
+
 // ── Config facade (#638/#641/#643/#648) ─────────────────────────────────────
 //
 // Before this, every consumer that needed a machine's host or switch entity
@@ -178,6 +233,6 @@ function hostFor(machineId = null) {
 
 module.exports = {
     ensureDefaultMachine, listMachines, getMachine, getDefaultMachine,
-    createMachine, updateMachine, deleteMachine,
+    createMachine, updateMachine, deleteMachine, restoreMachines,
     hostFor, switchEntityFor, baseUrlFor, apiUrlFor,
 };

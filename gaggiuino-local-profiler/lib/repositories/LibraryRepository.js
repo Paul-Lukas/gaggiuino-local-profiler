@@ -121,6 +121,47 @@ class LibraryRepository {
     deleteMaintenanceLog(id) {
         getDb().prepare('DELETE FROM maintenance_log WHERE id = ?').run(id);
     }
+
+    // ── Raw backup/restore ──────────────────────────────────────────────────
+    // Unlike getMaintenance()/getMaintenanceLog() above (computed/display-
+    // shaped views that fill in MAINTENANCE_DEFAULTS or rename columns), these
+    // round-trip the tables' actual rows verbatim — what a full backup export
+    // needs, since the computed view would silently invent defaults for keys
+    // that were never actually set.
+    getAllMaintenanceRaw() {
+        return getDb().prepare('SELECT machine_id, key, data FROM maintenance').all()
+            .map(r => ({ machineId: r.machine_id, key: r.key, data: JSON.parse(r.data) }));
+    }
+
+    restoreMaintenanceRaw(rows) {
+        const db  = getDb();
+        const ins = db.prepare('INSERT OR REPLACE INTO maintenance (machine_id, key, data) VALUES (?,?,?)');
+        db.transaction(() => {
+            db.prepare('DELETE FROM maintenance').run();
+            for (const r of rows) ins.run(r.machineId, r.key, JSON.stringify(r.data));
+        })();
+    }
+
+    getAllMaintenanceLogRaw() {
+        return getDb().prepare('SELECT id, ts, date, task, machine, shot_count, notes, machine_id FROM maintenance_log').all()
+            .map(r => ({
+                id: r.id, ts: r.ts, date: r.date, task: r.task, machine: r.machine,
+                shotCount: r.shot_count, notes: r.notes, machineId: r.machine_id,
+            }));
+    }
+
+    // True round-trip: preserves id/ts exactly rather than minting new ones,
+    // unlike addMaintenanceLogEntry() (the live-logging path).
+    restoreMaintenanceLogRaw(rows) {
+        const db  = getDb();
+        const ins = db.prepare(
+            'INSERT OR REPLACE INTO maintenance_log (id, ts, date, task, machine, shot_count, notes, machine_id) VALUES (?,?,?,?,?,?,?,?)'
+        );
+        db.transaction(() => {
+            db.prepare('DELETE FROM maintenance_log').run();
+            for (const r of rows) ins.run(r.id, r.ts, r.date, r.task, r.machine ?? '', r.shotCount ?? 0, r.notes ?? '', r.machineId ?? 1);
+        })();
+    }
 }
 
 module.exports = new LibraryRepository();

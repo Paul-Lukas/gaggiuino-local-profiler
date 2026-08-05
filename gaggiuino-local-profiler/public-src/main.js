@@ -38,6 +38,7 @@ import { S } from './state.js';
 import { initToken, apiFetch } from './api.js';
 import { t, setLang, applyTranslations } from './i18n.js';
 import { generateBeanQR } from './glp-qr.js';
+import { openBackupExportModal, openBackupRestoreModal } from './components/backup-modal.js';
 
 import { renderSidebar, updateSidebarHighlighting, filterShots, setSortMode, sortedShots, updateFlapCounter,
          toggleDesktopSidebar, updateMobileShotSidebarVisibility, selectShot,
@@ -55,7 +56,7 @@ import { getShotData, calcShotScore, loadData, loadTrashData, renderTrash, toggl
          uploadShotImage, removeShotImage, openShotPhotoLightbox,
          updateView, switchChartTab, updatePQChart,
          openChartFullscreen, closeChartFullscreen, switchFsTab,
-         exportCSV, exportAllCSV, exportShot, exportProfile, shareCard, restoreFromFile, downloadBackup,
+         exportCSV, exportAllCSV, exportShot, exportProfile, shareCard,
          loadDrinkMenu, loadMilkTypes, selectDrinkType, selectMilkType,
          selectFrozenPortion, _renderFrozenPortionPills } from './views/shots.js';
 
@@ -250,7 +251,6 @@ Object.assign(window, {
   exportAllCSV,
   exportShot,
   exportProfile,
-  restoreFromFile,
 
   // live view
   initLiveChart,
@@ -713,8 +713,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.lang-option-btn').forEach(btn => {
     btn.addEventListener('click', () => setLang(btn.dataset.lang));
   });
-  document.querySelector('input[type="file"][accept=".json"]').addEventListener('change', e => restoreFromFile(e.target));
-  document.getElementById('backupDownloadBtn').addEventListener('click', downloadBackup);
+  // Cancel/confirm handlers are wired fresh by openBackupExportModal()/
+  // openBackupRestoreModal() every time the modal opens (see
+  // components/backup-modal.js) -- no separate wiring needed here, same
+  // convention #scanModal uses (its "Schließen" button is wired once, in
+  // main.js, but this modal's actions depend on which flow opened it).
+  document.querySelector('input[type="file"][accept=".json"]').addEventListener('change', e => openBackupRestoreModal(e.target));
+  document.getElementById('backupDownloadBtn').addEventListener('click', openBackupExportModal);
   document.getElementById('apiTokenCopyBtn').addEventListener('click', copyApiToken);
   document.getElementById('addMachineBtn')?.addEventListener('click', () => openMachineForm(null));
   document.getElementById('machineFormCancelBtn')?.addEventListener('click', closeMachineForm);
