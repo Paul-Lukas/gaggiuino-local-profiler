@@ -451,10 +451,14 @@ router.post('/api/preheat/ready-by', (req, res) => {
 
 router.get('/api/live/data', (req, res) => {
     res.json({
-        isLive:      !!state.liveAccum,
-        profileName: state.liveAccum?.profileName || '',
-        datapoints:  state.liveAccum ? state.liveAccum.datapoints : null,
-        seq:         state.liveSeq,
+        isLive:           !!state.liveAccum,
+        profileName:      state.liveAccum?.profileName || '',
+        datapoints:       state.liveAccum ? state.liveAccum.datapoints : null,
+        seq:              state.liveSeq,
+        // #655: without this, a powered-off machine looked identical to an
+        // idle-but-reachable one (state.liveAccum is null either way) — the
+        // live tab kept showing "Ready to brew" indefinitely.
+        machineReachable: state.machineReachable,
     });
 });
 

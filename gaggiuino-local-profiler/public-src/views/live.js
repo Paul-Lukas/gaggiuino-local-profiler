@@ -234,11 +234,12 @@ export function setLiveBadge(state, detail = '') {
   liveBtn.classList.remove('live-brewing', 'live-ready');
 
   const labels = {
-    connecting: t('live_connecting'),
-    ready:      t('live_ready_status'),
-    brewing:    t('live_brewing'),
-    error:      detail || t('live_error_status'),
-    idle:       t('live_ready_status')
+    connecting:  t('live_connecting'),
+    ready:       t('live_ready_status'),
+    brewing:     t('live_brewing'),
+    error:       detail || t('live_error_status'),
+    idle:        t('live_ready_status'),
+    unreachable: detail || t('live_unreachable_status')
   };
   textEl.textContent = labels[state] || state;
 
@@ -251,9 +252,31 @@ export function handleLiveData(msg) {
   const times   = dp.timeInShot  || [];
   const lastIdx = times.length - 1;
 
-  const metaEl    = document.getElementById('live-meta');
-  const contentEl = document.getElementById('live-content');
-  const idleEl    = document.getElementById('live-idle');
+  const metaEl      = document.getElementById('live-meta');
+  const contentEl   = document.getElementById('live-content');
+  const idleEl      = document.getElementById('live-idle');
+  const idleTitleEl = document.getElementById('liveIdleTitle');
+  const idleTextEl  = document.getElementById('liveIdleText');
+
+  // #655: machineReachable === false is the authoritative "machine is off/
+  // unreachable" signal (lib/poll.js's 1s backend poll) and must win over
+  // the isLive-based "ready" fallback below — otherwise a powered-off
+  // machine renders identically to an idle-but-reachable one (state.liveAccum
+  // is null in both cases) and the live tab keeps showing "Ready to brew"
+  // indefinitely, which was the reported bug.
+  if (msg.machineReachable === false) {
+    setLiveBadge('unreachable');
+    metaEl.textContent = '–';
+    contentEl.style.display = 'none';
+    idleEl.style.display    = 'flex';
+    idleEl.classList.add('unreachable');
+    if (idleTitleEl) idleTitleEl.textContent = t('machine_unreachable_title');
+    if (idleTextEl)  idleTextEl.textContent  = t('live_unreachable_text');
+    return;
+  }
+  idleEl.classList.remove('unreachable');
+  if (idleTitleEl) idleTitleEl.textContent = t('machine_ready');
+  if (idleTextEl)  idleTextEl.textContent  = t('live_idle_text');
 
   if (!msg.isLive && times.length === 0) {
     setLiveBadge('ready');

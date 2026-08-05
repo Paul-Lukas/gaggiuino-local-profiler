@@ -31,6 +31,15 @@ async function syncAfterBrew() {
 
 async function syncShots(runtime = defaultRuntime) {
     const switchEntity = registry.switchEntityFor();
+    // #655: this early return intentionally leaves lastSyncTime/lastSyncError
+    // untouched -- lib/poll.js's checkAndApplyMachinePower() now sets
+    // state.machineReachable = false as soon as this same switchEntity is
+    // seen off, which already drives the status dot to red (its top
+    // priority signal, see status.js's updateStatus()) regardless of these
+    // two fields. Once the dot is correctly red, an old lastSyncTime next to
+    // it ("last synced 3 days ago") is accurate, not misleading -- it really
+    // was the last successful sync -- so bumping it to "now" here would
+    // make it lie about actually having synced when nothing was fetched.
     if (!runtime.machineOn && switchEntity) return true;
     try {
         const machineUrl = registry.apiUrlFor();

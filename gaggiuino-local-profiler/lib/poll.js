@@ -158,6 +158,20 @@ async function checkAndApplyMachinePower(runtime = defaultRuntime) {
         log('Machine off -- live polling and sync paused');
         stopLivePolling(runtime);
         state.preheatNotifySent = false;
+        // #655: without this, state.machineReachable stayed frozen at
+        // whatever it was just before the switch flipped off (usually
+        // true) -- stopLivePolling() above is what actually stops the only
+        // frequent prober of the machine's own reachability
+        // (pollViaGaggiuinoStatus() below), and syncShots() (lib/sync.js)
+        // short-circuits before its own network probe whenever this same
+        // switchEntity reports the machine off, so nothing else would ever
+        // flip it back to false. That's exactly why the status dot stayed
+        // green for days after the machine was switched off. The switch
+        // entity's own "off" report is itself an authoritative reachability
+        // signal -- syncShots() already trusts it to skip its network call
+        // -- so it's applied directly here instead of adding a separate
+        // stale-timeout mechanism.
+        state.machineReachable = false;
     }
 }
 
