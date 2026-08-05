@@ -129,6 +129,14 @@ jobs:
             echo "::error::version rewrite did not apply -- refusing to commit"
             exit 1
           }
+          # Already pointing at this build: `git commit` exits 1 on an empty
+          # commit, which would fail the job for a state that is actually
+          # correct. Happens whenever this job is re-run (e.g. after fixing
+          # the PAT) or the manifest was bumped by hand in the meantime.
+          if git diff --quiet -- "$CONFIG"; then
+            echo "$CONFIG already points at ${NEW_VERSION} -- nothing to commit"
+            exit 0
+          fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$CONFIG"
