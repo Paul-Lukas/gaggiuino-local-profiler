@@ -234,7 +234,7 @@
                 <span id="grindAdviceComparativeText"></span>
             </div>
 
-            <div class="chart-tabs">
+            <div class="chart-tabs tabs-scroll">
                 <button class="chart-tab active" id="tabZeit" data-i18n-html="tab_time"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg> Zeit</button>
                 <button class="chart-tab" id="tabPQ" data-i18n="tab_pq">P·Q Kurve</button>
                 <button id="expandChartBtn" data-i18n-title="btn_fullscreen_tooltip" title="Vollbild">⤢</button>
@@ -249,7 +249,7 @@
             <!-- Fullscreen chart overlay -->
             <div id="chartFullscreen">
                 <div class="fs-header">
-                    <div class="fs-tabs">
+                    <div class="fs-tabs tabs-scroll">
                         <button class="chart-tab active" id="fsTabZeit" data-i18n-html="tab_time"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg> Zeit</button>
                         <button class="chart-tab" id="fsTabPQ" data-i18n="tab_pq">P·Q Kurve</button>
                     </div>
@@ -319,7 +319,6 @@
                     <div class="annotation-field">
                         <label data-i18n="ann_coffee">Kaffee / Bohne</label>
                         <select id="annCoffee"></select>
-                        <datalist id="beanList"></datalist>
                         <div id="beanAgeHint" class="bean-age-hint" style="display:none"></div>
                     </div>
                     <div class="annotation-field">
@@ -337,8 +336,7 @@
                     </div>
                     <div class="annotation-field">
                         <label data-i18n="ann_grinder">Mühle</label>
-                        <input type="text" id="annGrinder" data-i18n-placeholder="ann_grinder_ph" placeholder="z.B. Niche Zero" list="grinderList" autocomplete="off">
-                        <datalist id="grinderList"></datalist>
+                        <input type="text" id="annGrinder" data-i18n-placeholder="ann_grinder_ph" placeholder="z.B. Niche Zero" autocomplete="off">
                     </div>
                     <div class="annotation-field">
                         <label data-i18n="ann_grind_setting">Mahlgrad</label>
@@ -473,7 +471,7 @@
     <!-- Library view -->
     <div id="library-view">
         <div class="lib-page">
-            <div class="lib-tabs">
+            <div class="lib-tabs tabs-scroll">
                 <button class="lib-tab active" id="libTabBeans" data-i18n="lib_beans">Bohnen</button>
                 <button class="lib-tab" id="libTabGrinders" data-i18n="lib_grinders">Mühlen</button>
                 <button class="lib-tab" id="libTabRecipes" data-i18n="lib_recipes">Rezepte</button>
@@ -532,13 +530,11 @@
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_bean_variety">Varietät</label>
-                                <input type="text" id="beanFormVariety" list="varietySuggestions" placeholder="Geisha, Bourbon …">
-                                <datalist id="varietySuggestions"></datalist>
+                                <input type="text" id="beanFormVariety" placeholder="Geisha, Bourbon …">
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_bean_process">Aufbereitung</label>
-                                <input type="text" id="beanFormProcess" list="processSuggestions" placeholder="Washed, Natural …">
-                                <datalist id="processSuggestions"></datalist>
+                                <input type="text" id="beanFormProcess" placeholder="Washed, Natural …">
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="bean_region_label">Region</label>
@@ -671,13 +667,7 @@
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_grinder_burr_type">Mahlwerk</label>
-                                <input type="text" id="grinderFormBurrType" list="burrTypeSuggestions" data-i18n-placeholder="lib_grinder_burr_type_ph" placeholder="Konisch Stahl">
-                                <datalist id="burrTypeSuggestions">
-                                    <option value="Konisch Stahl"></option>
-                                    <option value="Konisch Keramik"></option>
-                                    <option value="Flach Stahl"></option>
-                                    <option value="Flach Keramik"></option>
-                                </datalist>
+                                <input type="text" id="grinderFormBurrType" data-i18n-placeholder="lib_grinder_burr_type_ph" placeholder="Konisch Stahl">
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_grinder_purchase_date">Kaufdatum</label>
@@ -757,11 +747,11 @@
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_recipe_profile">Profil</label>
-                                <input type="text" id="recipeFormProfile" list="profileList" placeholder="Standard …">
+                                <input type="text" id="recipeFormProfile" placeholder="Standard …">
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_recipe_bean">Bohne</label>
-                                <input type="text" id="recipeFormBean" list="beanList" placeholder="Ethiopia …">
+                                <input type="text" id="recipeFormBean" placeholder="Ethiopia …">
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_recipe_notes">Notizen</label>
@@ -911,8 +901,6 @@
             </div>
         </div>
     </div><!-- #library-view -->
-
-    <datalist id="profileList"></datalist>
 
     <!-- Machine profile editor modal (#307) -->
     <div id="profileEditorModal" class="guided-maint-overlay" style="display:none">

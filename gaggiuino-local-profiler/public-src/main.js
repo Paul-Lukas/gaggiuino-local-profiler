@@ -123,6 +123,7 @@ import { loadMqttSettings, setMqttTransport, saveMqttSettings, applyMqttToMachin
 import { loadNotifySettingsCard, saveNotifySettings } from './components/notify-settings.js';
 
 import { renderWhatsNewCard } from './components/whats-new.js';
+import { attachAutocomplete } from './components/autocomplete.js';
 
 import { BEAN_ICON_SVG } from './icons.js';
 
@@ -619,6 +620,7 @@ document.addEventListener('DOMContentLoaded', () => {
     el.addEventListener('input', scheduleAutoSave);
     el.addEventListener('blur', flushAutoSave);
   });
+  attachAutocomplete(document.getElementById('annGrinder'), () => S.coffeeLibrary.grinders.map(g => g.name));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushAutoSave();
   });
