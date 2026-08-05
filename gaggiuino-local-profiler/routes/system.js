@@ -20,7 +20,7 @@ function getOpenApiSpec() {
 
 const { GLP_VERSION, HA_TOKEN, PROFILES_CACHE_FILE } = require('../lib/constants');
 const shotRepo = require('../lib/repositories/ShotRepository');
-const { loadOptions, getMachineUrl, getMachineBaseUrl, isOrdersEnabled, loadMenu } = require('../lib/data');
+const { loadOptions, isOrdersEnabled, loadMenu } = require('../lib/data');
 const { getSwitchState, callHaService } = require('../lib/ha');
 const { setReadyByTarget, buildPreheatResponse } = require('../lib/preheat');
 const { log, rateLimit } = require('../lib/helpers');
@@ -84,27 +84,6 @@ function resolveMachine(rawId) {
     return registry.getDefaultMachine();
 }
 
-// #643: prefer the registry's live default-machine switch_entity (kept
-// current by Settings UI edits via registry.updateMachine()) over the
-// possibly-stale options.json value -- same pattern #638/#641 established
-// for machine_host. Falls back to options.json's switch_entity only when
-// there's no default-machine row at all -- an explicitly empty/null
-// registry switchEntity means "not configured" and must NOT fall through
-// to a stale options.json value.
-function resolveSwitchEntity(opts) {
-    const defaultMachine = registry.getDefaultMachine();
-    return (defaultMachine ? defaultMachine.switchEntity : opts.switch_entity);
-}
-
-// #648: prefer the registry's live default-machine host over options.json's
-// possibly-stale machine_host -- same pattern #638/#641 established for
-// lib/poll.js/lib/sync.js. Falls back to options.json's machine_host only
-// when the registry has no usable host yet.
-function resolveMachineHost(opts) {
-    const defaultMachine = registry.getDefaultMachine();
-    return defaultMachine && defaultMachine.host ? { ...opts, machine_host: defaultMachine.host } : opts;
-}
-
 // Pre-load cache into state on startup so the profile select is immediately available
 (function initProfilesCache() {
     const cached = loadProfilesCache();
@@ -151,7 +130,11 @@ function hostnameOf(rawHost) {
 
 router.get('/api/status', async (req, res) => {
     const opts          = loadOptions();
-    const machineUrl    = getMachineUrl(opts);
+    // Registry-first (#638-class): this used to read options.json's
+    // machine_host directly and never picked up a Settings-UI host edit for
+    // this display field, even though the switch/preheat endpoints below
+    // already went through the registry. Same facade, same fix.
+    const machineUrl    = registry.apiUrlFor();
     let shotCount = 0, machineHostname = '';
     try { shotCount = shotRepo.count(); } catch { /* ignore */ }
     try { machineHostname = new URL(machineUrl).hostname; } catch { /* ignore */ }
@@ -190,7 +173,7 @@ router.get('/api/status', async (req, res) => {
         machineUrl, machineHostname,
         lastSyncError,
         lastMachineError: state.lastMachineError,
-        switchEntity:     resolveSwitchEntity(opts) || null,
+        switchEntity:     registry.switchEntityFor(),
         isDemo:           demoService.isDemoActive(),
     } : {};
     // Multi-machine (#317): flat legacy fields above always describe the
@@ -261,16 +244,14 @@ router.post('/api/sync', (req, res) => {
 // ── Machine switch ────────────────────────────────────────────────────────
 
 router.get('/api/switch', async (req, res) => {
-    const opts   = loadOptions();
-    const entity = resolveSwitchEntity(opts);
+    const entity = registry.switchEntityFor();
     if (!entity) return res.json({ configured: false });
     const st = await getSwitchState(entity);
     res.json({ configured: true, entity, state: st });
 });
 
 router.post('/api/switch/toggle', async (req, res) => {
-    const opts   = loadOptions();
-    const entity = resolveSwitchEntity(opts);
+    const entity = registry.switchEntityFor();
     if (!HA_TOKEN || !entity)
         return res.status(400).json({ error: 'switch_entity nicht konfiguriert' });
     try {
@@ -460,7 +441,7 @@ router.post('/api/preheat/ready-by', (req, res) => {
     // Setting (not clearing) a target the watcher could never fulfill would
     // silently no-op once plannedSwitchOnAt passes (see _checkReadyByPreheat)
     // — reject it up front instead, same eager check /api/switch/toggle uses.
-    if (targetAt !== null && (!HA_TOKEN || !resolveSwitchEntity(loadOptions())))
+    if (targetAt !== null && (!HA_TOKEN || !registry.switchEntityFor()))
         return res.status(400).json({ error: 'switch_entity nicht konfiguriert' });
     setReadyByTarget(targetAt);
     res.json(buildPreheatResponse());
@@ -526,8 +507,7 @@ router.get('/api/version', async (req, res) => {
 // H2: only available outside production to avoid leaking internal network topology
 if (process.env.NODE_ENV !== 'production') {
     router.get('/api/debug/machine', async (req, res) => {
-        const opts    = loadOptions();
-        const baseUrl = getMachineBaseUrl(resolveMachineHost(opts));
+        const baseUrl = registry.baseUrlFor();
         try {
             const r = await axios.get(`${baseUrl}/api/system/status`, { timeout: 5000 });
             res.json({ ok: true, baseUrl, data: r.data });

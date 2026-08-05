@@ -3,17 +3,14 @@
 // `machine_host`/`switch_entity` options on first run, so existing
 // single-machine installs upgrade with zero manual steps.
 'use strict';
-const fs = require('fs');
 const { getDb } = require('../db');
-const { OPTIONS_FILE } = require('../constants');
 const { log } = require('../helpers');
-
-function loadOptions() {
-    try {
-        if (fs.existsSync(OPTIONS_FILE)) return JSON.parse(fs.readFileSync(OPTIONS_FILE, 'utf8'));
-    } catch { /* fall through to {} */ }
-    return {};
-}
+// loadOptions() used to be duplicated here and in lib/data.js; consolidated
+// to the lib/data.js copy (it also logs a parse failure) since this module
+// needs getMachineUrl()/getMachineBaseUrl() from there anyway for the
+// config facade below -- no cycle: lib/data.js's own require graph
+// (repositories/services) never reaches back into this module.
+const { loadOptions, getMachineUrl, getMachineBaseUrl } = require('../data');
 
 // theme is stored as a JSON string (see lib/db.js's machines table comment
 // for the exact contract); parse defensively so a hand-edited/corrupt row
@@ -128,7 +125,59 @@ function deleteMachine(id) {
     return true;
 }
 
+// ── Config facade (#638/#641/#643/#648) ─────────────────────────────────────
+//
+// Before this, every consumer that needed a machine's host or switch entity
+// re-derived it from a raw `opts` (options.json) object -- getMachineUrl(opts)/
+// getMachineBaseUrl(opts) look correct at every call site even when they're
+// the wrong thing to call, because they never fail loudly, they just quietly
+// read the stale value. #643 alone shipped the same three-line
+// resolveSwitchEntity(opts) copied into five files. hostFor/switchEntityFor/
+// baseUrlFor/apiUrlFor below are the one place that logic lives now: a
+// machineId of null means "the default machine", matching every existing
+// call site (all of which were hard single-machine before this facade).
+//
+// Calls route through `module.exports.getMachine`/`getDefaultMachine` (not
+// the bare local function) so `vi.spyOn(registry, 'getDefaultMachine')` in
+// tests still intercepts these internal lookups -- see
+// test/default-machine-host-live-sync.test.js and siblings, which predate
+// this facade and spy on the registry module from the outside.
+function _machineFor(machineId) {
+    return machineId != null ? module.exports.getMachine(machineId) : module.exports.getDefaultMachine();
+}
+
+// Registry's switchEntity wins even when it's null/empty -- that's a
+// deliberate "not configured" (#643), not a hole to fall through to
+// options.json. Falling back there only when there's no default-machine row
+// at all is what makes clearing the field in Settings actually stick.
+function switchEntityFor(machineId = null) {
+    const machine = _machineFor(machineId);
+    return machine ? machine.switchEntity : (loadOptions().switch_entity || null);
+}
+
+// Registry host first; options.json's machine_host only when the registry
+// has no usable host for this machine yet (defensive -- ensureDefaultMachine()
+// normally seeds one before anything else runs).
+function _effectiveOpts(machineId) {
+    const machine = _machineFor(machineId);
+    const opts    = loadOptions();
+    return machine && machine.host ? { ...opts, machine_host: machine.host } : opts;
+}
+
+function apiUrlFor(machineId = null) {
+    return getMachineUrl(_effectiveOpts(machineId));
+}
+
+function baseUrlFor(machineId = null) {
+    return getMachineBaseUrl(_effectiveOpts(machineId));
+}
+
+function hostFor(machineId = null) {
+    try { return new URL(module.exports.apiUrlFor(machineId)).hostname; } catch { return 'gaggiuino'; }
+}
+
 module.exports = {
     ensureDefaultMachine, listMachines, getMachine, getDefaultMachine,
     createMachine, updateMachine, deleteMachine,
+    hostFor, switchEntityFor, baseUrlFor, apiUrlFor,
 };

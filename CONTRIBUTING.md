@@ -24,7 +24,7 @@ Include:
 | Backend | Node.js / Express — `gaggiuino-local-profiler/server.js` |
 | Frontend | Vite build from `gaggiuino-local-profiler/public-src/` (views/, components/, i18n/, main.js) — `public/` is generated build output, not edited directly |
 | Routes | `gaggiuino-local-profiler/routes/` — one file per concern |
-| Storage | SQLite (`lib/db.js`, better-sqlite3) at `/data/glp.db` for shot data; `/data/*.json` only for token, options, preheat state and profile cache |
+| Storage | SQLite (`lib/db.js`, better-sqlite3) at `/data/glp.db` for shot data **and** machine config (the `machines` table is the source of truth — see [CLAUDE.md](CLAUDE.md#key-conventions)); `/data/*.json` for token, preheat state, profile cache, and `options.json` (a tracked *input* to the machine registry, adopted on start — not live config, see `lib/machines/options-adoption.js`) |
 | Translations | UI strings via `t()` + `TRANSLATIONS` object (DE/EN/IT/FR/ES/NL) — add all 6 languages for new keys |
 | URLs | Always relative (no leading `/`) for HA ingress compatibility |
 

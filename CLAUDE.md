@@ -58,6 +58,17 @@ Concretely:
 - Run the full existing test suite after every change, not just tests
   related to the change, and treat any newly-failing test as a stop
   condition, not noise to explain away.
+- (Precedent: #638/#641/#643/#648 — machine host/switch entity resolution
+  was copy-pasted into five files instead of living in one place, and each
+  copy accumulated its own version of the same bug; a user-reported bug
+  shipped in v2.29.0 anyway because no test proved a *setting change* changed
+  behavior, only that saving succeeded.) Two rules that follow from it:
+  (a) If a setting is editable in the UI, a test must prove that *changing*
+  it changes behavior — a test that only checks the save/round-trip is not
+  enough.
+  (b) If the same resolution logic is needed in more than two places, it
+  belongs in one shared helper — copied logic multiplies its own bugs (#643:
+  five copies of the same three-line function).
 
 ## Versioning
 
@@ -114,6 +125,8 @@ gaggiuino-local-profiler/     ← HA app (main deliverable)
   server.js                   ← Node.js/Express backend
   routes/                     ← Express route handlers
   lib/                        ← Backend services, repositories, helpers
+    machines/                 ← Machine registry (source of truth for machine config,
+                                 see Key conventions below), per-type adapters
   public-src/                 ← Vite frontend source (views/, components/, i18n/, main.js)
   public/                     ← Vite build output (generated via `npm run build`, not edited directly)
   config.yaml                 ← HA app manifest + version
@@ -125,6 +138,22 @@ README.md                     ← Repo root README (English)
 
 ## Key conventions
 
+- **Machine config source of truth**: the `machines` SQLite table (`lib/machines/registry.js`)
+  is the only source of truth for a machine's host and switch entity — never
+  `options.json`. `options.json` (the HA add-on configuration) is a *tracked
+  input*: `lib/machines/options-adoption.js` adopts a changed add-on option
+  into the registry once, at startup; after that the registry's own value
+  (including one intentionally cleared via Settings → Machines) always wins.
+  Read machine config only through the facade —
+  `registry.hostFor()`/`switchEntityFor()`/`baseUrlFor()`/`apiUrlFor()`
+  (`machineId = null` means the default machine) — never
+  `opts.machine_host`/`opts.switch_entity` directly; an ESLint
+  `no-restricted-syntax` rule (`eslint.config.js`) enforces this outside the
+  three files that legitimately read `options.json`
+  (`lib/machines/registry.js`, `lib/data.js`, `lib/machines/options-adoption.js`).
+  This exists because #638/#641/#643/#648 were four separate bugs from the
+  same copy-pasted `opts`-shaped resolution logic — see the `## Unreleased`
+  history in `CHANGELOG.md` for the full writeup.
 - `shot.timestamp` is Unix seconds, `shot.duration / 10` = seconds
 - `shot.profile?.name || shot.profileName` for profile name
 - `shot.annotation?.coffee` etc. — annotation fields are optional
