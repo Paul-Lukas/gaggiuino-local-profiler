@@ -35,11 +35,24 @@ const registry = require('./registry');
 // kv keys (menu, orders_settings, ...) that share this table.
 const KV_PREFIX = 'options_seen:';
 
-// The add-on schema types both fields as free-text strings, so an unset
-// option arrives as "" rather than absent. Normalising to null up front
-// keeps "" (cleared) and undefined (never set) from reading as two
-// different states everywhere below.
+// Three distinct states, and conflating the last two would lose data:
+//
+//   "switch.x"  -> configured
+//   ""          -> present in the schema, deliberately emptied by the user
+//   undefined   -> the key is not in options.json at all
+//
+// The Supervisor writes every schema key into options.json, so `undefined`
+// does not mean "the user left it blank" -- it means the option was dropped
+// from config.yaml's schema (the planned deprecation of `switch_entity`) or
+// this is a standalone Docker install with no options.json. Adopting that as
+// a change would push null into the registry and wipe the switch entity of
+// every install on the upgrade that removes the option -- exactly the
+// silent loss this module was written to end. UNSET is therefore carried
+// through as its own value and skipped by adoptOptionChanges().
+const UNSET = Symbol('option-absent');
+
 function normalise(value) {
+    if (value === undefined || value === null) return UNSET;
     if (typeof value !== 'string') return null;
     const trimmed = value.trim();
     return trimmed === '' ? null : trimmed;
@@ -77,6 +90,13 @@ function adoptOptionChanges() {
     for (const { optionKey, machineField, required } of TRACKED) {
         const current = normalise(opts[optionKey]);
         const seen    = readSeen(optionKey);
+
+        // The option is not in options.json at all: nothing to adopt from,
+        // and nothing to record either -- the stored baseline is left as it
+        // is so that an option which later reappears is still compared
+        // against the last value actually seen. Deliberately ahead of every
+        // branch below: an absent option must never reach updateMachine().
+        if (current === UNSET) continue;
 
         // machine_host must never be cleared to null -- the app would lose
         // its only way to reach the machine. An empty add-on option means

@@ -133,6 +133,39 @@ describe('options.json adoption into the machine registry', () => {
         expect(machine().switchEntity).toBe(null);
     });
 
+    // The planned deprecation: once switch_entity is dropped from
+    // config.yaml's schema, the Supervisor stops writing the key into
+    // options.json. That is not a user clearing the field, and treating it
+    // as one would wipe the configured switch entity of every install on
+    // that single upgrade.
+    it('does not clear the switch entity when the option is removed from the schema', () => {
+        writeOptions({ machine_host: 'gaggiuino.local', switch_entity: 'switch.sonoff_espresso' });
+        boot();
+        expect(machine().switchEntity).toBe('switch.sonoff_espresso');
+
+        writeOptions({ machine_host: 'gaggiuino.local' }); // key gone entirely
+        boot();
+        expect(machine().switchEntity).toBe('switch.sonoff_espresso');
+    });
+
+    // Standalone Docker: no options.json at all (lib/data.js's loadOptions()
+    // returns {}). Every tracked option reads as absent, so the registry --
+    // the only configuration surface such an install has -- must survive
+    // untouched across restarts.
+    it('leaves the registry alone when options.json is missing entirely', () => {
+        writeOptions({ machine_host: 'gaggiuino.local', switch_entity: 'switch.sonoff_espresso' });
+        boot();
+
+        fs.unlinkSync(tmpFile);
+        delete require.cache[registryPath];
+        delete require.cache[dataPath];
+        delete require.cache[adoptionPath];
+        boot();
+
+        expect(machine().host).toBe('gaggiuino.local');
+        expect(machine().switchEntity).toBe('switch.sonoff_espresso');
+    });
+
     it('adopts a changed machine_host', () => {
         writeOptions({ machine_host: 'old-host.local' });
         boot();
