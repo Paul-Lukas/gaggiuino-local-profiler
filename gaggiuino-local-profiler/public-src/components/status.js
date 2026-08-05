@@ -57,11 +57,14 @@ export async function updateStatus(machineId) {
     const dotClass = s.machineReachable === false ? 'status-dot error'
                     : s.lastSyncError ? 'status-dot error'
                     : (s.lastSync ? 'status-dot ok' : 'status-dot unknown');
+    const dotTitle = s.machineReachable === false ? t('machine_unreachable_title') : (s.lastSyncError || '');
     dot.className = dotClass;
-    dot.title = s.machineReachable === false ? t('machine_unreachable_title') : (s.lastSyncError || '');
+    dot.title = dotTitle;
     // #411: the rail footer mirrors the same status dot rather than tracking
     // its own state — no second source of truth for machine reachability.
-    if (railDot) { railDot.className = dotClass; railDot.title = s.lastSyncError || ''; }
+    // #655: must mirror dotTitle too, not just dotClass — otherwise the rail
+    // dot shows the correct error color but a blank tooltip on hover.
+    if (railDot) { railDot.className = dotClass; railDot.title = dotTitle; }
     // Skip machineSubtitle while a shot is being viewed (#344): updateView()
     // (views/shots/index.js) owns it in that case, showing the machine that
     // actually owns the viewed shot — this global/default-machine value
