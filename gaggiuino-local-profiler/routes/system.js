@@ -197,6 +197,11 @@ router.get('/api/status', async (req, res) => {
         syncInterval:       opts.sync_interval || 5,
         haConnected:        !!HA_TOKEN,
         glpVersion:         GLP_VERSION,
+        // Unset (omitted) on every real install -- only the dev-channel image
+        // (.github/workflows/build-dev.yaml) bakes this in via a Docker
+        // build-arg, so the frontend's dev-build badge only ever appears on
+        // GLP DEV. See the Dockerfile's ARG GLP_DEV_BUILD comment.
+        ...(process.env.GLP_DEV_BUILD ? { devBuild: process.env.GLP_DEV_BUILD } : {}),
         ordersFeature:      isOrdersEnabled(),
         machineReachable,
         lastMachineSuccess: state.lastMachineSuccess,

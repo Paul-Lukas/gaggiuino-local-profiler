@@ -41,6 +41,12 @@ RUN if [ "$TARGETARCH" != "amd64" ]; then \
 # Runtime stage — only copies pre-built artifacts; no compilation at all
 FROM node:22-slim@sha256:f32b81066cde10a75dbac96646099533316d94bac4150c55da1636e1f0ffdc46
 
+# Empty by default -- only .github/workflows/build-dev.yaml passes this
+# build-arg (as dev-<run_number>); the release build (build.yaml) never sets
+# it, so GLP_DEV_BUILD stays unset in every image users install and the UI's
+# dev-build badge (public-src/components/status.js) never appears for them.
+ARG GLP_DEV_BUILD=""
+ENV GLP_DEV_BUILD=${GLP_DEV_BUILD}
 ENV NODE_ENV=production
 
 WORKDIR /app

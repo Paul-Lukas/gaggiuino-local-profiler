@@ -87,7 +87,10 @@ export async function updateStatus(machineId) {
     }
     if (s.glpVersion) {
       const vEl = document.getElementById('glpVersionBadge');
-      if (vEl) vEl.textContent = `v${s.glpVersion}`;
+      // s.devBuild is only ever present on the dev-channel image (see
+      // routes/system.js's /api/status and the Dockerfile's GLP_DEV_BUILD
+      // build-arg) -- appending it here is a no-op for every real install.
+      if (vEl) vEl.textContent = `v${s.glpVersion}` + (s.devBuild ? ` (${s.devBuild})` : '');
     }
     const ordersBtn = document.getElementById('btnOrders');
     if (ordersBtn) ordersBtn.style.display = s.ordersFeature ? '' : 'none';

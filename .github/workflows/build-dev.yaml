@@ -79,6 +79,8 @@ jobs:
           context: ./gaggiuino-local-profiler
           platforms: ${{ matrix.platform }}
           push: true
+          build-args: |
+            GLP_DEV_BUILD=dev-${{ github.run_number }}
           # Separate cache scope from the release build so a dev build can
           # never poison the cache the release build restores from.
           cache-from: type=gha,scope=dev-${{ matrix.arch }}
