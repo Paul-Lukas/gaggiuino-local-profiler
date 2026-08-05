@@ -1,11 +1,11 @@
 # Dev channel: every push to `dev` publishes a container image and points the
-# separate manifest repository (mxkissnr/glp-dev-addon) at it, so the
+# separate manifest repository (mxkissnr/glp-dev-app) at it, so the
 # maintainer can test unreleased code on a real Home Assistant instance
-# without touching the add-on that users run.
+# without touching the app that users run.
 #
 # Why the manifest lives in another repository at all: Home Assistant shows
-# every add-on listed in a repository's root to everyone who has added that
-# repository. Putting a dev add-on next to the stable one here would offer it
+# every app listed in a repository's root to everyone who has added that
+# repository. Putting a dev app next to the stable one here would offer it
 # to all users. A separate repository keeps it invisible unless deliberately
 # added.
 #
@@ -47,7 +47,7 @@ jobs:
     # HAOS box, which is amd64. The release build (build.yaml) still covers
     # armv7/aarch64 for users -- arch-specific problems surface there. Kept as
     # a matrix so adding an architecture back is a two-line change, and so the
-    # `arch:` list in glp-dev-addon's config.yaml stays the only other place
+    # `arch:` list in glp-dev-app's config.yaml stays the only other place
     # that has to agree.
     strategy:
       fail-fast: false
@@ -99,7 +99,7 @@ jobs:
             io.hass.name=GLP DEV — Gaggiuino Local Profiler (unstable)
 
   # Only after every architecture is published -- pointing the manifest at a
-  # tag that exists for just one arch would break the add-on on the others.
+  # tag that exists for just one arch would break the app on the others.
   publish-manifest:
     name: Point dev manifest at the new build
     needs: build
@@ -108,7 +108,7 @@ jobs:
       - name: Checkout dev manifest repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          repository: mxkissnr/glp-dev-addon
+          repository: mxkissnr/glp-dev-app
           # GITHUB_TOKEN is scoped to this repository only, so writing to the
           # manifest repository needs a PAT with `contents: write` on it.
           token: ${{ secrets.DEV_ADDON_REPO_TOKEN }}
@@ -132,5 +132,5 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$CONFIG"
-          git commit -m "chore(dev): point dev add-on at ${NEW_VERSION} (${GITHUB_SHA::7})"
+          git commit -m "chore(dev): point dev app at ${NEW_VERSION} (${GITHUB_SHA::7})"
           git push
