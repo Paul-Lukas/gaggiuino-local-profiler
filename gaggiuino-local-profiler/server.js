@@ -33,6 +33,10 @@ try {
     libraryService.migrateVarietyToSpecies();
     libraryService.migrateAnnotationBeanIds();
     require('./lib/machines/registry').ensureDefaultMachine(); // #317: seed machine #1 from legacy options
+    // Must run after the seed: adopts machine_host/switch_entity edits made
+    // in the HA add-on configuration *after* first run, which the seed above
+    // can no longer pick up. See lib/machines/options-adoption.js.
+    require('./lib/machines/options-adoption').adoptOptionChanges();
     log('Database ready');
 } catch (err) {
     log(`Init error: ${err.message}`, true);

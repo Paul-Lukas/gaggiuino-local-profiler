@@ -1,0 +1,112 @@
+// options.json as a *tracked input* to the machine registry.
+//
+// The registry owns machine config (#317) -- but the same two values are
+// also editable in the Home Assistant add-on configuration, and those two
+// surfaces never talked to each other in either direction:
+//
+//   - ensureDefaultMachine() seeds from options.json only while the machines
+//     table is still empty, so an option set *after* the first run never
+//     reached the registry.
+//   - #643 then made every consumer read the registry, deliberately treating
+//     an empty registry switchEntity as "not configured" so that clearing the
+//     field in Settings actually sticks.
+//
+// Both decisions are individually right and together they stranded anyone
+// who configured switch_entity in the add-on options after the initial seed:
+// registry NULL, consumers read NULL, and the power button never appeared
+// until the entity was re-entered under Settings -> Machines (reported by a
+// user on v2.29.0).
+//
+// A read-time fallback to options.json cannot fix this without re-breaking
+// #643: it would resurrect the old value on every read and make the field
+// unclearable. Comparing against the *last seen* options.json value resolves
+// both — a changed option is adopted into the registry, an unchanged one is
+// ignored, so the app's own edit (including an intentional clear) always
+// wins. Same shape as any config-reconciliation loop: the external input is
+// authoritative only at the moment it changes.
+'use strict';
+const { getDb } = require('../db');
+const { loadOptions } = require('../data');
+const { log } = require('../helpers');
+const registry = require('./registry');
+
+// One kv row per tracked option, holding the options.json value as of the
+// last adoption pass. Namespaced so it can't collide with the feature-level
+// kv keys (menu, orders_settings, ...) that share this table.
+const KV_PREFIX = 'options_seen:';
+
+// The add-on schema types both fields as free-text strings, so an unset
+// option arrives as "" rather than absent. Normalising to null up front
+// keeps "" (cleared) and undefined (never set) from reading as two
+// different states everywhere below.
+function normalise(value) {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed === '' ? null : trimmed;
+}
+
+function readSeen(key) {
+    const row = getDb().prepare('SELECT value FROM kv WHERE key = ?').get(KV_PREFIX + key);
+    if (!row) return undefined; // no baseline recorded yet -- distinct from a recorded null
+    try { return JSON.parse(row.value); } catch { return undefined; }
+}
+
+function writeSeen(key, value) {
+    getDb().prepare('INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)')
+        .run(KV_PREFIX + key, JSON.stringify(value));
+}
+
+// optionKey: the options.json/config.yaml field; machineField: the registry
+// row property it maps to. Kept as data rather than two hand-written blocks
+// so a third tracked option can't drift from the other two -- the copy-paste
+// drift that produced #643's five identical resolveSwitchEntity() bodies is
+// exactly what this module exists to stop repeating.
+const TRACKED = [
+    { optionKey: 'machine_host',  machineField: 'host',         required: true  },
+    { optionKey: 'switch_entity', machineField: 'switchEntity', required: false },
+];
+
+// Runs once at startup, after ensureDefaultMachine(). Best-effort: a failure
+// here must never stop the add-on from booting, so the caller's try/catch is
+// load-bearing and every branch below is side-effect-free until it succeeds.
+function adoptOptionChanges() {
+    const opts    = loadOptions();
+    const machine = registry.getDefaultMachine();
+    if (!machine) return;
+
+    for (const { optionKey, machineField, required } of TRACKED) {
+        const current = normalise(opts[optionKey]);
+        const seen    = readSeen(optionKey);
+
+        // machine_host must never be cleared to null -- the app would lose
+        // its only way to reach the machine. An empty add-on option means
+        // "leave it alone", not "forget the host".
+        if (required && current === null) {
+            if (seen === undefined) writeSeen(optionKey, current);
+            continue;
+        }
+
+        let adopt;
+        if (seen === undefined) {
+            // First pass on an existing install: no baseline exists, so a
+            // difference here says nothing about *when* it appeared. Adopt
+            // only into an empty registry field -- that is precisely the
+            // stranded state described at the top of this file, and it can't
+            // be a deliberate clear because #643 shipped after the seed.
+            adopt = current !== null && !machine[machineField];
+        } else {
+            // Steady state: the add-on option changed since the last pass,
+            // so the user just edited it in Home Assistant. It wins.
+            adopt = current !== seen;
+        }
+
+        if (adopt) {
+            registry.updateMachine(machine.id, { [machineField]: current });
+            log(`Machines: adopted ${optionKey} from add-on options into machine #${machine.id} `
+                + `("${machine.name}"): ${machineField} = ${current === null ? '(cleared)' : current}`);
+        }
+        writeSeen(optionKey, current);
+    }
+}
+
+module.exports = { adoptOptionChanges };
