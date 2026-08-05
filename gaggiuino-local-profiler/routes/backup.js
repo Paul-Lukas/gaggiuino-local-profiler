@@ -332,7 +332,18 @@ router.post('/api/backup', (req, res, next) => {
 });
 
 router.post('/api/restore', (req, res, next) => {
-    if (!rateLimit(`restore:${req.ip}`, 3)) return res.status(429).json({ error: 'Rate limit exceeded' });
+    // A dry run is read-only preview traffic the modal fires on every
+    // section-checkbox toggle and passphrase keystroke (debounced, but still
+    // several calls per interaction) — sharing the real restore's 3/min limit
+    // meant just opening the modal and ticking a couple of boxes could 429
+    // before the user ever clicked "Restore" (reported by Max). Real restores
+    // stay tightly capped, since they wipe and replace live data; the dry-run
+    // limit only needs to bound abuse, not user interaction speed.
+    const isDryRun = req.body?.dryRun === true;
+    const limitOk  = isDryRun
+        ? rateLimit(`restore-preview:${req.ip}`, 30)
+        : rateLimit(`restore:${req.ip}`, 3);
+    if (!limitOk) return res.status(429).json({ error: 'Rate limit exceeded' });
     try {
         const b = req.body;
         if (!b || b.glp_backup !== true || !Array.isArray(b.shots))
