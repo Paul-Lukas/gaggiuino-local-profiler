@@ -3,7 +3,7 @@ import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { apiFetch } from '../api.js';
 import { esc, roastAgeDays, frozenPortionAgeDays, freshnessState, calcBeanRating, shouldShowFreshBadge, toIsoDateInput, todayIsoDate, isoDateInputToMs } from '../utils.js';
-import { COFFEE_COUNTRIES, VARIETY_SUGGESTIONS, PROCESS_SUGGESTIONS, LOCALE_MAP, countryName, flagEmoji } from '../constants.js';
+import { COFFEE_COUNTRIES, VARIETY_SUGGESTIONS, PROCESS_SUGGESTIONS, localeFor, countryName, flagEmoji } from '../constants.js';
 import { setBeanFilter } from '../components/sidebar.js';
 import { switchMode } from '../components/mode.js';
 import { loadBeanImageBlobUrl, loadGrinderImageBlobUrl, invalidateGrinderImage, invalidateBeanImage,
@@ -170,7 +170,7 @@ export function renderBeanList() {
       ? ` <span class="lib-fresh-badge fresh-${freshnessState(roastAge)}" title="${esc(t('freshness_title', roastAge))}">${roastAge}d</span>`
       : '';
 
-    const locale = LOCALE_MAP[S.currentLang] || 'de-DE';
+    const locale = localeFor(S.currentLang);
     const frozenPortions = Array.isArray(activeBag?.frozenPortions) ? activeBag.frozenPortions : [];
     // #472: date badges include the year (a portion can stay frozen well
     // past 12 months) and, while still frozen, show remaining/total so a
@@ -1252,35 +1252,38 @@ export async function _handleScanResult(raw, status) {
     status.className = 'found';
     return;
   }
-  // EAN/UPC → Open Food Facts
+  // EAN/UPC → Open Food Facts, via the backend proxy: the CSP's connect-src
+  // is locked to 'self' (deliberate hardening, see server.js), so a direct
+  // browser fetch to world.openfoodfacts.org is always blocked. The proxy
+  // (routes/library/scan.js) distinguishes "not found" (404) from any other
+  // failure so this can show a specific message instead of one silent
+  // catch-all error.
   status.textContent = t('scan_searching');
   try {
-    const r    = await fetch(`https://world.openfoodfacts.org/api/v3/product/${encodeURIComponent(raw)}.json`);
-    const data = await r.json();
-    const p    = data?.product;
-    if (p) {
-      const name    = p.product_name || p.product_name_de || p.product_name_en || '';
-      const roaster = p.brands || '';
-      const notes   = [p.categories_tags?.find(c => c.startsWith('en:'))?.replace('en:', '') || '', p.labels || ''].filter(Boolean).join(', ');
-      status.textContent = t('scan_found', name || raw);
-      status.className = 'found';
-      await new Promise(r => setTimeout(r, 1000));
-      closeScanModal();
-      openBeanForm();
-      if (name)    document.getElementById('beanFormName').value    = name;
-      if (roaster) document.getElementById('beanFormRoaster').value = roaster;
-      if (notes)   document.getElementById('beanFormNotes').value   = notes;
-    } else {
+    const r = await apiFetch(`api/library/scan/${encodeURIComponent(raw)}`);
+    if (r.status === 404) {
       status.textContent = t('scan_not_found');
       status.className = 'error';
-      await new Promise(r => setTimeout(r, 1800));
+      await new Promise(res => setTimeout(res, 1800));
       closeScanModal();
       openBeanForm();
+      return;
     }
-  } catch {
+    if (!r.ok) throw new Error(`scan lookup failed: ${r.status}`);
+    const { name, roaster, notes } = await r.json();
+    status.textContent = t('scan_found', name || raw);
+    status.className = 'found';
+    await new Promise(res => setTimeout(res, 1000));
+    closeScanModal();
+    openBeanForm();
+    if (name)    document.getElementById('beanFormName').value    = name;
+    if (roaster) document.getElementById('beanFormRoaster').value = roaster;
+    if (notes)   document.getElementById('beanFormNotes').value   = notes;
+  } catch (e) {
+    console.error('Barcode scan lookup failed:', e);
     status.textContent = t('scan_error');
     status.className = 'error';
-    await new Promise(r => setTimeout(r, 1800));
+    await new Promise(res => setTimeout(res, 1800));
     closeScanModal();
     openBeanForm();
   }

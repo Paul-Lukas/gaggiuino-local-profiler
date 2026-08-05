@@ -336,7 +336,7 @@ GLP unterstützt sechs Oberflächensprachen, umschaltbar unter ⚙ Einstellungen
 | ES | Español |
 | NL | Nederlands |
 
-Die Auswahl wird in `localStorage` gespeichert. Alle UI-Texte, Chart-Beschriftungen, Mahlgrad-Empfehlungen, Wartungserinnerungen, Bestellstatus-Meldungen und Bibliothekstexte sind in allen sechs Sprachen vollständig übersetzt.
+Die Auswahl wird in `localStorage` gespeichert. Alle UI-Texte, Chart-Beschriftungen, Mahlgrad-Empfehlungen, Wartungserinnerungen, Bestellstatus-Meldungen und Bibliothekstexte sind in allen sechs Sprachen vollständig übersetzt. Beim ersten Start (bevor eine Sprache explizit gewählt wurde) verwendet GLP die Sprache deines Browsers, sofern sie eine der sechs obigen ist, sonst **Englisch** — niemals standardmäßig Deutsch bei einer nicht unterstützten Browsersprache.
 
 ### Hell / Dunkel Theme
 

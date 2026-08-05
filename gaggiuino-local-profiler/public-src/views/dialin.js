@@ -1,6 +1,6 @@
 import { S } from '../state.js';
 import { t } from '../i18n.js';
-import { LOCALE_MAP } from '../constants.js';
+import { localeFor } from '../constants.js';
 import { esc, scoreColor } from '../utils.js';
 
 export function renderDialin() {
@@ -22,7 +22,7 @@ export function renderDialin() {
     return;
   }
 
-  const locale = LOCALE_MAP[S.currentLang] || 'de-DE';
+  const locale = localeFor(S.currentLang);
 
   grid.innerHTML = recent.map(s => {
     const data  = window.getShotData ? window.getShotData(s) : null;

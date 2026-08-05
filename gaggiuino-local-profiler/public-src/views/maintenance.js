@@ -1,7 +1,7 @@
 import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { apiFetch } from '../api.js';
-import { MAINT_META, GUIDED_MAINT_STEPS, LOCALE_MAP } from '../constants.js';
+import { MAINT_META, GUIDED_MAINT_STEPS, localeFor } from '../constants.js';
 import { esc } from '../utils.js';
 
 // ── Task icons (#393) — plain inline SVG line icons, no emoji, matching the
@@ -374,7 +374,7 @@ export function renderMaintLog(entries) {
     return;
   }
 
-  const locale = LOCALE_MAP[S.currentLang] || 'de-DE';
+  const locale = localeFor(S.currentLang);
   const rows = entries.map(e => {
     const dateStr   = new Date(e.ts * 1000).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' });
     const isManual  = e.shotCountAtTime === null;

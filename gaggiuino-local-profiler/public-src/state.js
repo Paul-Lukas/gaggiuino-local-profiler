@@ -1,8 +1,18 @@
+import { TRANSLATIONS } from './constants.js';
+
 export const S = {
+  // navigator.language used to be trusted as-is, with no
+  // check against the languages GLP actually ships (TRANSLATIONS below) —
+  // an unsupported browser locale (e.g. pt, pl, sv) fell through to
+  // i18n.js's own TRANSLATIONS.de fallback, showing the entire UI in German
+  // to a non-German user by construction. Validate against the real key set
+  // here instead and fall back to English, matching every other
+  // unsupported-language fallback in this codebase (i18n.js's t(),
+  // constants.js's localeFor(), the backend's getHaLanguage()/notifyT()).
   currentLang: (() => {
     const stored = localStorage.getItem('glp_lang');
     const lang = stored || navigator.language.slice(0, 2).toLowerCase();
-    return lang;
+    return Object.prototype.hasOwnProperty.call(TRANSLATIONS, lang) ? lang : 'en';
   })(),
   // In-memory only (#522) — never persisted to localStorage. A fresh token is
   // fetched on every load via initToken()'s /api/token call (see api.js).

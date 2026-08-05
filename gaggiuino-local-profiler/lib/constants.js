@@ -45,6 +45,7 @@ const BEAN_IMAGE_DIR       = '/data/bean-images';
 // exports) while still bounding the download.
 const BEAN_IMAGE_MAX_BYTES  = 4 * 1024 * 1024;
 const IMPORT_FETCH_MAX_BYTES = 5 * 1024 * 1024; // product JSON/HTML pages, generous for Shopify's inline data
+const SCAN_FETCH_MAX_BYTES   = 1 * 1024 * 1024; // Open Food Facts product JSON only, much smaller than a Shopify page
 
 const LOW_STOCK_THRESHOLD_G = 100; // remaining grams below which a bean counts as low stock
 
@@ -103,5 +104,5 @@ module.exports = {
     DEFAULT_MENU, MAINTENANCE_DEFAULTS, STATIC_MAINTENANCE_TASKS, isGlobalMaintenanceTask,
     GAGGIUINO_SETTINGS_CATEGORIES,
     LOW_STOCK_THRESHOLD_G,
-    ALLOWED_IMAGE_HOSTS, BEAN_IMAGE_DIR, BEAN_IMAGE_MAX_BYTES, IMPORT_FETCH_MAX_BYTES,
+    ALLOWED_IMAGE_HOSTS, BEAN_IMAGE_DIR, BEAN_IMAGE_MAX_BYTES, IMPORT_FETCH_MAX_BYTES, SCAN_FETCH_MAX_BYTES,
 };

@@ -1,6 +1,6 @@
 import { S } from '../state.js';
 import { t } from '../i18n.js';
-import { LOCALE_MAP } from '../constants.js';
+import { localeFor } from '../constants.js';
 import { apiFetch } from '../api.js';
 import { updateMachineBanner, updateOnboardingPanel, updateDemoBadge } from './onboarding.js';
 
@@ -43,7 +43,7 @@ export async function updateStatus(machineId) {
     const timeEl = document.getElementById('syncTime');
     if (s.lastSync) {
       timeEl.textContent = new Date(s.lastSync)
-        .toLocaleTimeString(LOCALE_MAP[S.currentLang] || 'de-DE', { hour: '2-digit', minute: '2-digit' });
+        .toLocaleTimeString(localeFor(S.currentLang), { hour: '2-digit', minute: '2-digit' });
     }
     const dotClass = s.lastSyncError ? 'status-dot error' : (s.lastSync ? 'status-dot ok' : 'status-dot unknown');
     dot.className = dotClass;

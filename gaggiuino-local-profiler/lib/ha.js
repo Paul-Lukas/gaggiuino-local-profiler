@@ -22,18 +22,22 @@ async function sendHaNotify(service, title, message, tag) {
     } catch (e) { log(`Notify ${service} failed: ${e.message}`); }
 }
 
+// Falls back to English, not German: a standalone-Docker user with no
+// Supervisor token (HA_TOKEN unset) or a request failure used to get German
+// push notifications by construction, regardless of their own locale — see
+// lib/notify-i18n.js, whose own fallback mirrors this one.
 let _haLang = null;
 async function getHaLanguage() {
     if (_haLang) return _haLang;
-    if (!HA_TOKEN) return 'de';
+    if (!HA_TOKEN) return 'en';
     try {
         const r = await axios.get(`${HA_API}/config`,
             { headers: { Authorization: `Bearer ${HA_TOKEN}` }, timeout: 5000 });
         const lang = String(r.data?.language || '').slice(0, 2).toLowerCase();
         // eslint-disable-next-line require-atomic-updates -- benign cache-fill race: concurrent calls before this resolves would all compute the same value from the same HA config
-        _haLang = ['de', 'en', 'it', 'fr', 'es', 'nl'].includes(lang) ? lang : 'de';
+        _haLang = ['de', 'en', 'it', 'fr', 'es', 'nl'].includes(lang) ? lang : 'en';
     // eslint-disable-next-line require-atomic-updates -- benign cache-fill race, same reasoning as the assignment above
-    } catch { _haLang = 'de'; }
+    } catch { _haLang = 'en'; }
     return _haLang;
 }
 

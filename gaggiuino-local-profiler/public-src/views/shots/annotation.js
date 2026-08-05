@@ -9,7 +9,7 @@ import { loadShotImageBlobUrl, invalidateShotImage } from '../../bean-image.js';
 import { openImageCropEditor } from '../../components/image-crop.js';
 import { openLightbox } from '../../components/lightbox.js';
 import { COFFEE_ICON_SVG, CHECK_ICON_SVG } from '../../icons.js';
-import { LOCALE_MAP } from '../../constants.js';
+import { localeFor } from '../../constants.js';
 
 // ── Auto-save ─────────────────────────────────────────────────────────────
 
@@ -276,7 +276,7 @@ export function _renderFrozenPortionPills(beanName, shotMs, selectedId) {
   const portions = _activeFrozenPortionsForBean(bean, shotMs ?? Date.now());
   if (!portions.length) { field.style.display = 'none'; container.innerHTML = ''; hidden.value = ''; return; }
   field.style.display = '';
-  const locale = LOCALE_MAP[S.currentLang] || 'de-DE';
+  const locale = localeFor(S.currentLang);
   const selected = selectedId != null ? String(selectedId) : '';
   const options = [{ id: '', label: t('ann_frozen_portion_none') }, ...portions.map(p => {
     const dateStr    = new Date(p.frozenAt).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' });

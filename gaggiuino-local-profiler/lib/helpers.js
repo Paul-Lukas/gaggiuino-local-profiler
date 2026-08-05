@@ -1,7 +1,19 @@
 const fs = require('fs');
 
+// Sortable "YYYY-MM-DD HH:mm:ss" timestamp in the container's own local time
+// zone (whatever `TZ` HA/Docker set, or the host's default) — Date's own
+// getFullYear/getMonth/... accessors already resolve against that, no
+// explicit timeZone needed. Previously hardcoded to 'de-DE'/'Europe/Berlin',
+// which made the add-on log (the primary support channel) unreadable for
+// any user outside Germany and non-trivial to sort/grep.
+function formatLogTimestamp(date) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+        `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 function log(message, isError = false) {
-    const now = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
+    const now = formatLogTimestamp(new Date());
     if (isError) console.error(`[${now}] ${message}`);
     else         console.log(`[${now}] ${message}`);
 }
@@ -56,4 +68,4 @@ async function withFileLock(key, fn) {
     try { return await fn(); } finally { _fileLocks.delete(key); resolve(); }
 }
 
-module.exports = { log, rateLimit, writeFileSafe, withFileLock, isSupervisorIp, formatUnhandledRejection };
+module.exports = { log, rateLimit, writeFileSafe, withFileLock, isSupervisorIp, formatUnhandledRejection, formatLogTimestamp };

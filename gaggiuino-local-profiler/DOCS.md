@@ -336,7 +336,7 @@ GLP ships with six interface languages selectable in ⚙ Settings → Language:
 | ES | Español |
 | NL | Nederlands |
 
-The selection is saved in `localStorage`. All UI strings, chart labels, grind recommendations, maintenance reminders, order status messages, and library labels are fully translated in all six languages.
+The selection is saved in `localStorage`. All UI strings, chart labels, grind recommendations, maintenance reminders, order status messages, and library labels are fully translated in all six languages. On first launch (before any language has been explicitly chosen), GLP defaults to your browser's language if it's one of the six above, and to **English** otherwise — never German by default for an unsupported browser language.
 
 ### Light / Dark theme
 

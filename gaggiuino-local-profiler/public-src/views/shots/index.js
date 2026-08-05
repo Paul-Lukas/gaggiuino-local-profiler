@@ -2,7 +2,7 @@ import Chart from 'chart.js/auto';
 import { S, filterShotsByMachine }                            from '../../state.js';
 import { t }                                                  from '../../i18n.js';
 import { apiFetch }                                           from '../../api.js';
-import { LOCALE_MAP, phasePlugin, corsairPlugin, clearChartOnTouchEnd } from '../../constants.js';
+import { localeFor, phasePlugin, corsairPlugin, clearChartOnTouchEnd } from '../../constants.js';
 import {
   esc, avg, avgActive, max, fmt, formatTimeLabel, formatDelta,
   stddev, detectPhases, detectChanneling, scoreClass, scoreColor, shareOrDownloadBlob
@@ -444,7 +444,7 @@ export function updateView() {
       document.getElementById('grindAdviceComparativeIcon').innerHTML = compAdv.icon;
       document.getElementById('grindAdviceComparativeText').textContent = compAdv.text;
 
-      const locale   = LOCALE_MAP[S.currentLang] || 'de-DE';
+      const locale   = localeFor(S.currentLang);
       const listHtml = compAdv.shots.map(({ shot: s, grind, score }) => {
         const date  = new Date(s.timestamp * 1000).toLocaleDateString(locale, { day: '2-digit', month: '2-digit' });
         const dur   = s.duration ? `${(s.duration / 10).toFixed(0)}s` : '';
@@ -595,7 +595,7 @@ function shotToCSVRow(shot) {
   const avgT   = avg(d.temp.map(p => p.y));
   const secs   = ((shot.duration || 0) / 10).toFixed(1);
   const ratio  = (ann.dose && finalW) ? `1:${(finalW / ann.dose).toFixed(1)}` : '';
-  const date   = new Date(shot.timestamp * 1000).toLocaleString(LOCALE_MAP[S.currentLang] || 'de-DE');
+  const date   = new Date(shot.timestamp * 1000).toLocaleString(localeFor(S.currentLang));
   return [
     shot.id, date,
     shot.profile?.name || shot.profileName || '',

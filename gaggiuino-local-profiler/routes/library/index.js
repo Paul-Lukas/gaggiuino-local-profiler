@@ -34,5 +34,6 @@ require('./grinders')(router);
 require('./recipes')(router);
 require('./baskets')(router);
 require('./puckscreens')(router);
+require('./scan')(router);
 
 module.exports = router;
