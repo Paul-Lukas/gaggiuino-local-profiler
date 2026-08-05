@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import { createRequire } from 'module';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 const require = createRequire(import.meta.url);
@@ -388,6 +388,79 @@ describe('Image restore', () => {
         });
         expect(r.status).toBe(200);
         expect(libService.getLibrary().beans[0].image).toBe(null);
+    });
+
+    // Shot photos were entirely missing from both the export and restore
+    // image handling -- reported after a shot's latte-art photo displayed
+    // correctly in the app but never appeared in any backup. Shots live at
+    // the backup's top level, not nested under coffee_library, so this is a
+    // separate code path from the library-entity tests above (same
+    // validation rules, applied to public-src/views/shots/index.js's
+    // uploadShotImage() target instead).
+    it('restores a shot photo the same way a library entity photo is restored', async () => {
+        const validJpgB64 = Buffer.from([0xFF, 0xD8, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0]).toString('base64');
+        const r = await restore({
+            glp_backup: true,
+            shots: [{ id: 55, timestamp: 1700000000, duration: 200, image: 'jpg' }],
+            images: { 'shot-55.jpg': validJpgB64 },
+        });
+        expect(r.status).toBe(200);
+        expect(existsSync(imagePath(55, 'jpg', 'shot-'))).toBe(true);
+        expect(shotRepo.findById(55).image).toBe('jpg');
+    });
+
+    it('clears a shot\'s image field, same as a library entity, when the magic bytes don\'t match the claimed format', async () => {
+        const r = await restore({
+            glp_backup: true,
+            shots: [{ id: 57, timestamp: 1700000000, duration: 200, image: 'jpg' }],
+            images: { 'shot-57.jpg': Buffer.from('not actually a jpg').toString('base64') },
+        });
+        expect(r.status).toBe(200);
+        expect(existsSync(imagePath(57, 'jpg', 'shot-'))).toBe(false);
+        expect(shotRepo.findById(57).image).toBe(null);
+    });
+
+    it('never derives a shot photo\'s written filename from the backup file either', async () => {
+        const validJpgB64 = Buffer.from([0xFF, 0xD8, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0]).toString('base64');
+        const r = await restore({
+            glp_backup: true,
+            shots: [{ id: 56, timestamp: 1700000000, duration: 200, image: 'jpg' }],
+            images: { '../../../../tmp/evil-shot.jpg': validJpgB64, 'shot-56.jpg': validJpgB64 },
+        });
+        expect(r.status).toBe(200);
+        expect(existsSync(path.join(imageTmpDir, '..', '..', '..', '..', 'tmp', 'evil-shot.jpg'))).toBe(false);
+        expect(existsSync(imagePath(56, 'jpg', 'shot-'))).toBe(true);
+    });
+});
+
+// Export used to derive its file list from a hand-maintained "which library
+// entity types can have a photo" table, which silently omitted shot photos
+// entirely -- reported after a shot's photo rendered fine in the app but
+// never showed up in a backup. GET/POST /api/backup now scan BEAN_IMAGE_DIR
+// directly instead, so this proves the property that actually matters: it
+// can't miss a category, because it doesn't need to know what one is.
+describe('Image export (directory scan)', () => {
+    it('includes a shot photo file even though shots are not in the library-entity list', async () => {
+        writeFileSync(imagePath(77, 'jpg', 'shot-'), Buffer.from([0xFF, 0xD8, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+        const b = await backup();
+        expect(b.images).toHaveProperty('shot-77.jpg');
+    });
+
+    it('includes any file under BEAN_IMAGE_DIR regardless of naming, proving the scan is not entity-type-driven', async () => {
+        // No current entity type uses this prefix -- stands in for "a future
+        // photo-bearing entity type nobody has updated an export list for
+        // yet", which is exactly the bug class this test guards against.
+        writeFileSync(imagePath(1, 'png', 'future-entity-'), Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0]));
+        const b = await backup();
+        expect(b.images).toHaveProperty('future-entity-1.png');
+    });
+
+    it('does not include a non-file entry (defensive -- BEAN_IMAGE_DIR is documented as flat, never actually contains one)', async () => {
+        const subDir = path.join(imageTmpDir, 'not-an-image');
+        mkdirSync(subDir);
+        const b = await backup();
+        expect(b.images).not.toHaveProperty('not-an-image');
+        rmSync(subDir, { recursive: true, force: true });
     });
 });
 

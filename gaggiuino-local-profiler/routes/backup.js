@@ -1,6 +1,7 @@
 const express       = require('express');
 const router         = express.Router();
 const fs             = require('fs');
+const path           = require('path');
 const shotService    = require('../lib/services/ShotService');
 const shotRepo       = require('../lib/repositories/ShotRepository');
 const libService     = require('../lib/services/LibraryService');
@@ -21,11 +22,15 @@ const { imagePath, imageFilename, matchesImageMagicBytes, CONTENT_TYPE_EXT } = r
 const { encryptSecrets, decryptSecrets } = require('../lib/backup-crypto');
 const state = require('../lib/state');
 
-// The four library entity types that can carry an uploaded image, and the
-// filename prefix each uses under BEAN_IMAGE_DIR (see routes/library/*.js) —
-// shared by both the export (read files) and restore (validate + write
-// files) image handling below so the id/ext/prefix -> filename derivation
-// never drifts between the two directions.
+// The library entity types that can carry an uploaded image, and the
+// filename prefix each uses under BEAN_IMAGE_DIR (see routes/library/*.js).
+// Export no longer depends on this list (see buildBackupBundle()'s directory
+// scan) -- restore still does, deliberately: writing a restored image file
+// is only ever allowed for a filename an actually-restored entity claims via
+// its own id + prefix, which is the path-traversal/integrity guard below.
+// Shots aren't in this list -- their images validate separately in the
+// restore transaction (prefix 'shot-', id = shot.id), since shots live at
+// the backup's top level, not nested under coffee_library like these do.
 const IMAGE_ENTITY_TYPES = [
     ['beans', ''],
     ['grinders', 'grinder-'],
@@ -55,36 +60,44 @@ function sanitizeRestoredLibrary(lib) {
     };
 }
 
-// Validates entity.id/entity.image against the actual restored `images` blob
-// and pushes a {path, buffer} entry onto pendingImageWrites for each image
-// that survives every check — this is the actual path-traversal guard.
-// sanitizeBeanFields/sanitizeGrinderFields/etc. deliberately never touch
-// `.id`/`.image` (see lib/sanitize-bean.js), so both arrive here as fully
-// attacker-controlled strings straight from the backup JSON; neither is ever
-// used to build a filesystem path until both pass every check below.
-// Any entity whose image fails validation for any reason (including simply
-// having no matching key in `imagesMap`, i.e. every old-format backup) has
-// its `.image` field cleared rather than left pointing at a file that will
-// never exist.
-function validateRestoredImages(lib, imagesMap, pendingImageWrites) {
+// Validates one entity list's id/image fields against the actual restored
+// `images` blob and pushes a {path, buffer} entry onto pendingImageWrites for
+// each image that survives every check — this is the actual path-traversal
+// guard. Callers' sanitizers (sanitizeBeanFields/sanitizeGrinderFields/etc.,
+// and the raw shot objects on the restore path) deliberately never touch
+// `.id`/`.image`, so both arrive here as fully attacker-controlled strings
+// straight from the backup JSON; neither is ever used to build a filesystem
+// path until both pass every check below. Any entity whose image fails
+// validation for any reason (including simply having no matching key in
+// `imagesMap`, i.e. every backup from before images were included at all)
+// has its `.image` field cleared rather than left pointing at a file that
+// will never exist.
+function validateEntityImages(list, prefix, imagesMap, pendingImageWrites) {
+    for (const entity of Array.isArray(list) ? list : []) {
+        if (!entity || !entity.image) continue;
+        const ext = entity.image;
+        if (!Object.values(CONTENT_TYPE_EXT).includes(ext)) { entity.image = null; continue; }
+        const id = entity.id;
+        if (!Number.isInteger(id) || id <= 0) { entity.image = null; continue; }
+        const filename = imageFilename(id, ext, prefix);
+        const value = imagesMap && typeof imagesMap === 'object' ? imagesMap[filename] : undefined;
+        if (typeof value !== 'string') { entity.image = null; continue; }
+        let buffer;
+        try { buffer = Buffer.from(value, 'base64'); } catch { entity.image = null; continue; }
+        if (!buffer.length || buffer.length > BEAN_IMAGE_MAX_BYTES) { entity.image = null; continue; }
+        if (!matchesImageMagicBytes(buffer, ext)) { entity.image = null; continue; }
+        pendingImageWrites.push({ path: imagePath(id, ext, prefix), buffer });
+    }
+}
+
+// One call per library entity type (beans/grinders/baskets/puckScreens) —
+// shot images validate separately via validateEntityImages(b.shots, 'shot-',
+// ...) directly in the restore transaction, since shots aren't nested under
+// coffee_library.
+function validateRestoredLibraryImages(lib, imagesMap, pendingImageWrites) {
     if (!lib || typeof lib !== 'object') return;
     for (const [key, prefix] of IMAGE_ENTITY_TYPES) {
-        const list = Array.isArray(lib[key]) ? lib[key] : [];
-        for (const entity of list) {
-            if (!entity || !entity.image) continue;
-            const ext = entity.image;
-            if (!Object.values(CONTENT_TYPE_EXT).includes(ext)) { entity.image = null; continue; }
-            const id = entity.id;
-            if (!Number.isInteger(id) || id <= 0) { entity.image = null; continue; }
-            const filename = imageFilename(id, ext, prefix);
-            const value = imagesMap && typeof imagesMap === 'object' ? imagesMap[filename] : undefined;
-            if (typeof value !== 'string') { entity.image = null; continue; }
-            let buffer;
-            try { buffer = Buffer.from(value, 'base64'); } catch { entity.image = null; continue; }
-            if (!buffer.length || buffer.length > BEAN_IMAGE_MAX_BYTES) { entity.image = null; continue; }
-            if (!matchesImageMagicBytes(buffer, ext)) { entity.image = null; continue; }
-            pendingImageWrites.push({ path: imagePath(id, ext, prefix), buffer });
-        }
+        validateEntityImages(lib[key], prefix, imagesMap, pendingImageWrites);
     }
 }
 
@@ -220,15 +233,24 @@ function buildBackupBundle(passphrase, sections) {
         trash.map(s => [String(s.id), shotRepo.getTrashEntry(s.id) ?? Date.now()])
     );
 
-    const lib    = libService.getLibrary();
+    const lib = libService.getLibrary();
+    // Reads BEAN_IMAGE_DIR directly rather than deriving the file list from
+    // "each library entity type that can carry a photo" (the previous
+    // approach): that list had to be updated by hand every time a new
+    // photo-bearing entity type was added, and silently missed shot photos
+    // entirely -- reported after they showed up fine in the Library/shot
+    // view but never appeared in an export. BEAN_IMAGE_DIR is a single flat
+    // directory every entity type's photo upload writes into (see
+    // lib/services/ImageService.js), so scanning it can't miss a category
+    // again, current or future, without needing to know what a "shot" or a
+    // "bean" even is.
     const images = {};
-    for (const [key, prefix] of IMAGE_ENTITY_TYPES) {
-        for (const entity of lib[key] || []) {
-            if (!entity?.image) continue;
-            const filePath = imagePath(entity.id, entity.image, prefix);
-            if (!fs.existsSync(filePath)) continue;
+    if (fs.existsSync(BEAN_IMAGE_DIR)) {
+        for (const filename of fs.readdirSync(BEAN_IMAGE_DIR)) {
+            const filePath = path.join(BEAN_IMAGE_DIR, filename);
             try {
-                images[imageFilename(entity.id, entity.image, prefix)] = fs.readFileSync(filePath).toString('base64');
+                if (!fs.statSync(filePath).isFile()) continue;
+                images[filename] = fs.readFileSync(filePath).toString('base64');
             } catch { /* best-effort, matches this codebase's existing image-handling style */ }
         }
     }
@@ -403,9 +425,16 @@ router.post('/api/restore', (req, res, next) => {
         // the same numbers.
         const pendingImageWrites = [];
         let sanitizedLib = null;
-        if ((sections === null || sections.has('shots')) && b.coffee_library) {
-            sanitizedLib = sanitizeRestoredLibrary(b.coffee_library);
-            validateRestoredImages(sanitizedLib, b.images, pendingImageWrites);
+        if (wantsShots) {
+            if (b.coffee_library) {
+                sanitizedLib = sanitizeRestoredLibrary(b.coffee_library);
+                validateRestoredLibraryImages(sanitizedLib, b.images, pendingImageWrites);
+            }
+            // Shot photos: same validation as library images, just not
+            // nested under coffee_library -- each shot's own `.image`
+            // field is mutated in place here, before shotService.upsertShot()
+            // writes these same objects further down.
+            validateEntityImages(b.shots, 'shot-', b.images, pendingImageWrites);
         }
         const validMaintenance = (sections === null || sections.has('maintenance')) && Array.isArray(b.maintenance)
             ? b.maintenance.map(sanitizeMaintenanceRow).filter(Boolean) : [];
