@@ -105,23 +105,44 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # Checked out under its own path (not $GITHUB_WORKSPACE root) since the
+      # manifest repo below is checked out there too -- both need to coexist.
+      # fetch-depth 100 is generous headroom for "commits since the last dev
+      # push" in normal use; if that's ever exceeded the log just shows what
+      # fits rather than failing, see the fallback below.
+      - name: Checkout main repo (for the commit log)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: main-repo
+          fetch-depth: 100
+
       - name: Checkout dev manifest repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: mxkissnr/glp-dev-app
+          path: dev-app
           # GITHUB_TOKEN is scoped to this repository only, so writing to the
           # manifest repository needs a PAT with `contents: write` on it.
           token: ${{ secrets.DEV_ADDON_REPO_TOKEN }}
 
-      - name: Bump version to the tag just built
-        # Passed via env rather than interpolated into the script: run_number
-        # is GitHub-generated and safe, but keeping every workflow input out
-        # of the shell body means no future edit here can become an injection.
+      # Bumps config.yaml's version to the tag just built, and prepends a
+      # DEV-LOG.md entry listing the commits that landed since the previous
+      # dev build -- so testing GLP DEV doesn't require cross-referencing
+      # chat history or the main repo's own commit log to know what changed.
+      - name: Update version and dev log
+        # Passed via env rather than interpolated into the script: run_number/
+        # sha are GitHub-generated and safe, but keeping every workflow input
+        # out of the shell body means no future edit here can become an
+        # injection.
         env:
           NEW_VERSION: dev-${{ github.run_number }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          CONFIG="gaggiuino_local_profiler_dev/config.yaml"
+          CONFIG="dev-app/gaggiuino_local_profiler_dev/config.yaml"
+          LOG="dev-app/DEV-LOG.md"
+          MARKER="dev-app/.last-dev-build-sha"
+
           # Anchored to the start of the line so the `version:` key is the only
           # possible match -- description text may contain the word too.
           sed -i "s|^version: .*|version: \"${NEW_VERSION}\"|" "$CONFIG"
@@ -129,16 +150,50 @@ jobs:
             echo "::error::version rewrite did not apply -- refusing to commit"
             exit 1
           }
-          # Already pointing at this build: `git commit` exits 1 on an empty
-          # commit, which would fail the job for a state that is actually
-          # correct. Happens whenever this job is re-run (e.g. after fixing
-          # the PAT) or the manifest was bumped by hand in the meantime.
-          if git diff --quiet -- "$CONFIG"; then
-            echo "$CONFIG already points at ${NEW_VERSION} -- nothing to commit"
+
+          # What's new since the last dev build: the marker file from the
+          # previous run names that build's main-repo commit. Falls back to
+          # just the current commit when there is no marker yet (first-ever
+          # dev build) or it names a commit this shallow clone doesn't have
+          # (fetch-depth exceeded, or history was rewritten) -- never fails
+          # the build over a log that can only ever be a nice-to-have.
+          PREV_SHA=""
+          [ -f "$MARKER" ] && PREV_SHA=$(cat "$MARKER")
+          cd main-repo
+          if [ -n "$PREV_SHA" ] && git cat-file -e "${PREV_SHA}^{commit}" 2>/dev/null; then
+            RANGE="${PREV_SHA}..${COMMIT_SHA}"
+          else
+            RANGE=""
+          fi
+          COMMITS=""
+          [ -n "$RANGE" ] && COMMITS=$(git log "$RANGE" --pretty='format:- %s (%h)')
+          # Empty range (e.g. a workflow_dispatch re-run of the same commit)
+          # or no marker at all: fall back to at least naming the current
+          # commit, so an entry is never blank.
+          [ -z "$COMMITS" ] && COMMITS=$(git log -1 --pretty='format:- %s (%h)')
+          cd ..
+
+          {
+            echo "## ${NEW_VERSION} — $(date -u +%Y-%m-%d)"
+            echo ""
+            echo "$COMMITS"
+            echo ""
+            [ -f "$LOG" ] && cat "$LOG"
+          } > "${LOG}.new"
+          mv "${LOG}.new" "$LOG"
+          echo -n "$COMMIT_SHA" > "$MARKER"
+
+          # Already pointing at this build and logged: git commit exits 1 on
+          # an empty commit, which would fail the job for a state that is
+          # actually correct. Happens whenever this job is re-run (e.g. after
+          # fixing the PAT) or the manifest was bumped by hand in the meantime.
+          cd dev-app
+          if git diff --quiet -- gaggiuino_local_profiler_dev/config.yaml DEV-LOG.md .last-dev-build-sha; then
+            echo "Already up to date with ${NEW_VERSION} -- nothing to commit"
             exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$CONFIG"
-          git commit -m "chore(dev): point dev app at ${NEW_VERSION} (${GITHUB_SHA::7})"
+          git add gaggiuino_local_profiler_dev/config.yaml DEV-LOG.md .last-dev-build-sha
+          git commit -m "chore(dev): point dev app at ${NEW_VERSION} (${COMMIT_SHA:0:7})"
           git push
