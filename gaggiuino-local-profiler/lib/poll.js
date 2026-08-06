@@ -140,6 +140,27 @@ async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
     }
 }
 
+// #663: the physical machine can take longer than a couple of seconds to
+// bring its own HTTP API up after power-on, so the first post-"machine on"
+// sync attempt below can fail on a freshly booting machine. This one-off
+// call is deliberately independent of lib/sync.js's own retry-with-backoff
+// loop (scheduleNextSync(), SYNC_RETRY_DELAYS) -- that loop runs on its own
+// schedule from server boot, unrelated to when the switch happens to flip
+// on, and driving two schedulers off the same syncShots() call would need
+// real coordination. A short, bounded retry here instead: a handful of
+// attempts a fixed 10s apart, well under sync_interval's default 5 minutes
+// (observed live: a single failed attempt left the status dot red for ~4
+// minutes even though the machine was reachable again within seconds).
+const POWER_ON_SYNC_RETRY_DELAY_MS = 10_000;
+const POWER_ON_SYNC_MAX_ATTEMPTS   = 4;
+
+function syncSoonAfterPowerOn(attempt = 0) {
+    setTimeout(async () => {
+        const ok = await syncShots();
+        if (!ok && attempt + 1 < POWER_ON_SYNC_MAX_ATTEMPTS) syncSoonAfterPowerOn(attempt + 1);
+    }, attempt === 0 ? 2000 : POWER_ON_SYNC_RETRY_DELAY_MS);
+}
+
 async function checkAndApplyMachinePower(runtime = defaultRuntime) {
     const entity = registry.switchEntityFor();
     if (!entity || !HA_TOKEN) {
@@ -153,7 +174,7 @@ async function checkAndApplyMachinePower(runtime = defaultRuntime) {
     if (isOn) {
         log('Machine on -- live polling and sync resumed');
         startLivePolling(runtime);
-        setTimeout(syncShots, 2000);
+        syncSoonAfterPowerOn();
     } else {
         log('Machine off -- live polling and sync paused');
         stopLivePolling(runtime);

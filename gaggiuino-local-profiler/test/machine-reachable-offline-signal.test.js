@@ -258,6 +258,93 @@ describe('checkAndApplyMachinePower() flips machineReachable false on the on->of
   });
 });
 
+// ── 3b. lib/poll.js post-power-on sync retry (#663) ─────────────────────
+
+describe('checkAndApplyMachinePower() retries the post-power-on sync a few times if the machine is still booting (#663)', () => {
+  const dbPath = require.resolve('../lib/db');
+  const Database = require('better-sqlite3');
+  const realDb = require(dbPath);
+  const registryPath = require.resolve('../lib/machines/registry');
+  const pollPath = require.resolve('../lib/poll');
+  const haPath = require.resolve('../lib/ha');
+  const syncPath = require.resolve('../lib/sync');
+  const realSync = require(syncPath);
+  const state = require('../lib/state');
+  let memDb, realHa;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    memDb = new Database(':memory:');
+    realDb.initSchema(memDb);
+    require.cache[dbPath].exports = { getDb: () => memDb, initSchema: realDb.initSchema };
+    delete require.cache[registryPath];
+    delete require.cache[pollPath];
+
+    const registry = require('../lib/machines/registry');
+    registry.ensureDefaultMachine();
+    registry.updateMachine(1, { switchEntity: 'switch.machine' });
+
+    realHa = require(haPath);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    memDb.close();
+    require.cache[dbPath].exports = realDb;
+    require.cache[haPath].exports = realHa;
+    require.cache[syncPath].exports = realSync;
+    state.machineReachable = null;
+  });
+
+  it('retries a few times a short interval apart when the first post-on attempt fails, instead of waiting for the regular sync schedule', async () => {
+    const syncShots = vi.fn()
+      .mockResolvedValueOnce(false)  // machine still booting its HTTP API
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);  // now up
+    require.cache[syncPath].exports = { ...realSync, syncShots };
+
+    require.cache[haPath].exports = { ...realHa, getSwitchState: vi.fn().mockResolvedValue(true), HA_TOKEN: 'test-token' };
+    delete require.cache[pollPath];
+    const { checkAndApplyMachinePower } = require('../lib/poll');
+    const { MachineRuntimeState } = require('../lib/machine-runtime-state');
+    const runtime = new MachineRuntimeState();
+    runtime.machineOn = false; // off -> on transition
+
+    await checkAndApplyMachinePower(runtime);
+    expect(syncShots).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(syncShots).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(syncShots).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(syncShots).toHaveBeenCalledTimes(3);
+
+    // Succeeded on the 3rd attempt -- no further retry even after another window.
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(syncShots).toHaveBeenCalledTimes(3);
+  });
+
+  it('gives up after a bounded number of attempts if the machine never comes back up', async () => {
+    const syncShots = vi.fn().mockResolvedValue(false);
+    require.cache[syncPath].exports = { ...realSync, syncShots };
+
+    require.cache[haPath].exports = { ...realHa, getSwitchState: vi.fn().mockResolvedValue(true), HA_TOKEN: 'test-token' };
+    delete require.cache[pollPath];
+    const { checkAndApplyMachinePower } = require('../lib/poll');
+    const { MachineRuntimeState } = require('../lib/machine-runtime-state');
+    const runtime = new MachineRuntimeState();
+    runtime.machineOn = false;
+
+    await checkAndApplyMachinePower(runtime);
+    await vi.advanceTimersByTimeAsync(2000 + 10000 * 3 + 10000);
+
+    expect(syncShots).toHaveBeenCalledTimes(4);
+  });
+});
+
 // ── 4. lib/sync.js syncShots() early-return (documented, not "fixed") ───
 
 describe('syncShots() switch-off early return leaves lastSyncTime/lastSyncError untouched (#655, by design)', () => {
