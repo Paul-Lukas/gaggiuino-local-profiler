@@ -3,7 +3,7 @@ import * as echarts from 'echarts';
 import * as topojson from 'topojson-client';
 import { S } from '../state.js';
 import { t } from '../i18n.js';
-import { LOCALE_MAP, COFFEE_COUNTRIES, COUNTRY_CENTROIDS, countryName, flagEmoji } from '../constants.js';
+import { localeFor, COFFEE_COUNTRIES, COUNTRY_CENTROIDS, countryName, flagEmoji } from '../constants.js';
 import { scoreClass } from '../utils.js';
 import { _parseGrindNum } from './shots/grind.js';
 import { TARGET_ICON_SVG } from '../icons.js';
@@ -132,7 +132,7 @@ export function buildPersonalBests() {
   const favProfile = Object.entries(byProfile).sort((a, b) => b[1] - a[1])[0];
   const busiestDay = Object.entries(byDay).sort((a, b) => b[1] - a[1])[0];
   const streak     = calcLongestStreak(S.shots);
-  const locale     = LOCALE_MAP[S.currentLang] || 'de-DE';
+  const locale     = localeFor(S.currentLang);
 
   const rows = [];
   if (bestShot) {
@@ -323,7 +323,7 @@ export function buildTrendChart() {
     return;
   }
 
-  const locale   = LOCALE_MAP[S.currentLang] || 'de-DE';
+  const locale   = localeFor(S.currentLang);
   const labels   = src.map(s => new Date(s.timestamp * 1000).toLocaleDateString(locale, { day: '2-digit', month: '2-digit' }));
   const scoreData = src.map(s => window.calcShotScore(s, window.getShotData(s)));
   const maData    = scoreData.map((_, i) => {
@@ -392,7 +392,7 @@ export function _renderCalendar() {
   const dow = (startDate.getDay() + 6) % 7;
   startDate.setDate(startDate.getDate() - dow);
 
-  const locale = LOCALE_MAP[S.currentLang] || 'de-DE';
+  const locale = localeFor(S.currentLang);
   const months = [];
   let lastMonth = -1;
   const weeks = [];
@@ -946,7 +946,7 @@ export function buildWeekdayHourHeatmap() {
   const max = Math.max(1, ...matrix.flat());
   const level = c => c === 0 ? 0 : Math.min(4, Math.ceil((c / max) * 4));
 
-  const locale = LOCALE_MAP[S.currentLang] || 'de-DE';
+  const locale = localeFor(S.currentLang);
   // 2024-01-01 is a Monday — used purely as a reference date to get a
   // locale-correct short weekday name via Intl, same approach the calendar
   // above uses for month labels (no hardcoded weekday translation keys).

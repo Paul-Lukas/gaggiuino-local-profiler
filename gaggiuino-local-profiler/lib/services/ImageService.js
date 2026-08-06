@@ -27,9 +27,33 @@ function isAllowedImageUrl(url) {
 }
 
 // prefix distinguishes entity types sharing BEAN_IMAGE_DIR (e.g. 'grinder-')
-// so a grinder id can never collide with a bean id's filename.
+// so a grinder id can never collide with a bean id's filename. Shared by
+// imagePath() below and the backup export/restore path (routes/backup.js) so
+// both derive the same key from (id, ext, prefix) instead of two copies
+// drifting apart.
+function imageFilename(id, ext, prefix = '') {
+    return `${prefix}${id}.${ext}`;
+}
+
 function imagePath(id, ext, prefix = '') {
-    return path.join(BEAN_IMAGE_DIR, `${prefix}${id}.${ext}`);
+    return path.join(BEAN_IMAGE_DIR, imageFilename(id, ext, prefix));
+}
+
+// Magic-byte sniff for the four whitelisted image types (backup
+// restore path) — Content-Type headers/extensions are caller-supplied and
+// trivially spoofable, so a base64 blob claiming to be `png` must actually
+// start with a PNG signature before it's ever written to disk. Not a full
+// image-format validator (doesn't decode pixel data), just the same
+// first-bytes sniff every content-sniffing library uses to tell formats apart.
+function matchesImageMagicBytes(buffer, ext) {
+    if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
+    switch (ext) {
+        case 'jpg':  return buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+        case 'png':  return buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]));
+        case 'gif':  return buffer.subarray(0, 4).equals(Buffer.from('GIF8'));
+        case 'webp': return buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+        default:     return false;
+    }
 }
 
 // Downloads a bean image once, validating hard against SSRF: exact host
@@ -95,5 +119,5 @@ function saveUploadedImage(prefix, id, buffer, contentType) {
 
 module.exports = {
     fetchBeanImage, deleteBeanImage, deleteImage, saveUploadedImage,
-    imagePath, isAllowedImageUrl, normalizeImageUrl, CONTENT_TYPE_EXT,
+    imagePath, imageFilename, matchesImageMagicBytes, isAllowedImageUrl, normalizeImageUrl, CONTENT_TYPE_EXT,
 };

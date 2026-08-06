@@ -194,6 +194,15 @@ const mqttSettingsSchema = z.object({
     prefix:    z.string().min(1).max(100).optional().default('gaggiuino'),
 });
 
+// ── Barcode scan proxy (Open Food Facts lookup) ──────────────────────────
+// EAN-8 / UPC-A / EAN-13 / GTIN-14 — the formats BarcodeDetector's scan
+// modal (public-src/views/library.js) can emit for a product package. Kept
+// digits-only and length-bounded since this value is interpolated straight
+// into the outbound lookup URL (routes/library/scan.js).
+const scanBarcodeSchema = z.object({
+    barcode: z.string().regex(/^(\d{8}|\d{12}|\d{13}|\d{14})$/, 'expected an 8, 12, 13 or 14-digit barcode'),
+});
+
 module.exports = {
     annotationSchema,
     beanSchema,
@@ -207,4 +216,5 @@ module.exports = {
     serviceTestPeripheralSchema,
     settingsPayloadSchema,
     mqttSettingsSchema,
+    scanBarcodeSchema,
 };

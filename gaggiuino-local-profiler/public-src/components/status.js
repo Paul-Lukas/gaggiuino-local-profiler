@@ -1,6 +1,6 @@
 import { S } from '../state.js';
 import { t } from '../i18n.js';
-import { LOCALE_MAP } from '../constants.js';
+import { localeFor } from '../constants.js';
 import { apiFetch } from '../api.js';
 import { updateMachineBanner, updateOnboardingPanel, updateDemoBadge } from './onboarding.js';
 
@@ -43,14 +43,28 @@ export async function updateStatus(machineId) {
     const timeEl = document.getElementById('syncTime');
     if (s.lastSync) {
       timeEl.textContent = new Date(s.lastSync)
-        .toLocaleTimeString(LOCALE_MAP[S.currentLang] || 'de-DE', { hour: '2-digit', minute: '2-digit' });
+        .toLocaleTimeString(localeFor(S.currentLang), { hour: '2-digit', minute: '2-digit' });
     }
-    const dotClass = s.lastSyncError ? 'status-dot error' : (s.lastSync ? 'status-dot ok' : 'status-dot unknown');
+    // #655: machineReachable === false is the strongest, most direct signal
+    // (the 1s backend poll in lib/poll.js) and must win regardless of
+    // lastSync/lastSyncError — those two are only updated by the 5-minute
+    // shot sync (lib/sync.js's syncShots()), which short-circuits without
+    // touching either field whenever a configured switch entity reports the
+    // machine off. Without this, the dot stayed green for days after the
+    // machine was switched off. machineReachable === true does NOT force
+    // 'ok', though: a sync can still fail for other reasons while the
+    // machine itself is reachable, so lastSyncError still applies then.
+    const dotClass = s.machineReachable === false ? 'status-dot error'
+                    : s.lastSyncError ? 'status-dot error'
+                    : (s.lastSync ? 'status-dot ok' : 'status-dot unknown');
+    const dotTitle = s.machineReachable === false ? t('machine_unreachable_title') : (s.lastSyncError || '');
     dot.className = dotClass;
-    dot.title = s.lastSyncError || '';
+    dot.title = dotTitle;
     // #411: the rail footer mirrors the same status dot rather than tracking
     // its own state — no second source of truth for machine reachability.
-    if (railDot) { railDot.className = dotClass; railDot.title = s.lastSyncError || ''; }
+    // #655: must mirror dotTitle too, not just dotClass — otherwise the rail
+    // dot shows the correct error color but a blank tooltip on hover.
+    if (railDot) { railDot.className = dotClass; railDot.title = dotTitle; }
     // Skip machineSubtitle while a shot is being viewed (#344): updateView()
     // (views/shots/index.js) owns it in that case, showing the machine that
     // actually owns the viewed shot — this global/default-machine value
@@ -73,7 +87,10 @@ export async function updateStatus(machineId) {
     }
     if (s.glpVersion) {
       const vEl = document.getElementById('glpVersionBadge');
-      if (vEl) vEl.textContent = `v${s.glpVersion}`;
+      // s.devBuild is only ever present on the dev-channel image (see
+      // routes/system.js's /api/status and the Dockerfile's GLP_DEV_BUILD
+      // build-arg) -- appending it here is a no-op for every real install.
+      if (vEl) vEl.textContent = `v${s.glpVersion}` + (s.devBuild ? ` (${s.devBuild})` : '');
     }
     const ordersBtn = document.getElementById('btnOrders');
     if (ordersBtn) ordersBtn.style.display = s.ordersFeature ? '' : 'none';

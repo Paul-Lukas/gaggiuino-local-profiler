@@ -2,7 +2,7 @@ import Chart from 'chart.js/auto';
 import { S, filterShotsByMachine }                            from '../../state.js';
 import { t }                                                  from '../../i18n.js';
 import { apiFetch }                                           from '../../api.js';
-import { LOCALE_MAP, phasePlugin, corsairPlugin, clearChartOnTouchEnd } from '../../constants.js';
+import { localeFor, phasePlugin, corsairPlugin, clearChartOnTouchEnd } from '../../constants.js';
 import {
   esc, avg, avgActive, max, fmt, formatTimeLabel, formatDelta,
   stddev, detectPhases, detectChanneling, scoreClass, scoreColor, shareOrDownloadBlob
@@ -444,7 +444,7 @@ export function updateView() {
       document.getElementById('grindAdviceComparativeIcon').innerHTML = compAdv.icon;
       document.getElementById('grindAdviceComparativeText').textContent = compAdv.text;
 
-      const locale   = LOCALE_MAP[S.currentLang] || 'de-DE';
+      const locale   = localeFor(S.currentLang);
       const listHtml = compAdv.shots.map(({ shot: s, grind, score }) => {
         const date  = new Date(s.timestamp * 1000).toLocaleDateString(locale, { day: '2-digit', month: '2-digit' });
         const dur   = s.duration ? `${(s.duration / 10).toFixed(0)}s` : '';
@@ -595,7 +595,7 @@ function shotToCSVRow(shot) {
   const avgT   = avg(d.temp.map(p => p.y));
   const secs   = ((shot.duration || 0) / 10).toFixed(1);
   const ratio  = (ann.dose && finalW) ? `1:${(finalW / ann.dose).toFixed(1)}` : '';
-  const date   = new Date(shot.timestamp * 1000).toLocaleString(LOCALE_MAP[S.currentLang] || 'de-DE');
+  const date   = new Date(shot.timestamp * 1000).toLocaleString(localeFor(S.currentLang));
   return [
     shot.id, date,
     shot.profile?.name || shot.profileName || '',
@@ -787,44 +787,7 @@ export async function shareCard(format = 'square') {
 
 // ── Backup / Restore ──────────────────────────────────────────────────────
 
-// Plain <a href="api/backup"> links can't carry the X-GLP-Token header, so a
-// direct browser navigation 401s for any client that isn't proxied through HA
-// ingress (which injects its own trust headers). Fetch through apiFetch (which
-// does attach the token) and trigger the download from the resulting blob instead.
-export async function downloadBackup() {
-  try {
-    const r = await apiFetch('api/backup');
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      alert(t('backup_error', err.error || r.status));
-      return;
-    }
-    const bundle   = await r.json();
-    const blob     = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
-    const filename = `glp-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    await shareOrDownloadBlob(blob, filename, { title: filename });
-  } catch (e) { alert(t('backup_error', e.message)); }
-}
-
-export async function restoreFromFile(input) {
-  const file = input.files[0];
-  if (!file) return;
-  if (!confirm(t('backup_confirm'))) { input.value = ''; return; }
-  try {
-    const text   = await file.text();
-    const bundle = JSON.parse(text);
-    if (!bundle.glp_backup) { alert(t('backup_invalid')); return; }
-    const r   = await apiFetch('api/restore', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: text
-    });
-    const res = await r.json();
-    if (res.ok) {
-      await loadData();
-      alert(t('backup_restored', res.shots));
-    } else {
-      alert(t('backup_error', res.error));
-    }
-  } catch (e) { alert(t('backup_error', e.message)); }
-  // eslint-disable-next-line require-atomic-updates -- `input` is a per-call function parameter (the DOM element passed in), not shared state
-  input.value = '';
-}
+// Backup export/restore is a modal flow (section picker, passphrase for the
+// encrypted API-token/MQTT block, a dry-run preview before anything is
+// written) — see public-src/components/backup-modal.js, wired directly from
+// main.js's event listeners rather than through this file.

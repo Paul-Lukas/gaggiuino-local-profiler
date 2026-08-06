@@ -3,8 +3,9 @@ import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { apiFetch } from '../api.js';
 import { esc, roastAgeDays, frozenPortionAgeDays, freshnessState, calcBeanRating, shouldShowFreshBadge, toIsoDateInput, todayIsoDate, isoDateInputToMs } from '../utils.js';
-import { COFFEE_COUNTRIES, VARIETY_SUGGESTIONS, PROCESS_SUGGESTIONS, LOCALE_MAP, countryName, flagEmoji } from '../constants.js';
+import { COFFEE_COUNTRIES, VARIETY_SUGGESTIONS, PROCESS_SUGGESTIONS, localeFor, countryName, flagEmoji } from '../constants.js';
 import { setBeanFilter } from '../components/sidebar.js';
+import { attachAutocomplete } from '../components/autocomplete.js';
 import { switchMode } from '../components/mode.js';
 import { loadBeanImageBlobUrl, loadGrinderImageBlobUrl, invalidateGrinderImage, invalidateBeanImage,
          loadBasketImageBlobUrl, invalidateBasketImage, loadPuckScreenImageBlobUrl, invalidatePuckScreenImage } from '../bean-image.js';
@@ -19,6 +20,10 @@ const ICON_PENCIL = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" hei
 const ICON_TRASH  = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H10V19H8V9M14,9H16V19H14V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z"/></svg>`;
 const ICON_EYE     = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z"/></svg>`;
 const ICON_EYE_OFF = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M11.83,9L15,12.16C15,12.11 15,12.05 15,12A3,3 0 0,0 12,9C11.94,9 11.89,9 11.83,9M7.53,9.8L9.08,11.35C9.03,11.56 9,11.77 9,12A3,3 0 0,0 12,15C12.22,15 12.44,14.97 12.65,14.92L14.2,16.47C13.53,16.8 12.79,17 12,17A5,5 0 0,1 7,12C7,11.21 7.2,10.47 7.53,9.8M2,4.27L4.28,6.55L4.73,7C3.08,8.3 1.78,10 1,12C2.73,16.39 7,19.5 12,19.5C13.55,19.5 15.03,19.2 16.38,18.66L16.81,19.08L19.73,22L21,20.73L3.27,3M12,7A5,5 0 0,1 17,12C17,12.64 16.87,13.26 16.64,13.82L19.57,16.75C21.07,15.5 22.27,13.86 23,12C21.27,7.61 17,4.5 12,4.5C10.6,4.5 9.26,4.75 8,5.2L10.17,7.35C10.74,7.13 11.35,7 12,7Z"/></svg>`;
+
+// Static burr-type suggestions for the grinder form (moved out of the old
+// <datalist> markup in index.html).
+const BURR_TYPE_SUGGESTIONS = ['Konisch Stahl', 'Konisch Keramik', 'Flach Stahl', 'Flach Keramik'];
 
 // Bean origin display — beans predating the blend feature (or ones without an
 // origins[] array yet) fall back to the legacy singular `origin` field.
@@ -61,11 +66,14 @@ export async function loadLibrary() {
   } catch { /* ignore */ }
 }
 
+// Bean/grinder names feed the annGrinder (main.js) and recipeFormBean
+// autocompletes (components/autocomplete.js) — both read S.coffeeLibrary
+// live, so nothing needs to be "populated" ahead of time. This just
+// re-renders whichever of those is currently open, so a save/delete
+// elsewhere in the library shows up immediately if the user has one open.
 export function updateLibraryDatalist() {
-  const beanDL    = document.getElementById('beanList');
-  const grinderDL = document.getElementById('grinderList');
-  if (beanDL)    beanDL.innerHTML    = S.coffeeLibrary.beans.map(b => `<option value="${esc(b.name)}">`).join('');
-  if (grinderDL) grinderDL.innerHTML = S.coffeeLibrary.grinders.map(g => `<option value="${esc(g.name)}">`).join('');
+  document.getElementById('annGrinder')?._autocomplete?.refresh();
+  document.getElementById('recipeFormBean')?._autocomplete?.refresh();
 }
 
 export function switchLibTab(tab) {
@@ -170,7 +178,7 @@ export function renderBeanList() {
       ? ` <span class="lib-fresh-badge fresh-${freshnessState(roastAge)}" title="${esc(t('freshness_title', roastAge))}">${roastAge}d</span>`
       : '';
 
-    const locale = LOCALE_MAP[S.currentLang] || 'de-DE';
+    const locale = localeFor(S.currentLang);
     const frozenPortions = Array.isArray(activeBag?.frozenPortions) ? activeBag.frozenPortions : [];
     // #472: date badges include the year (a portion can stay frozen well
     // past 12 months) and, while still frozen, show remaining/total so a
@@ -687,10 +695,8 @@ function bindOriginInput() {
 }
 
 function populateSuggestionDatalists() {
-  const v = document.getElementById('varietySuggestions');
-  const p = document.getElementById('processSuggestions');
-  if (v && !v.children.length) v.innerHTML = VARIETY_SUGGESTIONS.map(s => `<option value="${s}">`).join('');
-  if (p && !p.children.length) p.innerHTML = PROCESS_SUGGESTIONS.map(s => `<option value="${s}">`).join('');
+  attachAutocomplete(document.getElementById('beanFormVariety'), () => VARIETY_SUGGESTIONS);
+  attachAutocomplete(document.getElementById('beanFormProcess'), () => PROCESS_SUGGESTIONS);
 }
 
 export function openBeanForm(bean) {
@@ -850,6 +856,7 @@ export function openGrinderForm(grinder) {
   document.getElementById('grinderFormName').value  = grinder?.name  || '';
   document.getElementById('grinderFormNotes').value = grinder?.notes || '';
   document.getElementById('grinderFormBurrType').value     = grinder?.burrType || '';
+  attachAutocomplete(document.getElementById('grinderFormBurrType'), () => BURR_TYPE_SUGGESTIONS);
   document.getElementById('grinderFormPurchaseDate').value = toIsoDateInput(grinder?.purchaseDate);
   document.getElementById('grinderFormImageField').style.display = grinder ? '' : 'none';
   document.getElementById('grinderAddForm').classList.add('open');
@@ -1252,35 +1259,38 @@ export async function _handleScanResult(raw, status) {
     status.className = 'found';
     return;
   }
-  // EAN/UPC → Open Food Facts
+  // EAN/UPC → Open Food Facts, via the backend proxy: the CSP's connect-src
+  // is locked to 'self' (deliberate hardening, see server.js), so a direct
+  // browser fetch to world.openfoodfacts.org is always blocked. The proxy
+  // (routes/library/scan.js) distinguishes "not found" (404) from any other
+  // failure so this can show a specific message instead of one silent
+  // catch-all error.
   status.textContent = t('scan_searching');
   try {
-    const r    = await fetch(`https://world.openfoodfacts.org/api/v3/product/${encodeURIComponent(raw)}.json`);
-    const data = await r.json();
-    const p    = data?.product;
-    if (p) {
-      const name    = p.product_name || p.product_name_de || p.product_name_en || '';
-      const roaster = p.brands || '';
-      const notes   = [p.categories_tags?.find(c => c.startsWith('en:'))?.replace('en:', '') || '', p.labels || ''].filter(Boolean).join(', ');
-      status.textContent = t('scan_found', name || raw);
-      status.className = 'found';
-      await new Promise(r => setTimeout(r, 1000));
-      closeScanModal();
-      openBeanForm();
-      if (name)    document.getElementById('beanFormName').value    = name;
-      if (roaster) document.getElementById('beanFormRoaster').value = roaster;
-      if (notes)   document.getElementById('beanFormNotes').value   = notes;
-    } else {
+    const r = await apiFetch(`api/library/scan/${encodeURIComponent(raw)}`);
+    if (r.status === 404) {
       status.textContent = t('scan_not_found');
       status.className = 'error';
-      await new Promise(r => setTimeout(r, 1800));
+      await new Promise(res => setTimeout(res, 1800));
       closeScanModal();
       openBeanForm();
+      return;
     }
-  } catch {
+    if (!r.ok) throw new Error(`scan lookup failed: ${r.status}`);
+    const { name, roaster, notes } = await r.json();
+    status.textContent = t('scan_found', name || raw);
+    status.className = 'found';
+    await new Promise(res => setTimeout(res, 1000));
+    closeScanModal();
+    openBeanForm();
+    if (name)    document.getElementById('beanFormName').value    = name;
+    if (roaster) document.getElementById('beanFormRoaster').value = roaster;
+    if (notes)   document.getElementById('beanFormNotes').value   = notes;
+  } catch (e) {
+    console.error('Barcode scan lookup failed:', e);
     status.textContent = t('scan_error');
     status.className = 'error';
-    await new Promise(r => setTimeout(r, 1800));
+    await new Promise(res => setTimeout(res, 1800));
     closeScanModal();
     openBeanForm();
   }
@@ -1405,7 +1415,9 @@ export function openRecipeForm(recipe) {
   document.getElementById('recipeFormGrind').value        = recipe?.grindSize     || '';
   document.getElementById('recipeFormSourceUrl').value    = recipe?.sourceUrl     || '';
   document.getElementById('recipeFormProfile').value      = recipe?.profileName   || '';
+  attachAutocomplete(document.getElementById('recipeFormProfile'), () => S.machineProfiles.map(p => p.name));
   document.getElementById('recipeFormBean').value         = recipe?.beanName      || '';
+  attachAutocomplete(document.getElementById('recipeFormBean'), () => S.coffeeLibrary.beans.map(b => b.name));
   document.getElementById('recipeFormNotes').value        = recipe?.notes         || '';
   _renderStepRows(recipe?.steps || []);
   document.getElementById('recipeAddForm').classList.add('open');

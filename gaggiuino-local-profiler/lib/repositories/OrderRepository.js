@@ -53,6 +53,20 @@ class OrderRepository {
         getDb().prepare('DELETE FROM orders WHERE id = ?').run(id);
     }
 
+    // Restore-only: replaces the whole table, unlike saveAll() above (upsert-
+    // only, #327) — a backup's `orders` block is meant to be the full history,
+    // so a restore must also remove orders that existed locally but aren't in
+    // the backup. Caller (routes/backup.js) only invokes this when `b.orders`
+    // is actually present, never on an old-format backup that lacks the key.
+    replaceAll(orders) {
+        const db  = getDb();
+        const ins = db.prepare('INSERT OR REPLACE INTO orders (id, data, machine_id) VALUES (?,?,?)');
+        db.transaction(() => {
+            db.prepare('DELETE FROM orders').run();
+            for (const o of orders) ins.run(o.id, JSON.stringify(o), o.machineId ?? 1);
+        })();
+    }
+
     getMenu() {
         const db  = getDb();
         const row = db.prepare("SELECT value FROM kv WHERE key = 'menu'").get();

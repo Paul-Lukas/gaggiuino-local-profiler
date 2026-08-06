@@ -2,7 +2,7 @@
 const axios = require('axios');
 const { TEMP_HISTORY_MAX } = require('./constants');
 const { log } = require('./helpers');
-const { loadOptions, getMachineBaseUrl } = require('./data');
+const { loadOptions } = require('./data');
 const { getSwitchState, HA_TOKEN } = require('./ha');
 const registry = require('./machines/registry');
 const state = require('./state');
@@ -50,17 +50,7 @@ async function pollLive(runtime = defaultRuntime) {
 async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
     const opts = loadOptions();
     try {
-        // #638: prefer the registry's live default-machine host (kept current
-        // by Settings UI edits via registry.updateMachine()) over the
-        // possibly-stale options.json value -- mirrors the pattern lib/sync.js's
-        // syncOtherMachines()/syncMachineShots() already use for non-default
-        // machines. Falls back to options.json's machine_host only when the
-        // registry has no usable host yet (defensive; ensureDefaultMachine()
-        // normally seeds one from options.json before polling ever starts).
-        const defaultMachine = registry.getDefaultMachine();
-        const baseUrl = getMachineBaseUrl(
-            defaultMachine && defaultMachine.host ? { ...opts, machine_host: defaultMachine.host } : opts
-        );
+        const baseUrl = registry.baseUrlFor();
         const statusRes = await axios.get(`${baseUrl}/api/system/status`, { timeout: 3000 });
         state.machineReachable   = true;
         state.lastMachineError   = null;
@@ -150,17 +140,29 @@ async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
     }
 }
 
+// #663: the physical machine can take longer than a couple of seconds to
+// bring its own HTTP API up after power-on, so the first post-"machine on"
+// sync attempt below can fail on a freshly booting machine. This one-off
+// call is deliberately independent of lib/sync.js's own retry-with-backoff
+// loop (scheduleNextSync(), SYNC_RETRY_DELAYS) -- that loop runs on its own
+// schedule from server boot, unrelated to when the switch happens to flip
+// on, and driving two schedulers off the same syncShots() call would need
+// real coordination. A short, bounded retry here instead: a handful of
+// attempts a fixed 10s apart, well under sync_interval's default 5 minutes
+// (observed live: a single failed attempt left the status dot red for ~4
+// minutes even though the machine was reachable again within seconds).
+const POWER_ON_SYNC_RETRY_DELAY_MS = 10_000;
+const POWER_ON_SYNC_MAX_ATTEMPTS   = 4;
+
+function syncSoonAfterPowerOn(attempt = 0) {
+    setTimeout(async () => {
+        const ok = await syncShots();
+        if (!ok && attempt + 1 < POWER_ON_SYNC_MAX_ATTEMPTS) syncSoonAfterPowerOn(attempt + 1);
+    }, attempt === 0 ? 2000 : POWER_ON_SYNC_RETRY_DELAY_MS);
+}
+
 async function checkAndApplyMachinePower(runtime = defaultRuntime) {
-    const opts   = loadOptions();
-    // #643: prefer the registry's live default-machine switch_entity (kept
-    // current by Settings UI edits via registry.updateMachine()) over the
-    // possibly-stale options.json value -- same pattern #638/#641 established
-    // for machine_host. Falls back to options.json's switch_entity only when
-    // there's no default-machine row at all -- an explicitly empty/null
-    // registry switchEntity means "not configured" and must NOT fall through
-    // to a stale options.json value.
-    const defaultMachine = registry.getDefaultMachine();
-    const entity = (defaultMachine ? defaultMachine.switchEntity : opts.switch_entity);
+    const entity = registry.switchEntityFor();
     if (!entity || !HA_TOKEN) {
         if (!runtime.livePollTimer) startLivePolling(runtime);
         return;
@@ -172,11 +174,25 @@ async function checkAndApplyMachinePower(runtime = defaultRuntime) {
     if (isOn) {
         log('Machine on -- live polling and sync resumed');
         startLivePolling(runtime);
-        setTimeout(syncShots, 2000);
+        syncSoonAfterPowerOn();
     } else {
         log('Machine off -- live polling and sync paused');
         stopLivePolling(runtime);
         state.preheatNotifySent = false;
+        // #655: without this, state.machineReachable stayed frozen at
+        // whatever it was just before the switch flipped off (usually
+        // true) -- stopLivePolling() above is what actually stops the only
+        // frequent prober of the machine's own reachability
+        // (pollViaGaggiuinoStatus() below), and syncShots() (lib/sync.js)
+        // short-circuits before its own network probe whenever this same
+        // switchEntity reports the machine off, so nothing else would ever
+        // flip it back to false. That's exactly why the status dot stayed
+        // green for days after the machine was switched off. The switch
+        // entity's own "off" report is itself an authoritative reachability
+        // signal -- syncShots() already trusts it to skip its network call
+        // -- so it's applied directly here instead of adding a separate
+        // stale-timeout mechanism.
+        state.machineReachable = false;
     }
 }
 

@@ -12,6 +12,26 @@ const commonRules = {
   ],
 };
 
+// #638/#641/#643/#648: four bugs, same root cause -- code reading
+// opts.machine_host/opts.switch_entity directly instead of going through the
+// registry facade (lib/machines/registry.js's hostFor/switchEntityFor/
+// baseUrlFor/apiUrlFor). Blocks the pattern from reappearing outside the
+// three files that legitimately read options.json: the facade itself, the
+// URL-normalizer helpers it wraps, and the options.json-adoption pass.
+const machineConfigSourceOfTruthRule = {
+  'no-restricted-syntax': [
+    'error',
+    {
+      selector: "MemberExpression[property.name='machine_host']",
+      message: "Machine config comes from registry.hostFor()/baseUrlFor()/apiUrlFor(); options.json is a tracked input, not a source of truth (#638/#641/#643/#648).",
+    },
+    {
+      selector: "MemberExpression[property.name='switch_entity']",
+      message: "Machine config comes from registry.switchEntityFor(); options.json is a tracked input, not a source of truth (#638/#641/#643/#648).",
+    },
+  ],
+};
+
 module.exports = [
   {
     ignores: ['public/**', 'node_modules/**', 'docs/**', 'graphify-out/**'],
@@ -29,6 +49,14 @@ module.exports = [
       globals: globals.node,
     },
     rules: commonRules,
+  },
+  {
+    files: ['lib/**/*.js', 'routes/**/*.js', 'server.js'],
+    ignores: ['lib/machines/registry.js', 'lib/data.js', 'lib/machines/options-adoption.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
+    rules: machineConfigSourceOfTruthRule,
   },
   {
     files: ['public-src/**/*.js'],

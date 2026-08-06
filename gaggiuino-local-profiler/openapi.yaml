@@ -316,14 +316,58 @@ components:
       type: object
       required: [glp_backup, version, created, shots]
       properties:
-        glp_backup:     { type: boolean, example: true }
-        version:        { type: string }
-        created:        { type: string, format: date-time }
-        shots:          { type: array, items: { $ref: '#/components/schemas/Shot' } }
-        annotations:    { type: object }
-        coffee_library: { $ref: '#/components/schemas/Library' }
-        blocklist:      { type: array, items: { type: integer } }
-        trash:          { type: object }
+        glp_backup:      { type: boolean, example: true }
+        version:         { type: string }
+        created:         { type: string, format: date-time }
+        sections:
+          description: >
+            Present only on a scoped export (see the `sections` request field
+            on POST /api/backup). Absent on a full/legacy export, which is
+            the default and what GET /api/backup always returns.
+          type: array
+          items: { type: string, enum: [shots, maintenance, orders, machines, settings, secrets] }
+        shots:           { type: array, items: { $ref: '#/components/schemas/Shot' } }
+        annotations:     { type: object }
+        coffee_library:  { $ref: '#/components/schemas/Library' }
+        blocklist:       { type: array, items: { type: integer } }
+        trash:
+          description: "{ [shotId]: deletedAtEpochMs }"
+          type: object
+        maintenance:     { type: array, items: { type: object } }
+        maintenance_log: { type: array, items: { type: object } }
+        orders:          { type: array, items: { type: object } }
+        machines:        { type: array, items: { type: object } }
+        kv:
+          type: object
+          properties:
+            menu:            { type: array }
+            orders_settings: { type: object }
+            notify_mapping:  { type: object }
+            import_settings: { type: object }
+            mqtt_settings:
+              description: Never includes username/password — see the `secrets` field for those, encrypted.
+              type: object
+        images:
+          description: "{ [filename]: base64FileContent } — bean/grinder/basket/puck-screen photos"
+          type: object
+        secrets:
+          $ref: '#/components/schemas/EncryptedSecrets'
+
+    EncryptedSecrets:
+      description: >
+        The API token and MQTT broker username/password, AES-256-GCM
+        encrypted with a passphrase supplied at export time (see
+        POST /api/backup's `passphrase` field). Present only when that
+        passphrase was given and there was something to encrypt. Decrypting
+        requires the same passphrase again at restore time
+        (POST /api/restore's `passphrase` field) — GLP never stores it.
+      type: object
+      properties:
+        alg:        { type: string, example: aes-256-gcm-scrypt-v1 }
+        salt:       { type: string, description: base64 }
+        iv:         { type: string, description: base64 }
+        authTag:    { type: string, description: base64 }
+        ciphertext: { type: string, description: base64 }
 
 paths:
 
@@ -1408,6 +1452,39 @@ paths:
     get:
       tags: [Backup]
       summary: Download a full backup of all add-on data
+      description: >
+        Always the unscoped, all-sections, secrets-free export — for the
+        selective/encrypted export, use the POST variant below. Kept as GET
+        for any existing bookmark/tooling.
+      responses:
+        "200":
+          description: Backup bundle (Content-Disposition attachment)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackupBundle' }
+    post:
+      tags: [Backup]
+      summary: Download a backup, optionally scoped to specific sections and/or including encrypted secrets
+      description: >
+        A passphrase must never travel in a URL, so it's only accepted here,
+        in the request body — never as a query parameter.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sections:
+                  description: Omit for a full export (default); an empty array exports only the envelope.
+                  type: array
+                  items: { type: string, enum: [shots, maintenance, orders, machines, settings, secrets] }
+                passphrase:
+                  description: >
+                    If given and non-empty, an encrypted `secrets` field
+                    (API token + MQTT credentials) is added to the bundle —
+                    only if 'secrets' is also in `sections` (or `sections`
+                    is omitted).
+                  type: string
       responses:
         "200":
           description: Backup bundle (Content-Disposition attachment)
@@ -1418,25 +1495,68 @@ paths:
   /api/restore:
     post:
       tags: [Backup]
-      summary: Restore all add-on data from a backup bundle
+      summary: Restore add-on data from a backup bundle, or preview what a restore would do
       description: >
         Body limit is 50 MB. Rate-limited to 3 requests per minute per IP.
-        **Overwrites all existing data.**
+        **Overwrites the sections selected by `sections` (or every section
+        present in the file, if `sections` is omitted).** A section not
+        selected is left completely untouched, not wiped.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/BackupBundle' }
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/BackupBundle'
+                - type: object
+                  properties:
+                    sections:
+                      description: >
+                        Which sections to actually apply. Omitted here falls
+                        back to the bundle's own top-level `sections` field
+                        (from a scoped export); omitted in both places means
+                        every section present in the file.
+                      type: array
+                      items: { type: string, enum: [shots, maintenance, orders, machines, settings, secrets] }
+                    passphrase:
+                      description: Required to decrypt and apply `secrets`, if present and selected.
+                      type: string
+                    dryRun:
+                      description: >
+                        If true, runs every validation/sanitizer step a real
+                        restore does and returns a preview — without writing
+                        anything to the database or filesystem.
+                      type: boolean
       responses:
         "200":
-          description: Restore result
+          description: Restore result, or a dry-run preview if `dryRun` was true
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  ok:    { type: boolean }
-                  shots: { type: integer, description: Number of shots restored }
+                  ok:     { type: boolean }
+                  shots:  { type: integer, description: Number of shots restored (real restore only) }
+                  secretsPresent:  { type: boolean, description: Whether the file had a `secrets` block and it was in the requested sections }
+                  secretsRestored: { type: boolean, description: Whether the given passphrase actually decrypted it }
+                  dryRun: { type: boolean }
+                  preview:
+                    description: Only present when `dryRun` was true.
+                    type: object
+                    properties:
+                      shots:               { type: integer }
+                      library:             { type: boolean }
+                      maintenance:         { type: integer, description: Rows that would pass validation }
+                      maintenanceTotal:    { type: integer, description: Rows present in the file, valid or not }
+                      maintenanceLog:      { type: integer }
+                      maintenanceLogTotal: { type: integer }
+                      orders:              { type: integer }
+                      ordersTotal:         { type: integer }
+                      machines:            { type: integer }
+                      settings:            { type: boolean }
+                      images:              { type: integer }
+                      secretsPresent:      { type: boolean }
+                      secretsRestored:     { type: boolean }
         "400": { description: Invalid backup file }
         "429": { description: Rate limit exceeded }
 

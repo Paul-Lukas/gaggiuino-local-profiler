@@ -336,7 +336,7 @@ GLP unterstützt sechs Oberflächensprachen, umschaltbar unter ⚙ Einstellungen
 | ES | Español |
 | NL | Nederlands |
 
-Die Auswahl wird in `localStorage` gespeichert. Alle UI-Texte, Chart-Beschriftungen, Mahlgrad-Empfehlungen, Wartungserinnerungen, Bestellstatus-Meldungen und Bibliothekstexte sind in allen sechs Sprachen vollständig übersetzt.
+Die Auswahl wird in `localStorage` gespeichert. Alle UI-Texte, Chart-Beschriftungen, Mahlgrad-Empfehlungen, Wartungserinnerungen, Bestellstatus-Meldungen und Bibliothekstexte sind in allen sechs Sprachen vollständig übersetzt. Beim ersten Start (bevor eine Sprache explizit gewählt wurde) verwendet GLP die Sprache deines Browsers, sofern sie eine der sechs obigen ist, sonst **Englisch** — niemals standardmäßig Deutsch bei einer nicht unterstützten Browsersprache.
 
 ### Hell / Dunkel Theme
 
@@ -349,6 +349,18 @@ Unabhängig vom Hell/Dunkel-Umschalter bietet ⚙ Einstellungen → Farbschema s
 ### Neuigkeiten (In-App-Changelog, v2.28.0)
 
 ⚙ Einstellungen → **Neuigkeiten** zeigt die letzten 8 GLP-Releases, neueste zuerst, jeweils mit einer kurzen Liste der wichtigsten Änderungen — so siehst du auf einen Blick, was sich geändert hat, ohne die App zu verlassen oder in GitHub zu suchen. Diese Karte ist eine kuratierte, von Hand gepflegte Teilmenge (`lib/whats-new.js`) und keine gerenderte Kopie der vollständigen Historie: **`CHANGELOG.md` bleibt die maßgebliche Quelle** für jede jemals ausgelieferte Änderung; die In-App-Karte zeigt pro Release nur einen kurzen Auszug, begrenzt auf die letzten 8. Der Text der Neuigkeiten bleibt unabhängig von der UI-Sprache auf Englisch — nur Titel und Beschreibung der Karte selbst sind übersetzt, derselbe Ansatz wie bei Shot-Anmerkungen und Verkostungsnotizen.
+
+### Backup & Wiederherstellung
+
+⚙ Einstellungen → **Backup & Restore** öffnet ein Fenster zum Herunterladen oder Wiederherstellen deiner GLP-Datenbank als **ZIP-Datei**: `backup.json` (Shots inklusive Papierkorb, Anmerkungen, die Kaffee-Bibliothek — Bohnen, Mühlen, Rezepte, Milch, Siebträger-Körbe, Puckscreens —, Wartungsaufgaben und das Wartungsprotokoll, Bestellungen, alle konfigurierten Maschinen sowie App-Einstellungen wie Bestell-Menü/Benachrichtigungs-Zuordnung/Import-Einstellungen/MQTT-Transport-Einstellungen) plus jedes Shot-/Bohnen-/Mühlen-/Siebträger-/Puckscreen-Foto als echte Bilddatei daneben, öffenbar mit jedem normalen Dateibrowser oder Archivprogramm — nicht in die JSON hineinkodiert.
+
+**Wählbare Bereiche.** Sechs unabhängige Bereiche — Shots & Bibliothek, Wartung, Bestellungen, Maschinen, Einstellungen sowie API-Token & MQTT-Login (siehe unten) — lassen sich einzeln ein- oder ausschließen, sowohl beim Export als auch bei der Wiederherstellung. Eine gezielte Wiederherstellung rührt nur die ausgewählten Bereiche an; jeder andere Bereich in deiner Datenbank bleibt unangetastet, statt überschrieben zu werden. Wird eine gezielt exportierte Backup-Datei ohne erneute Bereichsauswahl wiederhergestellt, gilt automatisch die Auswahl vom Export.
+
+**Vorschau vor der Wiederherstellung.** Bevor du eine Wiederherstellung bestätigst, zeigt das Fenster genau, was sich ändern würde — wie viele Shots, Wartungseinträge, Bestellungen und Maschinen übernommen würden (und wie viele als ungültig übersprungen würden), und ob ein eingegebenes Passwort die Secrets tatsächlich entschlüsseln kann — berechnet mit derselben Prüflogik wie die echte Wiederherstellung, aber ohne dass dabei etwas geschrieben wird.
+
+**API-Token und MQTT-Login, verschlüsselt mit einem selbst gewählten Passwort.** Beide sind standardmäßig vom Backup ausgeschlossen: Der API-Token gewährt vollen API-Zugriff (inklusive der Wiederherstellungs-Funktion selbst), und MQTT-Benutzername/-Passwort sind echte Broker-Zugangsdaten — und diese Datei landet üblicherweise im Download-Ordner oder in einem Cloud-Backup. Aktiviere den Bereich „API-Token & MQTT-Login" und vergib ein Passwort, um sie verschlüsselt (AES-256-GCM) einzuschließen. Für die Wiederherstellung brauchst du dasselbe Passwort — GLP speichert es nirgends, vergisst du es, bleibt der Rest des Backups voll nutzbar, nur Token und MQTT-Login können aus dieser Datei dann nicht wiederhergestellt werden. Ein falsches oder fehlendes Passwort blockiert nie den Rest der Wiederherstellung.
+
+**Ältere Backups** (`.json`-Dateien von vor dem ZIP-Format, und noch ältere von vor Einführung der wählbaren Bereiche — siehe `CHANGELOG.md`) lassen sich weiterhin ganz normal wiederherstellen; ein bereits gespeichertes Backup muss nicht neu exportiert werden. Die allerältesten `.json`-Backups (von bevor Bereiche/Fotos/Wartung/Bestellungen/Maschinen/Einstellungen überhaupt Teil des Exports waren) enthalten nur Shots, Anmerkungen, die Kaffee-Bibliothek und die Blockliste — diese älteren Daten wurden damals nie erfasst und lassen sich aus genau diesen Dateien nicht nachträglich gewinnen. Erstelle nach dem Update ein frisches Backup, falls du auf die neueren Bereiche angewiesen bist.
 
 ### HA-Theme
 

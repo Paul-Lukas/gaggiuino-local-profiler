@@ -2,7 +2,6 @@ const express        = require('express');
 const router         = express.Router();
 const libraryService = require('../lib/services/LibraryService');
 const registry       = require('../lib/machines/registry');
-const { loadOptions, getMachineUrl } = require('../lib/data');
 const { STATIC_MAINTENANCE_TASKS, isGlobalMaintenanceTask } = require('../lib/constants');
 
 // Returns a program-owned string for a valid task, or null. Never returns
@@ -17,17 +16,11 @@ function canonicalTask(raw) {
     return null;
 }
 
-// #648: prefer the registry's live default-machine host over options.json's
-// possibly-stale machine_host -- same pattern #638/#641 established for
-// lib/poll.js/lib/sync.js and routes/system.js's resolveMachineHost().
 // Cosmetic here (display/log text stored on maintenance log rows via
 // addMaintenanceLogEntry()), but a host edit should still be reflected in
 // newly-written entries rather than showing the stale host forever.
 function machineHostname() {
-    const opts = loadOptions();
-    const defaultMachine = registry.getDefaultMachine();
-    const hostOpts = defaultMachine && defaultMachine.host ? { ...opts, machine_host: defaultMachine.host } : opts;
-    try { return new URL(getMachineUrl(hostOpts)).hostname; } catch { return 'gaggiuino'; }
+    return registry.hostFor();
 }
 
 // Parses the raw machineId query param into a finite integer or the literal

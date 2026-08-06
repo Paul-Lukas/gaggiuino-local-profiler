@@ -1,7 +1,7 @@
 'use strict';
 const axios      = require('axios');
 const { log }    = require('./helpers');
-const { loadOptions, getMachineUrl, getMachineBaseUrl, getSyncIntervalMs } = require('./data');
+const { loadOptions, getSyncIntervalMs } = require('./data');
 const shotService = require('./services/ShotService');
 const state      = require('./state');
 const { getMachineRuntimeState } = require('./machine-runtime-state');
@@ -30,26 +30,19 @@ async function syncAfterBrew() {
 }
 
 async function syncShots(runtime = defaultRuntime) {
-    const opts = loadOptions();
-    // #643: prefer the registry's live default-machine switch_entity over
-    // options.json's possibly-stale one -- same pattern #638/#641 established
-    // for machine_host below. Falls back to options.json's switch_entity
-    // only when there's no default-machine row at all -- an explicitly
-    // empty/null registry switchEntity means "not configured" and must NOT
-    // fall through to a stale options.json value.
-    const defaultMachine = registry.getDefaultMachine();
-    const switchEntity = (defaultMachine ? defaultMachine.switchEntity : opts.switch_entity);
+    const switchEntity = registry.switchEntityFor();
+    // #655: this early return intentionally leaves lastSyncTime/lastSyncError
+    // untouched -- lib/poll.js's checkAndApplyMachinePower() now sets
+    // state.machineReachable = false as soon as this same switchEntity is
+    // seen off, which already drives the status dot to red (its top
+    // priority signal, see status.js's updateStatus()) regardless of these
+    // two fields. Once the dot is correctly red, an old lastSyncTime next to
+    // it ("last synced 3 days ago") is accurate, not misleading -- it really
+    // was the last successful sync -- so bumping it to "now" here would
+    // make it lie about actually having synced when nothing was fetched.
     if (!runtime.machineOn && switchEntity) return true;
     try {
-        // #638: prefer the registry's live default-machine host over
-        // options.json's possibly-stale machine_host -- same pattern
-        // syncOtherMachines()/syncMachineShots() below already use for
-        // non-default machines. Falls back to options.json only when the
-        // registry has no usable host yet (defensive; ensureDefaultMachine()
-        // normally seeds one from options.json before sync ever runs).
-        const machineUrl = getMachineUrl(
-            defaultMachine && defaultMachine.host ? { ...opts, machine_host: defaultMachine.host } : opts
-        );
+        const machineUrl = registry.apiUrlFor();
         const latestResponse  = await axios.get(`${machineUrl}/latest`, { timeout: 10000 });
         // eslint-disable-next-line require-atomic-updates -- syncShots() has no mutex guarding overlapping calls (pre-existing); a real fix is a synchronization change out of scope for this lint-only pass
         state.machineReachable   = true;
@@ -203,7 +196,11 @@ function scheduleNextSync(retryCount = 0) {
 
 async function fetchMachineVersion() {
     if (state.cachedMachineVersion) return;
-    const baseUrl   = getMachineBaseUrl(loadOptions());
+    // #641/#648 fixed this pattern everywhere except here -- this call still
+    // read options.json's possibly-stale machine_host directly, so a host
+    // edited via Settings UI could make backgroundHaCheck() (30s interval)
+    // mark a correctly-rehosted machine unreachable.
+    const baseUrl   = registry.baseUrlFor();
     const endpoints = ['/api/system/info', '/api/firmware', '/api/about'];
     let lastErr = null, anySuccess = false;
     for (const path of endpoints) {

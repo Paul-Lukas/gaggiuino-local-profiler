@@ -872,6 +872,24 @@
            effect" rather than silently doing nothing. */
         .accent-swatches-disabled .accent-swatch { opacity: .45; }
 
+        /* ── Shared horizontally-scrolling tab strip ──
+           Applied to every exclusive-view tab bar (.lib-tabs, .chart-tabs,
+           .fs-tabs) so a bar with more tabs than the viewport is wide
+           scrolls itself instead of the whole page. Before this, each bar
+           overflowed silently and, since #main has overflow-x:hidden, the
+           page shifted horizontally on tap/scroll instead — worst on mobile
+           Library, which has 5 tabs. One shared class instead of repeating
+           the fix per bar, since that duplication is exactly what caused
+           the bug to only get fixed in some places and not others. */
+        .tabs-scroll {
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            scrollbar-width: none;
+            -webkit-overflow-scrolling: touch;
+        }
+        .tabs-scroll::-webkit-scrollbar { display: none; }
+        .tabs-scroll > * { flex: 0 0 auto; white-space: nowrap; }
+
         /* ── Coffee Library ── */
         .lib-open-btn { background: none; border: 1px solid var(--gray-700); border-radius:var(--radius); color: var(--gray-400); font-size: .75rem; padding: 3px 8px; cursor: pointer; transition: border-color .15s, color .15s; }
         .lib-open-btn:hover { border-color: var(--gray-500); color: var(--gray-200); }
@@ -1019,6 +1037,30 @@
         .lib-form-field input, .lib-form-field select { background: var(--gray-900); border: 1px solid var(--gray-700); border-radius:var(--radius); color: var(--gray-200); font-size: .8rem; padding: 6px 8px; font-family: 'Figtree', sans-serif; }
         .lib-form-field select { cursor: pointer; }
         .lib-form-field input:focus, .lib-form-field select:focus { outline: none; border-color: var(--gray-500); }
+
+        /* ── Autocomplete (replaces native <datalist>) ──
+           See components/autocomplete.js. Positioned relative to a wrap div
+           so the suggestion list floats above whatever follows the field;
+           items are tall enough for touch (44px) and select on
+           pointerdown, not click, which is what actually made the old
+           <datalist> unreliable to tap on Android/Chrome. */
+        .autocomplete-wrap { position: relative; }
+        .autocomplete-list {
+            position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+            margin: 0; padding: 4px; list-style: none;
+            background: var(--gray-900); border: 1px solid var(--gray-700);
+            border-radius: var(--radius);
+            max-height: 240px; overflow-y: auto;
+            z-index: 30;
+        }
+        .autocomplete-item {
+            display: flex; align-items: center;
+            min-height: 44px; padding: 8px 10px;
+            border-radius: calc(var(--radius) - 2px);
+            color: var(--gray-200); font-size: .8rem;
+            cursor: pointer;
+        }
+        .autocomplete-item:hover, .autocomplete-item.active { background: var(--gray-800); color: #fff; }
         .lib-form-actions { display: flex; gap: 6px; justify-content: flex-end; }
         .lib-save-btn { background: linear-gradient(135deg, var(--accent-from), var(--accent-to)); border: none; border-radius:var(--radius); color: var(--accent-text); font-size: .78rem; font-weight: 600; padding: 6px 14px; cursor: pointer; transition: filter .15s; }
         .lib-save-btn:hover { filter: brightness(1.1); }
@@ -1104,6 +1146,22 @@
         .scan-close-btn { background:var(--gray-800); border:1px solid var(--gray-700); border-radius:var(--radius); color:var(--gray-400); font-size:.85rem; padding:8px 20px; cursor:pointer; }
         .scan-close-btn:hover { background:var(--gray-700); color:#fff; }
 
+        /* ── Backup export/restore modal ── */
+        #backupModal { display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,.85); align-items:center; justify-content:center; padding:20px; overflow-y:auto; }
+        #backupModal.open { display:flex; }
+        .backup-modal-card { background:var(--gray-900); border:1px solid var(--gray-700); border-radius:var(--radius); padding:20px; width:100%; max-width:420px; display:flex; flex-direction:column; gap:12px; margin:auto; }
+        .backup-modal-card h3 { color:var(--gray-200); font-size:.95rem; font-weight:600; margin:0; }
+        .backup-modal-sections { display:flex; flex-direction:column; gap:2px; }
+        .backup-section-row { display:flex; align-items:center; gap:8px; padding:7px 4px; font-size:.82rem; color:var(--gray-300); cursor:pointer; }
+        .backup-section-row input[type="checkbox"] { accent-color:var(--accent); width:16px; height:16px; flex-shrink:0; }
+        .backup-section-row input:disabled + span { color:var(--gray-600); }
+        .backup-section-empty { margin-left:auto; font-size:.68rem; color:var(--gray-600); }
+        .backup-secrets-row { border-top:1px solid var(--gray-800); margin-top:4px; padding-top:11px; }
+        .backup-passphrase-row { display:flex; flex-direction:column; gap:4px; }
+        .backup-modal-hint { font-size:.7rem; color:var(--gray-500); margin:0; }
+        .backup-preview { background:var(--gray-800); border-radius:var(--radius); padding:10px 12px; font-size:.76rem; color:var(--gray-400); display:flex; flex-direction:column; gap:3px; min-height:1.2em; }
+        .backup-modal-error { color:var(--err); font-size:.78rem; }
+
         /* ── QR code display in bean card ── */
         .bean-qr-wrap { display:flex; flex-direction:column; align-items:center; gap:6px; margin-top:6px; }
         .bean-qr-wrap canvas { border-radius:var(--radius); }
@@ -1138,9 +1196,10 @@
             color: var(--gray-600);
         }
 
-        #live-status-badge.brewing { color: var(--err); }
-        #live-status-badge.ready   { color: var(--ok); }
-        #live-status-badge.error   { color: var(--err); }
+        #live-status-badge.brewing     { color: var(--err); }
+        #live-status-badge.ready       { color: var(--ok); }
+        #live-status-badge.error       { color: var(--err); }
+        #live-status-badge.unreachable { color: var(--err); }
 
         #live-status-badge .badge-dot {
             width: 8px; height: 8px;
@@ -1244,6 +1303,10 @@
         #live-idle .idle-icon .rail-icon { width: 48px; height: 48px; stroke-width: 1.3; }
         #live-idle h2 { color: var(--gray-500); font-size: 1.1rem; margin: 0 0 8px; }
         #live-idle p  { font-size: .875rem; color: var(--gray-600); margin: 0; max-width: 320px; line-height: 1.6; }
+        /* #655: machine-unreachable state reuses the idle layout with the
+           error color, instead of a separate screen. */
+        #live-idle.unreachable .idle-icon { color: var(--err); }
+        #live-idle.unreachable h2         { color: var(--err); }
 
         /* ── Preheat widget ── */
         #preheat-widget { width: 100%; max-width: 320px; margin-bottom: 28px; text-align: center; }

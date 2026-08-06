@@ -9,7 +9,7 @@ import itLang from '../public-src/i18n/it.js';
 import fr from '../public-src/i18n/fr.js';
 import es from '../public-src/i18n/es.js';
 import nl from '../public-src/i18n/nl.js';
-import { LOCALE_MAP } from '../public-src/constants.js';
+import { LOCALE_MAP, localeFor } from '../public-src/constants.js';
 
 const LANGS = { de, en, it: itLang, fr, es, nl };
 const NEW_KEYS = [
@@ -32,6 +32,26 @@ describe('i18n language files', () => {
         for (const name of Object.keys(LANGS)) {
             expect(LOCALE_MAP, `LOCALE_MAP missing an entry for "${name}"`).toHaveProperty(name);
             expect(LOCALE_MAP[name]).toMatch(/^[a-z]{2}-[A-Z]{2}$/);
+        }
+    });
+
+    // Companion guard for a second regression: every LOCALE_MAP[lang] || 'de-DE'
+    // call site (13+ views/components) used to duplicate the same German
+    // fallback, so an unsupported S.currentLang silently rendered dates/times
+    // in German for every user, not just German ones — same failure mode
+    // #391 already found for the missing 'nl' entry, just for *any* unlisted
+    // language rather than one specific one. localeFor() is now the single
+    // place that decides the fallback; keep it locked to English.
+    it('localeFor() falls back to en-US, not de-DE, for an unsupported/missing language', () => {
+        expect(localeFor('pt')).toBe('en-US');
+        expect(localeFor('xx')).toBe('en-US');
+        expect(localeFor(undefined)).toBe('en-US');
+        expect(localeFor(null)).toBe('en-US');
+    });
+
+    it('localeFor() returns the exact LOCALE_MAP entry for every supported language', () => {
+        for (const name of Object.keys(LANGS)) {
+            expect(localeFor(name)).toBe(LOCALE_MAP[name]);
         }
     });
 

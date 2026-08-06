@@ -3,7 +3,11 @@ import { TRANSLATIONS } from './constants.js';
 import { STAR_ICON_SVG } from './icons.js';
 
 export function t(key, ...args) {
-  const val = TRANSLATIONS[S.currentLang]?.[key] ?? TRANSLATIONS.de?.[key] ?? key;
+  // Falls back to English, not German, for a key missing in the active
+  // language's file — S.currentLang is already validated against
+  // TRANSLATIONS at startup (see state.js), so this only ever fires for an
+  // individual key that's out of sync across the 6 language files.
+  const val = TRANSLATIONS[S.currentLang]?.[key] ?? TRANSLATIONS.en?.[key] ?? key;
   return typeof val === 'function' ? val(...args) : val;
 }
 

@@ -4,7 +4,7 @@ import { t } from '../i18n.js';
 import { apiFetch } from '../api.js';
 import { mapToXY, formatTimeLabel } from '../utils.js';
 import { getDefaultMachineId } from '../components/machines-settings.js';
-import { LOCALE_MAP } from '../constants.js';
+import { localeFor } from '../constants.js';
 
 // Multi-machine live gating (#325, #341) — shot sync now covers every
 // registered machine (lib/sync.js's syncOtherMachines()), but real-time
@@ -82,7 +82,7 @@ export function populateRefSelector() {
   S.shots.filter(s => (s.datapoints?.pressure?.length || 0) > 5)
     .slice().reverse().slice(0, 40)
     .forEach(s => {
-      const date    = new Date(s.timestamp * 1000).toLocaleDateString(LOCALE_MAP[S.currentLang] || 'de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const date    = new Date(s.timestamp * 1000).toLocaleDateString(localeFor(S.currentLang), { day: '2-digit', month: '2-digit', year: 'numeric' });
       const profile = s.profile?.name || s.profileName || '?';
       const ann     = s.annotation || {};
       const score   = ann.score != null ? ` · ${ann.score}` : '';
@@ -234,11 +234,12 @@ export function setLiveBadge(state, detail = '') {
   liveBtn.classList.remove('live-brewing', 'live-ready');
 
   const labels = {
-    connecting: t('live_connecting'),
-    ready:      t('live_ready_status'),
-    brewing:    t('live_brewing'),
-    error:      detail || t('live_error_status'),
-    idle:       t('live_ready_status')
+    connecting:  t('live_connecting'),
+    ready:       t('live_ready_status'),
+    brewing:     t('live_brewing'),
+    error:       detail || t('live_error_status'),
+    idle:        t('live_ready_status'),
+    unreachable: detail || t('live_unreachable_status')
   };
   textEl.textContent = labels[state] || state;
 
@@ -251,9 +252,31 @@ export function handleLiveData(msg) {
   const times   = dp.timeInShot  || [];
   const lastIdx = times.length - 1;
 
-  const metaEl    = document.getElementById('live-meta');
-  const contentEl = document.getElementById('live-content');
-  const idleEl    = document.getElementById('live-idle');
+  const metaEl      = document.getElementById('live-meta');
+  const contentEl   = document.getElementById('live-content');
+  const idleEl      = document.getElementById('live-idle');
+  const idleTitleEl = document.getElementById('liveIdleTitle');
+  const idleTextEl  = document.getElementById('liveIdleText');
+
+  // #655: machineReachable === false is the authoritative "machine is off/
+  // unreachable" signal (lib/poll.js's 1s backend poll) and must win over
+  // the isLive-based "ready" fallback below — otherwise a powered-off
+  // machine renders identically to an idle-but-reachable one (state.liveAccum
+  // is null in both cases) and the live tab keeps showing "Ready to brew"
+  // indefinitely, which was the reported bug.
+  if (msg.machineReachable === false) {
+    setLiveBadge('unreachable');
+    metaEl.textContent = '–';
+    contentEl.style.display = 'none';
+    idleEl.style.display    = 'flex';
+    idleEl.classList.add('unreachable');
+    if (idleTitleEl) idleTitleEl.textContent = t('machine_unreachable_title');
+    if (idleTextEl)  idleTextEl.textContent  = t('live_unreachable_text');
+    return;
+  }
+  idleEl.classList.remove('unreachable');
+  if (idleTitleEl) idleTitleEl.textContent = t('machine_ready');
+  if (idleTextEl)  idleTextEl.textContent  = t('live_idle_text');
 
   if (!msg.isLive && times.length === 0) {
     setLiveBadge('ready');

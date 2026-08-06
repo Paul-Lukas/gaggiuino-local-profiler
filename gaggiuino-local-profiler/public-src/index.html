@@ -234,7 +234,7 @@
                 <span id="grindAdviceComparativeText"></span>
             </div>
 
-            <div class="chart-tabs">
+            <div class="chart-tabs tabs-scroll">
                 <button class="chart-tab active" id="tabZeit" data-i18n-html="tab_time"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg> Zeit</button>
                 <button class="chart-tab" id="tabPQ" data-i18n="tab_pq">P·Q Kurve</button>
                 <button id="expandChartBtn" data-i18n-title="btn_fullscreen_tooltip" title="Vollbild">⤢</button>
@@ -249,7 +249,7 @@
             <!-- Fullscreen chart overlay -->
             <div id="chartFullscreen">
                 <div class="fs-header">
-                    <div class="fs-tabs">
+                    <div class="fs-tabs tabs-scroll">
                         <button class="chart-tab active" id="fsTabZeit" data-i18n-html="tab_time"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg> Zeit</button>
                         <button class="chart-tab" id="fsTabPQ" data-i18n="tab_pq">P·Q Kurve</button>
                     </div>
@@ -319,7 +319,6 @@
                     <div class="annotation-field">
                         <label data-i18n="ann_coffee">Kaffee / Bohne</label>
                         <select id="annCoffee"></select>
-                        <datalist id="beanList"></datalist>
                         <div id="beanAgeHint" class="bean-age-hint" style="display:none"></div>
                     </div>
                     <div class="annotation-field">
@@ -337,8 +336,7 @@
                     </div>
                     <div class="annotation-field">
                         <label data-i18n="ann_grinder">Mühle</label>
-                        <input type="text" id="annGrinder" data-i18n-placeholder="ann_grinder_ph" placeholder="z.B. Niche Zero" list="grinderList" autocomplete="off">
-                        <datalist id="grinderList"></datalist>
+                        <input type="text" id="annGrinder" data-i18n-placeholder="ann_grinder_ph" placeholder="z.B. Niche Zero" autocomplete="off">
                     </div>
                     <div class="annotation-field">
                         <label data-i18n="ann_grind_setting">Mahlgrad</label>
@@ -473,7 +471,7 @@
     <!-- Library view -->
     <div id="library-view">
         <div class="lib-page">
-            <div class="lib-tabs">
+            <div class="lib-tabs tabs-scroll">
                 <button class="lib-tab active" id="libTabBeans" data-i18n="lib_beans">Bohnen</button>
                 <button class="lib-tab" id="libTabGrinders" data-i18n="lib_grinders">Mühlen</button>
                 <button class="lib-tab" id="libTabRecipes" data-i18n="lib_recipes">Rezepte</button>
@@ -532,13 +530,11 @@
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_bean_variety">Varietät</label>
-                                <input type="text" id="beanFormVariety" list="varietySuggestions" placeholder="Geisha, Bourbon …">
-                                <datalist id="varietySuggestions"></datalist>
+                                <input type="text" id="beanFormVariety" placeholder="Geisha, Bourbon …">
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_bean_process">Aufbereitung</label>
-                                <input type="text" id="beanFormProcess" list="processSuggestions" placeholder="Washed, Natural …">
-                                <datalist id="processSuggestions"></datalist>
+                                <input type="text" id="beanFormProcess" placeholder="Washed, Natural …">
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="bean_region_label">Region</label>
@@ -671,13 +667,7 @@
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_grinder_burr_type">Mahlwerk</label>
-                                <input type="text" id="grinderFormBurrType" list="burrTypeSuggestions" data-i18n-placeholder="lib_grinder_burr_type_ph" placeholder="Konisch Stahl">
-                                <datalist id="burrTypeSuggestions">
-                                    <option value="Konisch Stahl"></option>
-                                    <option value="Konisch Keramik"></option>
-                                    <option value="Flach Stahl"></option>
-                                    <option value="Flach Keramik"></option>
-                                </datalist>
+                                <input type="text" id="grinderFormBurrType" data-i18n-placeholder="lib_grinder_burr_type_ph" placeholder="Konisch Stahl">
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_grinder_purchase_date">Kaufdatum</label>
@@ -757,11 +747,11 @@
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_recipe_profile">Profil</label>
-                                <input type="text" id="recipeFormProfile" list="profileList" placeholder="Standard …">
+                                <input type="text" id="recipeFormProfile" placeholder="Standard …">
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_recipe_bean">Bohne</label>
-                                <input type="text" id="recipeFormBean" list="beanList" placeholder="Ethiopia …">
+                                <input type="text" id="recipeFormBean" placeholder="Ethiopia …">
                             </div>
                             <div class="lib-form-field">
                                 <label data-i18n="lib_recipe_notes">Notizen</label>
@@ -912,8 +902,6 @@
         </div>
     </div><!-- #library-view -->
 
-    <datalist id="profileList"></datalist>
-
     <!-- Machine profile editor modal (#307) -->
     <div id="profileEditorModal" class="guided-maint-overlay" style="display:none">
         <div class="guided-maint-modal profile-editor-modal">
@@ -1050,7 +1038,7 @@
                 </div>
             </div>
             <div class="idle-icon"><svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 8h1a3 3 0 0 1 0 6h-1M4 8h13v7a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8z"/><path d="M8 2v2M12 2v2"/></svg></div>
-            <h2 data-i18n="machine_ready">Maschine bereit</h2>
+            <h2 id="liveIdleTitle" data-i18n="machine_ready">Maschine bereit</h2>
             <p id="liveIdleText" data-i18n="live_idle_text">Sobald ein Bezug startet, erscheinen hier die Echtzeit-Daten.</p>
         </div>
     </div><!-- #live-view -->
@@ -1356,13 +1344,15 @@
         </div>
         <div class="settings-card">
             <h3 class="settings-card-title" data-i18n="backup_title">Backup & Restore</h3>
-            <p class="settings-card-desc" data-i18n="backup_desc">Alle Shots, Notizen und die Kaffee-Bibliothek als JSON-Datei sichern oder wiederherstellen.</p>
+            <p class="settings-card-desc" data-i18n="backup_desc">Die komplette Datenbank (Shots, Bibliothek, Wartung, Bestellungen, Maschinen, Einstellungen) als ZIP-Datei sichern oder wiederherstellen. MQTT-Zugangsdaten sind aus Sicherheitsgründen nicht enthalten.</p>
             <button id="backupDownloadBtn" type="button" class="backup-btn" data-i18n="backup_download">Backup herunterladen</button>
             <!-- Translation text must live in its own span: applyTranslations sets
-                 textContent on [data-i18n] nodes, which would wipe the file input -->
+                 textContent on [data-i18n] nodes, which would wipe the file input.
+                 Both .zip (current export format) and .json (backups downloaded
+                 before #658) are accepted -- see backup-modal.js's looksLikeZip(). -->
             <label class="backup-btn" style="cursor:pointer">
                 <span data-i18n="backup_restore">Aus Backup wiederherstellen …</span>
-                <input type="file" accept=".json" style="display:none">
+                <input type="file" id="backupRestoreInput" accept=".zip,.json" style="display:none">
             </label>
         </div>
         <!-- Shown once the session holds a token. Since #533 /api/token serves
@@ -1392,6 +1382,40 @@
         <span data-i18n="scan_attribution">Produktdaten von</span> <a href="https://world.openfoodfacts.org" target="_blank" style="color:#71717a">Open Food Facts</a> (ODbL)
     </p>
     <button class="scan-close-btn" id="closeScanModalBtn" data-i18n="scan_close">Schließen</button>
+</div>
+
+<!-- ── Backup export/restore modal ── shared by both flows, see
+     public-src/components/backup-modal.js for why. -->
+<div id="backupModal">
+    <div class="backup-modal-card">
+        <h3 id="backupModalTitle"></h3>
+        <p id="backupModalDesc" class="settings-card-desc"></p>
+
+        <div id="backupModalSections" class="backup-modal-sections"></div>
+
+        <label id="backupSecretsRow" class="backup-section-row backup-secrets-row">
+            <input type="checkbox" id="backupSecretsCb" class="backup-section-cb" value="secrets">
+            <span data-i18n="backup_section_secrets">API-Token &amp; MQTT-Login (verschlüsselt)</span>
+        </label>
+
+        <div id="backupPassphraseRow" class="backup-passphrase-row" style="display:none">
+            <label class="machine-form-label" data-i18n="backup_passphrase_label">Passwort für Token &amp; MQTT-Login</label>
+            <input type="password" id="backupPassphraseInput" class="machine-form-input" autocomplete="new-password" data-i18n-placeholder="backup_passphrase_placeholder">
+            <p class="backup-modal-hint" data-i18n="backup_passphrase_hint">Nur du kennst dieses Passwort — GLP speichert es nirgends. Vergisst du es, bleibt der Rest des Backups nutzbar, nur Token und MQTT-Login können dann nicht wiederhergestellt werden.</p>
+        </div>
+        <div id="backupPassphraseConfirmRow" class="backup-passphrase-row" style="display:none">
+            <label class="machine-form-label" data-i18n="backup_passphrase_confirm_label">Passwort bestätigen</label>
+            <input type="password" id="backupPassphraseConfirm" class="machine-form-input" autocomplete="new-password">
+        </div>
+
+        <div id="backupPreview" class="backup-preview" style="display:none"></div>
+        <div id="backupModalError" class="backup-modal-error" style="display:none"></div>
+
+        <div class="machine-form-actions">
+            <button id="backupModalConfirmBtn" type="button" class="backup-btn"></button>
+            <button id="backupModalCancelBtn" type="button" class="backup-btn" data-i18n="backup_modal_cancel">Abbrechen</button>
+        </div>
+    </div>
 </div>
 
 <script type="module" src="./main.js"></script>

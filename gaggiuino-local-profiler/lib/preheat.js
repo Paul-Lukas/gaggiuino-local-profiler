@@ -40,18 +40,6 @@ function loadPreheatState(runtime = defaultRuntime) {
     } catch { /* ignore */ }
 }
 
-// #643: prefer the registry's live default-machine switch_entity (kept
-// current by Settings UI edits via registry.updateMachine()) over the
-// possibly-stale options.json value -- same pattern #638/#641 established
-// for machine_host. Falls back to options.json's switch_entity only when
-// there's no default-machine row at all -- an explicitly empty/null
-// registry switchEntity means "not configured" and must NOT fall through
-// to a stale options.json value.
-function resolveSwitchEntity(opts) {
-    const defaultMachine = registry.getDefaultMachine();
-    return (defaultMachine ? defaultMachine.switchEntity : opts.switch_entity);
-}
-
 function isTempStable(runtime = defaultRuntime) {
     if (runtime.tempHistory.length < TEMP_STABLE_MIN) return false;
     const window = runtime.tempHistory.slice(-TEMP_STABLE_MIN);
@@ -82,7 +70,7 @@ function buildPreheatResponse(runtime = defaultRuntime) {
     const opts        = loadOptions();
     const preheatMins = Math.max(1, parseInt(opts.preheat_time) || 20);
     const preheatMs   = preheatMins * 60 * 1000;
-    const machineOff  = !runtime.machineOn && !!resolveSwitchEntity(opts);
+    const machineOff  = !runtime.machineOn && !!registry.switchEntityFor();
     const readyBy     = { readyByTargetAt: state.readyByTargetAt, plannedSwitchOnAt: state.plannedSwitchOnAt };
     if (machineOff || !runtime.switchOnAt) {
         return { ready: false, elapsed: 0, remaining: preheatMins * 60, pct: 0,
@@ -128,7 +116,7 @@ async function _checkReadyByPreheat(runtime = defaultRuntime) {
     if (!state.readyByTargetAt || !state.plannedSwitchOnAt) return;
     if (runtime.machineOn) return;
     if (Date.now() < state.plannedSwitchOnAt) return;
-    const entity = resolveSwitchEntity(loadOptions());
+    const entity = registry.switchEntityFor();
     if (entity) {
         try {
             await callHaService('switch', 'turn_on', { entity_id: entity });

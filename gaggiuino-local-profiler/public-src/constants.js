@@ -9,6 +9,16 @@ export const LOCALE_MAP = { de: 'de-DE', en: 'en-US', it: 'it-IT', fr: 'fr-FR', 
 
 export const TRANSLATIONS = { de, en, it, fr, es, nl };
 
+// Single source of truth for "which BCP-47 locale does Intl/toLocale*()
+// get for the active UI language" — every call site used to inline its own
+// `LOCALE_MAP[S.currentLang] || 'de-DE'`, which meant an unsupported/unknown
+// S.currentLang silently rendered dates/numbers in German for every user,
+// not just German ones. Falls back to English instead, matching the same
+// fallback fix applied to S.currentLang itself (state.js) and t() (i18n.js).
+export function localeFor(lang) {
+  return LOCALE_MAP[lang] || LOCALE_MAP.en;
+}
+
 // ── Coffee origin countries (ISO 3166-1 alpha-2 + numeric for topojson) ───
 export const COFFEE_COUNTRIES = [
   { code: 'AO', num: '024' }, { code: 'BI', num: '108' }, { code: 'BO', num: '068' },

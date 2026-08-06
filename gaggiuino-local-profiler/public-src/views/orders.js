@@ -2,7 +2,7 @@ import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { apiFetch } from '../api.js';
 import { esc } from '../utils.js';
-import { LOCALE_MAP } from '../constants.js';
+import { localeFor } from '../constants.js';
 // #416: stroke-SVG replacements for the 🫘/🥛 decorative glyphs (same
 // .rail-icon treatment as the 🔥 trend toggle, #415). Used both in the
 // use-beans/use-milks toggle buttons and their inline notes below.
@@ -478,7 +478,7 @@ export function renderOrdersStats(stats) {
     return;
   }
 
-  const fmtDate = ts => ts ? new Date(ts).toLocaleDateString(LOCALE_MAP[S.currentLang] || 'de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '–';
+  const fmtDate = ts => ts ? new Date(ts).toLocaleDateString(localeFor(S.currentLang), { day: '2-digit', month: '2-digit', year: 'numeric' }) : '–';
   const cards = (stats.customers || []).map(c => `<div class="orders-stats-card">
       <div class="orders-stats-name" title="${esc(c.name)}">${esc(c.name)}</div>
       <div class="orders-stats-row"><span>${t('orders_stats_total')}</span><span class="orders-stats-val">${c.count} ${t('orders_stats_orders')}</span></div>

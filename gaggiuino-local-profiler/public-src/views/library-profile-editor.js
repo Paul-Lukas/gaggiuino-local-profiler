@@ -49,9 +49,11 @@ export async function loadMachineProfileList() {
   updateProfileDatalist();
 }
 
+// recipeFormProfile's autocomplete (components/autocomplete.js, library.js)
+// reads S.machineProfiles live — this just re-renders it if it's currently
+// open, so a profile list refresh elsewhere shows up immediately.
 export function updateProfileDatalist() {
-  const dl = document.getElementById('profileList');
-  if (dl) dl.innerHTML = S.machineProfiles.map(p => `<option value="${esc(p.name)}">`).join('');
+  document.getElementById('recipeFormProfile')?._autocomplete?.refresh();
 }
 
 export function renderProfileList() {

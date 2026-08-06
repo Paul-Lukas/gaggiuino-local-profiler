@@ -3,17 +3,14 @@
 // `machine_host`/`switch_entity` options on first run, so existing
 // single-machine installs upgrade with zero manual steps.
 'use strict';
-const fs = require('fs');
 const { getDb } = require('../db');
-const { OPTIONS_FILE } = require('../constants');
 const { log } = require('../helpers');
-
-function loadOptions() {
-    try {
-        if (fs.existsSync(OPTIONS_FILE)) return JSON.parse(fs.readFileSync(OPTIONS_FILE, 'utf8'));
-    } catch { /* fall through to {} */ }
-    return {};
-}
+// loadOptions() used to be duplicated here and in lib/data.js; consolidated
+// to the lib/data.js copy (it also logs a parse failure) since this module
+// needs getMachineUrl()/getMachineBaseUrl() from there anyway for the
+// config facade below -- no cycle: lib/data.js's own require graph
+// (repositories/services) never reaches back into this module.
+const { loadOptions, getMachineUrl, getMachineBaseUrl } = require('../data');
 
 // theme is stored as a JSON string (see lib/db.js's machines table comment
 // for the exact contract); parse defensively so a hand-edited/corrupt row
@@ -128,7 +125,127 @@ function deleteMachine(id) {
     return true;
 }
 
+// ── Restore (backup/restore) ────────────────────────────────────────────────
+// Distinct from createMachine() above: a restore must preserve the *same*
+// ids the backup's shots/orders/maintenance rows reference via their own
+// machine_id columns (restored from the same file in the same transaction),
+// not mint fresh autoincrement ids. Only ever called from routes/backup.js's
+// POST /api/restore, never part of the interactive machine CRUD surface.
+function restoreMachines(machines) {
+    const db = getDb();
+    const { machineSchema } = require('../validation/schemas');
+
+    const oldHosts = listMachines().map(m => m.host).filter(Boolean);
+
+    const valid = [];
+    for (const m of machines) {
+        if (!m || typeof m !== 'object') continue;
+        if (!Number.isInteger(m.id) || m.id <= 0) {
+            log(`Machines: restore skipped an entry with an invalid id (${m.id})`, true);
+            continue;
+        }
+        const parsed = machineSchema.safeParse(m);
+        if (!parsed.success) {
+            log(`Machines: restore skipped machine #${m.id} (${parsed.error.issues[0]?.message || 'invalid'})`, true);
+            continue;
+        }
+        const createdAt = Number.isFinite(m.createdAt) ? m.createdAt : Date.now();
+        valid.push({ ...parsed.data, id: m.id, createdAt, isDefault: !!m.isDefault });
+    }
+
+    db.transaction(() => {
+        db.prepare('DELETE FROM machines').run();
+        const ins = db.prepare(
+            `INSERT INTO machines (id, name, type, host, switch_entity, theme, is_default, enabled, created_at)
+             VALUES (?,?,?,?,?,?,?,?,?)`
+        );
+        for (const m of valid) {
+            ins.run(m.id, m.name, m.type, m.host, m.switchEntity || null,
+                m.theme ? JSON.stringify(m.theme) : null, m.isDefault ? 1 : 0, m.enabled ? 1 : 0, m.createdAt);
+        }
+
+        // Enforce exactly one is_default row (lowest id wins on a tie/absence).
+        const rows = db.prepare('SELECT id, is_default FROM machines ORDER BY id ASC').all();
+        const defaults = rows.filter(r => r.is_default);
+        if (defaults.length !== 1 && rows.length) {
+            const winnerId = (defaults[0] || rows[0]).id;
+            db.prepare('UPDATE machines SET is_default = (id = ?)').run(winnerId);
+            log(`Machines: restore corrected is_default — exactly one machine (#${winnerId}) is now default`);
+        }
+    })();
+
+    for (const host of oldHosts) evictLiveSession(host);
+
+    // #661: a restored machine row can carry a stale host/switchEntity from
+    // whatever this instance's add-on options said at backup time --
+    // reconcile against the *current* options.json the same way a live
+    // option edit would, so the registry doesn't silently drift from what's
+    // actually configured. Lazy require: options-adoption.js requires this
+    // module at its own top level, so a top-level require here would form a
+    // cycle (see evictLiveSession() above for the same precedent).
+    try {
+        require('./options-adoption').reconcileAfterRestore();
+    } catch (e) {
+        log(`Machines: post-restore options reconciliation failed: ${e.message}`, true);
+    }
+
+    log(`Machines: restored ${valid.length}/${machines.length} machine(s)`);
+    return valid.length;
+}
+
+// ── Config facade (#638/#641/#643/#648) ─────────────────────────────────────
+//
+// Before this, every consumer that needed a machine's host or switch entity
+// re-derived it from a raw `opts` (options.json) object -- getMachineUrl(opts)/
+// getMachineBaseUrl(opts) look correct at every call site even when they're
+// the wrong thing to call, because they never fail loudly, they just quietly
+// read the stale value. #643 alone shipped the same three-line
+// resolveSwitchEntity(opts) copied into five files. hostFor/switchEntityFor/
+// baseUrlFor/apiUrlFor below are the one place that logic lives now: a
+// machineId of null means "the default machine", matching every existing
+// call site (all of which were hard single-machine before this facade).
+//
+// Calls route through `module.exports.getMachine`/`getDefaultMachine` (not
+// the bare local function) so `vi.spyOn(registry, 'getDefaultMachine')` in
+// tests still intercepts these internal lookups -- see
+// test/default-machine-host-live-sync.test.js and siblings, which predate
+// this facade and spy on the registry module from the outside.
+function _machineFor(machineId) {
+    return machineId != null ? module.exports.getMachine(machineId) : module.exports.getDefaultMachine();
+}
+
+// Registry's switchEntity wins even when it's null/empty -- that's a
+// deliberate "not configured" (#643), not a hole to fall through to
+// options.json. Falling back there only when there's no default-machine row
+// at all is what makes clearing the field in Settings actually stick.
+function switchEntityFor(machineId = null) {
+    const machine = _machineFor(machineId);
+    return machine ? machine.switchEntity : (loadOptions().switch_entity || null);
+}
+
+// Registry host first; options.json's machine_host only when the registry
+// has no usable host for this machine yet (defensive -- ensureDefaultMachine()
+// normally seeds one before anything else runs).
+function _effectiveOpts(machineId) {
+    const machine = _machineFor(machineId);
+    const opts    = loadOptions();
+    return machine && machine.host ? { ...opts, machine_host: machine.host } : opts;
+}
+
+function apiUrlFor(machineId = null) {
+    return getMachineUrl(_effectiveOpts(machineId));
+}
+
+function baseUrlFor(machineId = null) {
+    return getMachineBaseUrl(_effectiveOpts(machineId));
+}
+
+function hostFor(machineId = null) {
+    try { return new URL(module.exports.apiUrlFor(machineId)).hostname; } catch { return 'gaggiuino'; }
+}
+
 module.exports = {
     ensureDefaultMachine, listMachines, getMachine, getDefaultMachine,
-    createMachine, updateMachine, deleteMachine,
+    createMachine, updateMachine, deleteMachine, restoreMachines,
+    hostFor, switchEntityFor, baseUrlFor, apiUrlFor,
 };

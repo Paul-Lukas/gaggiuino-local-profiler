@@ -18,7 +18,10 @@ const N = {
 };
 
 function notifyT(lang, key, ...args) {
-  const table = N[lang] || N.de;
+  // Falls back to English, not German — an unrecognised `lang` (or the
+  // getHaLanguage() 'en' default for a standalone install with no
+  // Supervisor token) must not silently produce German notification text.
+  const table = N[lang] || N.en;
   const v = table[key] ?? N.en[key] ?? key;
   return typeof v === 'function' ? v(...args) : v;
 }

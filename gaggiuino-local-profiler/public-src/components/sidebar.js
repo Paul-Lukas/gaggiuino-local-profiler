@@ -1,6 +1,6 @@
 import { S } from '../state.js';
 import { t } from '../i18n.js';
-import { LOCALE_MAP } from '../constants.js';
+import { localeFor } from '../constants.js';
 import { esc, scoreClass, formatTimeLabel, groupShotsByDay } from '../utils.js';
 import { loadShotImageBlobUrl } from '../bean-image.js';
 import { openLightbox } from './lightbox.js';
@@ -24,7 +24,7 @@ export function renderSidebar() {
   if (S.currentSort !== 'newest') {
     shots.forEach(shot => el.appendChild(_buildShotWrapper(shot)));
   } else {
-    const locale = LOCALE_MAP[S.currentLang] || 'de-DE';
+    const locale = localeFor(S.currentLang);
     const formatRecent = d => d.toLocaleDateString(locale, { weekday: 'long', day: '2-digit', month: '2-digit' });
     const formatOlder = d => d.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
     const groups = groupShotsByDay(shots, new Date(), t('day_today'), t('day_yesterday'), formatRecent, formatOlder);
@@ -110,7 +110,7 @@ function _buildShotWrapper(shot) {
     const starsHtml = rating > 0
       ? `<span class="stars">${'★'.repeat(rating)}<span class="off">${'★'.repeat(5 - rating)}</span></span>`
       : '';
-    const timeLabel = date.toLocaleTimeString(LOCALE_MAP[S.currentLang] || 'de-DE', { hour: '2-digit', minute: '2-digit' });
+    const timeLabel = date.toLocaleTimeString(localeFor(S.currentLang), { hour: '2-digit', minute: '2-digit' });
     // #429: grind setting alongside the grinder in the meta line.
     const grinderLabel = [ann.grinder, ann.grindSetting].filter(Boolean).join(' · ');
     const grinderHtml = grinderLabel ? `<span class="shot-grinder">${esc(grinderLabel)}</span>` : '';
