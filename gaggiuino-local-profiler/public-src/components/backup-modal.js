@@ -76,11 +76,21 @@ function setError(msg) {
 }
 
 function closeBackupModal() {
-    els().modal.classList.remove('open');
+    const { modal, passInput, passConfirm } = els();
+    modal.classList.remove('open');
     mode = null;
     restoreBundle = null;
     restoreZipBytes = null;
     clearTimeout(previewDebounce);
+    // A passphrase typed in one open of the modal must never survive into
+    // the next -- otherwise a cancelled/completed export leaves its
+    // passphrase sitting in the field (visible as dots, easy to miss and
+    // reuse by accident) the next time the export or restore modal opens.
+    // autocomplete="new-password" on these inputs only discourages browser
+    // password-manager autofill; it does nothing about this module's own
+    // stale in-DOM value.
+    passInput.value = '';
+    passConfirm.value = '';
 }
 
 function renderSectionCheckboxes(presentSections) {

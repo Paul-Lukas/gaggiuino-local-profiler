@@ -1,6 +1,7 @@
 ## Unreleased
 
 ### Fixed
+- **The backup export/restore modal's passphrase and confirm-passphrase fields could show a value left over from a previous open** — e.g. the passphrase field empty but "Passwort bestätigen" still showing dots from an earlier, cancelled export. `closeBackupModal()` reset the modal's mode/bundle state but never cleared `passInput.value`/`passConfirm.value`; `autocomplete="new-password"` only suppresses browser password-manager autofill, not this module's own stale in-DOM value. Both fields are now cleared on every close. Closes #659
 - **dev-9 regression: the entire app failed to load (empty sidebar, no shots, no sync) immediately after the zip backup change shipped.** `main.js` wired the restore file input via `document.querySelector('input[type="file"][accept=".json"]')` — a selector keyed off the exact `accept` attribute value. Widening that attribute to `.zip,.json` (for the new zip restore support, same commit) made the selector match nothing; calling `.addEventListener` on the resulting `null` threw during module evaluation and aborted the rest of `main.js`, including the `DOMContentLoaded` handler that loads shots and starts sync — so the whole app rendered its shell but nothing else, with no error visible anywhere except the browser console. Found via the browser console's `Uncaught TypeError: can't access property "addEventListener", document.querySelector(...) is null`. Fixed by giving the input a stable `id="backupRestoreInput"` and selecting by that instead — immune to future `accept` changes.
 
 ### Added
