@@ -29,6 +29,20 @@ let mode = null;       // 'export' | 'restore'
 let restoreBundle = null;
 let previewDebounce = null;
 
+// Enter in the passphrase/confirm-passphrase input has no default browser
+// behavior to fall back on here -- the modal is deliberately not a <form>
+// (the section checkboxes/preview wiring below assumes plain buttons, and
+// turning it into one would submit-navigate on Enter from *any* focused
+// field, not just these two) so Enter is otherwise a silent no-op. Wired
+// once at import time since #backupModal is static markup in index.html,
+// not created/destroyed per open like the section checkboxes are.
+document.getElementById('backupModal')?.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    if (e.target.tagName !== 'INPUT') return;
+    e.preventDefault();
+    document.getElementById('backupModalConfirmBtn')?.click();
+});
+
 function els() {
     return {
         modal:        document.getElementById('backupModal'),

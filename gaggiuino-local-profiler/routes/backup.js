@@ -251,7 +251,15 @@ function buildBackupBundle(passphrase, sections) {
             try {
                 if (!fs.statSync(filePath).isFile()) continue;
                 images[filename] = fs.readFileSync(filePath).toString('base64');
-            } catch { /* best-effort, matches this codebase's existing image-handling style */ }
+            } catch (e) {
+                // Best-effort: one unreadable file must not fail the whole
+                // export. But silently continuing here previously made a
+                // 38-of-39-images-missing gap indistinguishable from "there
+                // were only ever 1-2 photos" -- log which file and why so a
+                // pattern (e.g. a permissions mismatch on older uploads) is
+                // diagnosable from the add-on log instead of invisible.
+                log(`Backup: skipping unreadable image file ${filename}: ${e.message}`, true);
+            }
         }
     }
 
