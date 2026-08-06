@@ -286,7 +286,7 @@ export default {
     degas_aging:(d)=>`${d} jours depuis la torréfaction — vieillissement`,
     degas_old:(d)=>`${d} jours depuis la torréfaction — trop vieux`,
     backup_title:'Backup & Restore',
-    backup_desc:'Sauvegardez ou restaurez toute la base de données (shots, bibliothèque, entretien, commandes, machines, réglages) en JSON. Les identifiants MQTT sont exclus pour des raisons de sécurité.',
+    backup_desc:'Sauvegardez ou restaurez toute la base de données (shots, bibliothèque, entretien, commandes, machines, réglages) en ZIP. Les identifiants MQTT sont exclus pour des raisons de sécurité.',
     backup_download:'Télécharger la sauvegarde', backup_restore:'Restaurer la sauvegarde', backup_close:'Fermer',
     backup_confirm:'Toutes les données actuelles seront écrasées. Continuer ?',
     backup_invalid:'Fichier de sauvegarde invalide.',

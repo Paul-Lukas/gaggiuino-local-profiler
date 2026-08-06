@@ -26,7 +26,8 @@ const SECTION_PRESENCE_KEYS = {
 };
 
 let mode = null;       // 'export' | 'restore'
-let restoreBundle = null;
+let restoreBundle = null;    // legacy .json restore: the parsed bundle
+let restoreZipBytes = null;  // .zip restore: the raw file bytes -- mutually exclusive with restoreBundle
 let previewDebounce = null;
 
 // Enter in the passphrase/confirm-passphrase input has no default browser
@@ -78,6 +79,7 @@ function closeBackupModal() {
     els().modal.classList.remove('open');
     mode = null;
     restoreBundle = null;
+    restoreZipBytes = null;
     clearTimeout(previewDebounce);
 }
 
@@ -96,20 +98,41 @@ function renderSectionCheckboxes(presentSections) {
     }
 }
 
+// Restore accepts either an already-parsed legacy .json bundle
+// (restoreBundle) or raw .zip bytes (restoreZipBytes) -- exactly one of the
+// two is ever set (see openBackupRestoreModal()). The zip path sends
+// sections/passphrase/dryRun as headers instead of inside the (binary) body
+// -- never as a URL query parameter, matching the reasoning
+// routes/backup.js documents above POST /api/backup for why a passphrase
+// can't go in a URL. `sections === undefined` omits the header entirely,
+// which the backend reads as "fall back to the bundle's own recorded
+// `sections` field" -- used once, by openBackupRestoreModal()'s initial
+// "what's in this file" probe, before the user has touched any checkbox.
+function postRestore({ sections, passphrase, dryRun }) {
+    if (restoreZipBytes) {
+        const headers = { 'Content-Type': 'application/zip' };
+        if (sections !== undefined) headers['X-GLP-Sections'] = JSON.stringify(sections);
+        if (passphrase !== undefined) headers['X-GLP-Passphrase'] = passphrase;
+        if (dryRun) headers['X-GLP-Dry-Run'] = 'true';
+        return apiFetch('api/restore', { method: 'POST', headers, body: restoreZipBytes });
+    }
+    return apiFetch('api/restore', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...restoreBundle, dryRun, sections, passphrase }),
+    });
+}
+
 // Only meaningful for restore: calls the dry-run path so the preview shown
 // to the user is computed by the exact same sanitizers/schemas the real
 // restore uses, instead of a second hand-rolled estimate that could drift
 // out of sync with what actually gets applied.
 async function refreshRestorePreview() {
-    if (mode !== 'restore' || !restoreBundle) return;
+    if (mode !== 'restore' || (!restoreBundle && !restoreZipBytes)) return;
     const { preview } = els();
     const sections = checkedSections();
     const passphrase = els().secretsCb.checked ? els().passInput.value : undefined;
     try {
-        const r = await apiFetch('api/restore', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...restoreBundle, dryRun: true, sections, passphrase }),
-        });
+        const r = await postRestore({ sections, passphrase, dryRun: true });
         const body = await r.json();
         if (!r.ok || !body.preview) { preview.textContent = ''; return; }
         const p = body.preview;
@@ -166,13 +189,22 @@ export function openBackupExportModal() {
                 body: JSON.stringify({ sections, passphrase: wantsSecrets ? passphrase : undefined }),
             });
             if (!r.ok) { const err = await r.json().catch(() => ({})); setError(t('backup_error', err.error || r.status)); return; }
-            const bundle   = await r.json();
-            const blob     = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
-            const filename = `glp-backup-${new Date().toISOString().slice(0, 10)}.json`;
+            // The response is already the zip binary (backup.json + real
+            // image files, see routes/backup.js's buildBackupZip()) -- no
+            // re-serialization needed, unlike the old JSON.stringify(bundle) here.
+            const blob     = await r.blob();
+            const filename = `glp-backup-${new Date().toISOString().slice(0, 10)}.zip`;
             await shareOrDownloadBlob(blob, filename, { title: filename });
             closeBackupModal();
         } catch (e) { setError(t('backup_error', e.message)); }
     };
+}
+
+// Zip files always start with this 4-byte local-file-header signature (see
+// lib/zip.js) -- sniffed instead of trusting the file's extension/MIME type,
+// which a rename or a picky OS file picker can't be relied on for.
+function looksLikeZip(bytes) {
+    return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04;
 }
 
 // `input` is the file <input> element restoreFromFile() was originally
@@ -181,25 +213,60 @@ export function openBackupExportModal() {
 export async function openBackupRestoreModal(input) {
     const file = input.files[0];
     if (!file) return;
-    try {
-        const text = await file.text();
-        const bundle = JSON.parse(text);
-        if (!bundle.glp_backup) {
-            alert(t('backup_invalid'));
-            // eslint-disable-next-line require-atomic-updates -- `input` is the caller's DOM element, not shared module state; nothing else writes input.value concurrently
+    const bytes = new Uint8Array(await file.arrayBuffer());
+
+    let present;
+    if (looksLikeZip(bytes)) {
+        // A zip's backup.json can't be inspected locally the way a plain
+        // .json file's contents can (no zip reader on the frontend --
+        // deliberately, see lib/zip.js's module doc comment: keeping zip
+        // parsing in exactly one place, Node-only, was the whole point).
+        // One dry-run round trip against the full file (no sections header,
+        // so the backend falls back to "everything the file itself has")
+        // gets the same section-presence information the legacy .json path
+        // computes instantly and locally -- see routes/backup.js's
+        // `sectionsPresent` field on the dry-run preview.
+        restoreZipBytes = bytes;
+        restoreBundle = null;
+        try {
+            const r = await postRestore({ sections: undefined, passphrase: undefined, dryRun: true });
+            const body = await r.json();
+            if (!r.ok || !body.preview) {
+                alert(t('backup_invalid'));
+                restoreZipBytes = null;
+                // eslint-disable-next-line require-atomic-updates -- `input` is the caller's DOM element, not shared module state; nothing else writes input.value concurrently
+                input.value = '';
+                return;
+            }
+            present = new Set(body.preview.sectionsPresent);
+        } catch (e) {
+            alert(t('backup_error', e.message));
+            restoreZipBytes = null;
+            // eslint-disable-next-line require-atomic-updates -- see above
             input.value = '';
             return;
         }
-        restoreBundle = bundle;
-    } catch (e) {
-        alert(t('backup_error', e.message));
-        // eslint-disable-next-line require-atomic-updates -- see above
-        input.value = '';
-        return;
+    } else {
+        try {
+            const bundle = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+            if (!bundle.glp_backup) {
+                alert(t('backup_invalid'));
+                // eslint-disable-next-line require-atomic-updates -- `input` is the caller's DOM element, not shared module state; nothing else writes input.value concurrently
+                input.value = '';
+                return;
+            }
+            restoreBundle = bundle;
+            restoreZipBytes = null;
+        } catch (e) {
+            alert(t('backup_error', e.message));
+            // eslint-disable-next-line require-atomic-updates -- see above
+            input.value = '';
+            return;
+        }
+        present = new Set(SECTION_KEYS.filter(key => SECTION_PRESENCE_KEYS[key].some(k => k in restoreBundle)));
     }
 
     mode = 'restore';
-    const present = new Set(SECTION_KEYS.filter(key => SECTION_PRESENCE_KEYS[key].some(k => k in restoreBundle)));
     const { modal, title, desc, secretsRow, passRow, passConfirmRow, preview, confirmBtn, cancelBtn } = els();
     title.textContent = t('backup_modal_restore_title');
     desc.textContent  = t('backup_modal_restore_desc');
@@ -225,10 +292,7 @@ export async function openBackupRestoreModal(input) {
         const passphrase = els().secretsCb.checked ? els().passInput.value : undefined;
         setError('');
         try {
-            const r = await apiFetch('api/restore', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...restoreBundle, sections, passphrase }),
-            });
+            const r = await postRestore({ sections, passphrase, dryRun: undefined });
             const res = await r.json();
             if (!res.ok) { setError(t('backup_error', res.error)); return; }
             // The restore may have just replaced the API token this session is

@@ -275,7 +275,7 @@ export default {
     degas_aging:(d)=>`${d} Tage seit Röstung – wird älter`,
     degas_old:(d)=>`${d} Tage seit Röstung – zu alt`,
     backup_title:'Backup & Restore',
-    backup_desc:'Die komplette Datenbank (Shots, Bibliothek, Wartung, Bestellungen, Maschinen, Einstellungen) als JSON-Datei sichern oder wiederherstellen. MQTT-Zugangsdaten sind aus Sicherheitsgründen nicht enthalten.',
+    backup_desc:'Die komplette Datenbank (Shots, Bibliothek, Wartung, Bestellungen, Maschinen, Einstellungen) als ZIP-Datei sichern oder wiederherstellen. MQTT-Zugangsdaten sind aus Sicherheitsgründen nicht enthalten.',
     backup_download:'Backup herunterladen', backup_restore:'Backup wiederherstellen', backup_close:'Schließen',
     backup_confirm:'Alle aktuellen Daten werden überschrieben. Fortfahren?',
     backup_invalid:'Ungültige Backup-Datei.',

@@ -286,7 +286,7 @@ export default {
     degas_aging:(d)=>`${d} giorni dalla torrefazione — invecchiamento`,
     degas_old:(d)=>`${d} giorni dalla torrefazione — troppo vecchio`,
     backup_title:'Backup & Restore',
-    backup_desc:'Salva o ripristina l\'intero database (shot, libreria, manutenzione, ordini, macchine, impostazioni) come file JSON. Le credenziali MQTT sono escluse per motivi di sicurezza.',
+    backup_desc:'Salva o ripristina l\'intero database (shot, libreria, manutenzione, ordini, macchine, impostazioni) come file ZIP. Le credenziali MQTT sono escluse per motivi di sicurezza.',
     backup_download:'Scarica backup', backup_restore:'Ripristina backup', backup_close:'Chiudi',
     backup_confirm:'Tutti i dati attuali verranno sovrascritti. Continuare?',
     backup_invalid:'File di backup non valido.',

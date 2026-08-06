@@ -20,6 +20,7 @@ const { sanitizeBeanFields, sanitizeGrinderFields, sanitizeRecipeFields,
         sanitizeMilkFields, sanitizeBasketFields, sanitizePuckScreenFields } = require('../lib/sanitize-bean');
 const { imagePath, imageFilename, matchesImageMagicBytes, CONTENT_TYPE_EXT } = require('../lib/services/ImageService');
 const { encryptSecrets, decryptSecrets } = require('../lib/backup-crypto');
+const { createZip, readZip } = require('../lib/zip');
 const state = require('../lib/state');
 
 // The library entity types that can carry an uploaded image, and the
@@ -80,10 +81,8 @@ function validateEntityImages(list, prefix, imagesMap, pendingImageWrites) {
         const id = entity.id;
         if (!Number.isInteger(id) || id <= 0) { entity.image = null; continue; }
         const filename = imageFilename(id, ext, prefix);
-        const value = imagesMap && typeof imagesMap === 'object' ? imagesMap[filename] : undefined;
-        if (typeof value !== 'string') { entity.image = null; continue; }
-        let buffer;
-        try { buffer = Buffer.from(value, 'base64'); } catch { entity.image = null; continue; }
+        const buffer = imagesMap && typeof imagesMap === 'object' ? imagesMap[filename] : undefined;
+        if (!Buffer.isBuffer(buffer)) { entity.image = null; continue; }
         if (!buffer.length || buffer.length > BEAN_IMAGE_MAX_BYTES) { entity.image = null; continue; }
         if (!matchesImageMagicBytes(buffer, ext)) { entity.image = null; continue; }
         pendingImageWrites.push({ path: imagePath(id, ext, prefix), buffer });
@@ -190,6 +189,23 @@ const SECTION_BUNDLE_KEYS = {
     secrets:     ['secrets'],
 };
 
+// Which top-level bundle key(s) prove a section is actually *present* in a
+// file being restored -- a narrower question than SECTION_BUNDLE_KEYS above
+// (which also lists the export-only keys a present section carries, e.g.
+// 'shots' pulls in 'images' too). Mirrors the frontend's own
+// SECTION_PRESENCE_KEYS (public-src/components/backup-modal.js) exactly;
+// kept as two copies rather than one shared module since one runs in the
+// browser and one in Node, same reasoning SECTION_KEYS/BACKUP_SECTIONS
+// already accept.
+const SECTION_PRESENCE_BUNDLE_KEYS = {
+    shots:       ['shots'],
+    maintenance: ['maintenance', 'maintenance_log'],
+    orders:      ['orders'],
+    machines:    ['machines'],
+    settings:    ['kv'],
+    secrets:     ['secrets'],
+};
+
 // `raw` is the caller-supplied `sections` field (export request body or a
 // restore's own bundle). Three distinct outcomes:
 //   undefined / not an array  -> null            ("all sections" -- the
@@ -213,14 +229,24 @@ function normaliseSections(raw) {
     return new Set(raw.filter(s => BACKUP_SECTIONS.includes(s)));
 }
 
-// Shared by GET and POST /api/backup below. `passphrase` is only ever
-// non-null on the POST path (see there for why GET can never carry one) and
-// gates whether an encrypted `secrets` block (API token + MQTT credentials)
-// is appended to the bundle -- omitting it entirely reproduces the exact
-// output the plain GET route has always returned. `sections`: null for a
-// full export (legacy/default), or a Set from normaliseSections() to
-// restrict the bundle to only those domains.
-function buildBackupBundle(passphrase, sections) {
+// Shared by every export entry point below (GET/POST /api/backup, both the
+// legacy self-contained-JSON shape and the zip shape). `passphrase` is only
+// ever non-null on a POST path (see there for why GET can never carry one)
+// and gates whether an encrypted `secrets` block (API token + MQTT
+// credentials) is appended to the bundle. `sections`: null for a full export
+// (legacy/default), or a Set from normaliseSections() to restrict the bundle
+// to only those domains.
+//
+// Returns `{ bundle, imageFiles, imagesRequested }` rather than a single
+// ready-to-send object: `bundle` never carries image bytes at all (not even
+// base64) -- callers decide how to attach `imageFiles` (raw {filename,
+// buffer} pairs) depending on the output format (base64-embedded for the
+// legacy JSON shape, real files for the zip shape). `imagesRequested`
+// mirrors the section-filtering `'images' in fullBundle` check the old
+// single-function version did, so a caller building a scoped export can tell
+// "images weren't asked for" apart from "images were asked for but the
+// directory was empty" -- both leave `imageFiles` as `[]`.
+function gatherBackupData(passphrase, sections) {
     // findAll() (not the trash-excluding getAll()) — a trashed shot's full
     // payload must be part of the export, or the recycle bin is
     // unrecoverable after a restore (the bug this fixes).
@@ -244,13 +270,13 @@ function buildBackupBundle(passphrase, sections) {
     // lib/services/ImageService.js), so scanning it can't miss a category
     // again, current or future, without needing to know what a "shot" or a
     // "bean" even is.
-    const images = {};
+    const imageFiles = [];
     if (fs.existsSync(BEAN_IMAGE_DIR)) {
         for (const filename of fs.readdirSync(BEAN_IMAGE_DIR)) {
             const filePath = path.join(BEAN_IMAGE_DIR, filename);
             try {
                 if (!fs.statSync(filePath).isFile()) continue;
-                images[filename] = fs.readFileSync(filePath).toString('base64');
+                imageFiles.push({ filename, buffer: fs.readFileSync(filePath) });
             } catch (e) {
                 // Best-effort: one unreadable file must not fail the whole
                 // export. But silently continuing here previously made a
@@ -300,7 +326,6 @@ function buildBackupBundle(passphrase, sections) {
             import_settings: importSettingsRepo.getSettings(),
             mqtt_settings:   safeMqttSettings,
         },
-        images,
     };
 
     // The API token grants full API access (including this very restore
@@ -325,7 +350,9 @@ function buildBackupBundle(passphrase, sections) {
         }
     }
 
-    if (sections === null) return fullBundle;
+    const imagesRequested = sections === null || sections.has('images') || sections.has('shots');
+
+    if (sections === null) return { bundle: fullBundle, imageFiles, imagesRequested };
 
     const bundle = { glp_backup: true, version: fullBundle.version, created: fullBundle.created, sections: [...sections] };
     for (const section of sections) {
@@ -333,35 +360,123 @@ function buildBackupBundle(passphrase, sections) {
             if (key in fullBundle) bundle[key] = fullBundle[key];
         }
     }
+    return { bundle, imageFiles: imagesRequested ? imageFiles : [], imagesRequested };
+}
+
+// The legacy self-contained export shape: `bundle.images` embeds every image
+// as base64, exactly what GET /api/backup has always returned and what any
+// existing bookmark/tooling (or an already-downloaded backup file) expects.
+// Used for GET (always) and kept around for anything that still wants a
+// single self-contained JSON object instead of the zip shape below.
+function buildBackupBundleJson(passphrase, sections) {
+    const { bundle, imageFiles, imagesRequested } = gatherBackupData(passphrase, sections);
+    if (imagesRequested) {
+        bundle.images = Object.fromEntries(imageFiles.map(f => [f.filename, f.buffer.toString('base64')]));
+    }
     return bundle;
 }
 
-function sendBackup(res, passphrase, sections) {
-    const bundle   = buildBackupBundle(passphrase, sections);
-    const filename = `glp-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.json(bundle);
+// The zip export shape: `backup.json` (this same bundle, minus any embedded
+// image bytes -- images travel as real files instead, see the module doc
+// comment at the top of lib/zip.js for why) plus one `images/<filename>`
+// entry per photo. Used by POST /api/backup, the only endpoint the export
+// modal actually calls.
+function buildBackupZip(passphrase, sections) {
+    const { bundle, imageFiles, imagesRequested } = gatherBackupData(passphrase, sections);
+    const entries = [{ name: 'backup.json', data: Buffer.from(JSON.stringify(bundle)) }];
+    if (imagesRequested) {
+        for (const { filename, buffer } of imageFiles) entries.push({ name: `images/${filename}`, data: buffer });
+    }
+    return createZip(entries);
 }
 
 router.get('/api/backup', (req, res, next) => {
     try {
-        sendBackup(res, null, null);
+        const bundle   = buildBackupBundleJson(null, null);
+        const filename = `glp-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.json(bundle);
     } catch (err) { next(err); }
 });
 
 // A passphrase must never travel in a URL (query strings end up in access
 // logs, proxy logs and browser history), so including one is only possible
 // via this POST variant's JSON body. GET above stays the plain, secrets-free,
-// all-sections export for any existing bookmark/tooling and needs no request
-// body at all.
+// all-sections legacy JSON export for any existing bookmark/tooling and
+// needs no request body at all.
+//
+// This is the only export endpoint the app's own UI calls, and it returns a
+// zip (backup.json + real image files) rather than a single JSON object --
+// see buildBackupZip() above for why. GET's JSON shape stays exactly as it
+// was for anything external still depending on it.
 router.post('/api/backup', (req, res, next) => {
     try {
         const passphrase = typeof req.body?.passphrase === 'string' && req.body.passphrase ? req.body.passphrase : null;
-        sendBackup(res, passphrase, normaliseSections(req.body?.sections));
+        const zip         = buildBackupZip(passphrase, normaliseSections(req.body?.sections));
+        const filename    = `glp-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(zip);
     } catch (err) { next(err); }
 });
 
+// Restore accepts either the legacy self-contained JSON body (the shape
+// every backup before #658 used, and what an already-downloaded .json file's
+// restore request still sends -- old backups must keep working) or a zip
+// body (backup.json + real image files, see buildBackupZip() above and
+// lib/zip.js's module doc comment for why zip exists at all). Both are
+// normalized here into the exact same `{ b, imagesMap }` shape the rest of
+// the route already expects -- `b` mirrors the old `req.body` (the bundle
+// object with dryRun/sections/passphrase mixed in), `imagesMap` is always
+// `{ filename: Buffer }` (no base64 anywhere below this point).
+//
+// sections/passphrase/dryRun travel as headers on the zip path rather than
+// inside the (binary) body -- specifically never as URL query parameters,
+// same reasoning already documented above POST /api/backup for why a
+// passphrase can't go in a URL (access logs, proxy logs, browser history).
+// Headers aren't subject to any of those, and this app already has a
+// precedent for carrying auth-adjacent data in a header (X-GLP-Token).
+function normaliseRestoreRequest(req) {
+    if (!req.is('application/zip')) {
+        return { b: req.body, imagesMap: legacyImagesMap(req.body) };
+    }
+    if (!Buffer.isBuffer(req.body)) return { error: 'Invalid zip body' };
+    let entries;
+    try { entries = readZip(req.body); } catch (e) { return { error: `Invalid zip file: ${e.message}` }; }
+    const backupJsonEntry = entries['backup.json'];
+    if (!backupJsonEntry) return { error: 'Invalid backup file (no backup.json in zip)' };
+    let parsed;
+    try { parsed = JSON.parse(backupJsonEntry.toString('utf8')); } catch { return { error: 'Invalid backup file (backup.json is not valid JSON)' }; }
+
+    let sectionsHeader;
+    const sectionsHeaderRaw = req.get('X-GLP-Sections');
+    if (sectionsHeaderRaw !== undefined) {
+        try { sectionsHeader = JSON.parse(sectionsHeaderRaw); } catch { return { error: 'Invalid X-GLP-Sections header' }; }
+    }
+    const b = {
+        ...parsed,
+        dryRun:     req.get('X-GLP-Dry-Run') === 'true',
+        sections:   sectionsHeader !== undefined ? sectionsHeader : parsed.sections,
+        passphrase: req.get('X-GLP-Passphrase') || undefined,
+    };
+    const imagesMap = {};
+    for (const [name, buf] of Object.entries(entries)) {
+        if (name.startsWith('images/')) imagesMap[name.slice('images/'.length)] = buf;
+    }
+    return { b, imagesMap };
+}
+
+function legacyImagesMap(b) {
+    const raw = b && typeof b === 'object' ? b.images : null;
+    return Object.fromEntries(
+        Object.entries(raw || {}).map(([name, base64]) => [name, Buffer.from(base64, 'base64')])
+    );
+}
+
 router.post('/api/restore', (req, res, next) => {
+    const { b, imagesMap, error } = normaliseRestoreRequest(req);
+    if (error) return res.status(400).json({ error });
+
     // A dry run is read-only preview traffic the modal fires on every
     // section-checkbox toggle and passphrase keystroke (debounced, but still
     // several calls per interaction) — sharing the real restore's 3/min limit
@@ -369,13 +484,12 @@ router.post('/api/restore', (req, res, next) => {
     // before the user ever clicked "Restore" (reported by Max). Real restores
     // stay tightly capped, since they wipe and replace live data; the dry-run
     // limit only needs to bound abuse, not user interaction speed.
-    const isDryRun = req.body?.dryRun === true;
+    const isDryRun = b?.dryRun === true;
     const limitOk  = isDryRun
         ? rateLimit(`restore-preview:${req.ip}`, 30)
         : rateLimit(`restore:${req.ip}`, 3);
     if (!limitOk) return res.status(429).json({ error: 'Rate limit exceeded' });
     try {
-        const b = req.body;
         if (!b || b.glp_backup !== true || !Array.isArray(b.shots))
             return res.status(400).json({ error: 'Invalid backup file' });
         if (b.shots.length > MAX_SHOT_ID)
@@ -388,9 +502,9 @@ router.post('/api/restore', (req, res, next) => {
         // when the restore request doesn't specify one explicitly, so
         // re-uploading a scoped export without picking anything on the
         // restore side still only touches what it was scoped to on export.
-        const sections = normaliseSections(req.body?.sections !== undefined ? req.body.sections : b.sections);
+        const sections = normaliseSections(b.sections);
         const wantsShots = sections === null || sections.has('shots');
-        const dryRun     = req.body?.dryRun === true;
+        const dryRun     = b.dryRun === true;
 
         // Per-shot validation only matters for data that will actually be
         // applied — if 'shots' isn't a selected section, garbage in an
@@ -421,7 +535,7 @@ router.post('/api/restore', (req, res, next) => {
         // blob, so the decrypted apiToken is still bounded/sanitised below
         // exactly like every other restored field in this file.
         const wantsSecrets = sections === null || sections.has('secrets');
-        const passphrase   = typeof req.body?.passphrase === 'string' && req.body.passphrase ? req.body.passphrase : null;
+        const passphrase   = typeof b.passphrase === 'string' && b.passphrase ? b.passphrase : null;
         const secretsPresent   = wantsSecrets && !!(b.secrets && typeof b.secrets === 'object');
         const decryptedSecrets = secretsPresent && passphrase ? decryptSecrets(b.secrets, passphrase) : null;
         const secretsRestored  = decryptedSecrets !== null;
@@ -436,13 +550,13 @@ router.post('/api/restore', (req, res, next) => {
         if (wantsShots) {
             if (b.coffee_library) {
                 sanitizedLib = sanitizeRestoredLibrary(b.coffee_library);
-                validateRestoredLibraryImages(sanitizedLib, b.images, pendingImageWrites);
+                validateRestoredLibraryImages(sanitizedLib, imagesMap, pendingImageWrites);
             }
             // Shot photos: same validation as library images, just not
             // nested under coffee_library -- each shot's own `.image`
             // field is mutated in place here, before shotService.upsertShot()
             // writes these same objects further down.
-            validateEntityImages(b.shots, 'shot-', b.images, pendingImageWrites);
+            validateEntityImages(b.shots, 'shot-', imagesMap, pendingImageWrites);
         }
         const validMaintenance = (sections === null || sections.has('maintenance')) && Array.isArray(b.maintenance)
             ? b.maintenance.map(sanitizeMaintenanceRow).filter(Boolean) : [];
@@ -471,6 +585,18 @@ router.post('/api/restore', (req, res, next) => {
                     settings:    wantsSettings && !!b.kv,
                     images:      pendingImageWrites.length,
                     secretsPresent, secretsRestored,
+                    // Which of the six domains actually have their defining
+                    // key(s) in `b` at all -- independent of `sections`
+                    // filtering above, and independent of count (a section
+                    // with e.g. zero shots is still a present, deliberately
+                    // empty one, not an absent one -- see the comment on
+                    // SECTION_PRESENCE_BUNDLE_KEYS). The zip restore path
+                    // (public-src/components/backup-modal.js) has no local
+                    // copy of the uploaded file to inspect the way the
+                    // legacy JSON path does, so it needs this from the
+                    // server to render the same restore checkboxes.
+                    sectionsPresent: Object.keys(SECTION_PRESENCE_BUNDLE_KEYS)
+                        .filter(key => SECTION_PRESENCE_BUNDLE_KEYS[key].some(k => k in b)),
                 },
             });
         }

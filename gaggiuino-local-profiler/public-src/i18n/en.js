@@ -286,7 +286,7 @@ export default {
     degas_aging:(d)=>`${d} days since roast — aging`,
     degas_old:(d)=>`${d} days since roast — too old`,
     backup_title:'Backup & Restore',
-    backup_desc:'Save or restore the entire database (shots, library, maintenance, orders, machines, settings) as a JSON file. MQTT credentials are excluded for security.',
+    backup_desc:'Save or restore the entire database (shots, library, maintenance, orders, machines, settings) as a ZIP file. MQTT credentials are excluded for security.',
     backup_download:'Download backup', backup_restore:'Restore backup', backup_close:'Close',
     backup_confirm:'All current data will be overwritten. Continue?',
     backup_invalid:'Invalid backup file.',

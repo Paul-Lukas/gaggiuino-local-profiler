@@ -46,10 +46,12 @@ const mqttSettingsRepo = require('../lib/repositories/MqttSettingsRepository');
 const { imagePath }  = require('../lib/services/ImageService');
 const { getDb }      = require('../lib/db');
 const state          = require('../lib/state');
+const { readZip }    = require('../lib/zip');
 
 function makeApp() {
     const app = express();
     app.use(express.json({ limit: '50mb' }));
+    app.use(express.raw({ type: 'application/zip', limit: '50mb' }));
     app.use(backupRouter);
     app.use((err, req, res, _next) => res.status(err.status || 500).json({ error: err.message }));
     return app;
@@ -84,11 +86,39 @@ async function backup() {
     return r.json();
 }
 
-async function backupPost(body = {}) {
+// POST /api/backup now returns a zip (backup.json + real image files, see
+// buildBackupZip()) rather than a single JSON object. Most existing tests in
+// this file only care about the metadata (shots/orders/secrets/...), so this
+// helper unzips and returns the parsed backup.json content -- same shape
+// `backupPost()` always returned, letting those tests stay unchanged.
+// `backupPostZip()` below is for the tests that need the raw zip/images.
+async function backupPostZip(body = {}) {
     const r = await fetch(`${baseUrl}/api/backup`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
-    return r.json();
+    const entries = readZip(Buffer.from(await r.arrayBuffer()));
+    const bundle  = JSON.parse(entries['backup.json'].toString('utf8'));
+    const images  = {};
+    for (const [name, buf] of Object.entries(entries)) {
+        if (name.startsWith('images/')) images[name.slice('images/'.length)] = buf;
+    }
+    return { bundle, images };
+}
+
+async function backupPost(body = {}) {
+    return (await backupPostZip(body)).bundle;
+}
+
+// Posts a zip body to /api/restore the way the real export → restore round
+// trip works: sections/passphrase/dryRun travel as headers (see
+// normaliseRestoreRequest() in routes/backup.js for why never a URL query),
+// never inside the binary body.
+async function restoreZip(zipBuffer, { sections, passphrase, dryRun } = {}) {
+    const headers = { 'Content-Type': 'application/zip' };
+    if (sections !== undefined) headers['X-GLP-Sections'] = JSON.stringify(sections);
+    if (passphrase !== undefined) headers['X-GLP-Passphrase'] = passphrase;
+    if (dryRun) headers['X-GLP-Dry-Run'] = 'true';
+    return fetch(`${baseUrl}/api/restore`, { method: 'POST', headers, body: zipBuffer });
 }
 
 // A single valid PNG signature (8 bytes) plus filler — matchesImageMagicBytes()
@@ -672,6 +702,115 @@ describe('API token in encrypted secrets', () => {
         const b = await backup(); // GET, no passphrase
         expect(JSON.stringify(b)).not.toContain('should-not-leak');
         expect(b.secrets).toBeUndefined();
+    });
+});
+
+// #658: export moved from a single JSON object (images embedded as base64)
+// to a zip (backup.json + real image files) -- restore must keep accepting
+// both, since backups downloaded before this change still need to work.
+describe('Zip export/restore (#658)', () => {
+    const validJpg = Buffer.from([0xFF, 0xD8, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+    it('POST /api/backup returns a zip whose backup.json has no embedded base64 images', async () => {
+        seedOneShot();
+        writeFileSync(imagePath(1, 'jpg', 'shot-'), validJpg);
+        shotRepo.upsert({ id: 1, timestamp: 1700000000, duration: 250, profile_name: 'Test Profile', image: 'jpg' });
+
+        const { bundle, images } = await backupPostZip();
+        expect(bundle.images).toBeUndefined();
+        expect(images).toHaveProperty('shot-1.jpg');
+        expect(Buffer.from(images['shot-1.jpg']).equals(validJpg)).toBe(true);
+    });
+
+    it('GET /api/backup (legacy) is unaffected -- still a single JSON object with base64 images', async () => {
+        writeFileSync(imagePath(2, 'jpg', 'shot-'), validJpg);
+        const b = await backup();
+        expect(b.images).toHaveProperty('shot-2.jpg');
+        expect(typeof b.images['shot-2.jpg']).toBe('string'); // still base64, not a raw byte array
+    });
+
+    it('restores cleanly from a zip export, images and all, via a dry run then a real restore', async () => {
+        seedOneShot();
+        shotRepo.upsert({ id: 1, timestamp: 1700000000, duration: 250, profile_name: 'Test Profile', image: 'jpg' });
+        writeFileSync(imagePath(1, 'jpg', 'shot-'), validJpg);
+
+        const zipRes = await fetch(`${baseUrl}/api/backup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const zipBuffer = Buffer.from(await zipRes.arrayBuffer());
+
+        const dry = await restoreZip(zipBuffer, { dryRun: true });
+        expect(dry.status).toBe(200);
+        const dryBody = await dry.json();
+        expect(dryBody.dryRun).toBe(true);
+        expect(dryBody.preview.shots).toBe(1);
+        expect(dryBody.preview.images).toBe(1);
+
+        shotRepo.wipeAll(); // prove the real restore below is what repopulates it, not the seed above
+        const real = await restoreZip(zipBuffer, {});
+        expect(real.status).toBe(200);
+        const realBody = await real.json();
+        expect(realBody.ok).toBe(true);
+        expect(realBody.shots).toBe(1);
+        expect(shotRepo.findAll().map(s => s.id)).toEqual([1]);
+        expect(existsSync(imagePath(1, 'jpg', 'shot-'))).toBe(true);
+    });
+
+    it('applies a section filter via the X-GLP-Sections header on a zip restore', async () => {
+        registry.createMachine({ name: 'From zip', type: 'gaggiuino', host: 'zip.local' });
+        seedOneShot();
+
+        const { bundle } = await backupPostZip();
+        const entries = [{ name: 'backup.json', data: Buffer.from(JSON.stringify(bundle)) }];
+        const { createZip } = require('../lib/zip');
+        const zipBuffer = createZip(entries);
+
+        shotRepo.wipeAll();
+        const r = await restoreZip(zipBuffer, { sections: ['machines'] });
+        expect(r.status).toBe(200);
+        // Only 'machines' was requested via the header -- shots stayed empty.
+        expect(shotRepo.findAll()).toEqual([]);
+        expect(registry.listMachines().map(m => m.name)).toContain('From zip');
+    });
+
+    it('a passphrase sent via X-GLP-Passphrase decrypts the secrets block on a zip restore', async () => {
+        state.apiToken = 'token-before-zip-restore';
+        const { bundle } = await backupPostZip({ passphrase: 'zip-passphrase' });
+        expect(bundle.secrets).toBeDefined();
+        const { createZip } = require('../lib/zip');
+        const zipBuffer = createZip([{ name: 'backup.json', data: Buffer.from(JSON.stringify(bundle)) }]);
+
+        const r = await restoreZip(zipBuffer, { passphrase: 'zip-passphrase' });
+        expect(r.status).toBe(200);
+        const body = await r.json();
+        expect(body.secretsRestored).toBe(true);
+    });
+
+    it('still rejects a path-traversal image filename when sourced from a zip instead of base64 JSON', async () => {
+        seedOneShot();
+        shotRepo.upsert({ id: 1, timestamp: 1700000000, duration: 250, profile_name: 'Test Profile', image: 'jpg' });
+        const bundle = {
+            glp_backup: true,
+            shots: [{ id: 1, timestamp: 1700000000, duration: 250, profile_name: 'Test Profile', image: 'jpg' }],
+        };
+        const { createZip } = require('../lib/zip');
+        // The malicious entry name never matches imageFilename(1, 'jpg', 'shot-')
+        // ("shot-1.jpg"), so validateEntityImages() must clear .image rather
+        // than ever constructing a path from it -- same guard the base64 path
+        // already had, now exercised via a zip-sourced imagesMap.
+        const zipBuffer = createZip([
+            { name: 'backup.json', data: Buffer.from(JSON.stringify(bundle)) },
+            { name: 'images/../../../../tmp/evil-from-zip.jpg', data: validJpg },
+        ]);
+
+        const r = await restoreZip(zipBuffer, {});
+        expect(r.status).toBe(200);
+        expect(existsSync('/tmp/evil-from-zip.jpg')).toBe(false);
+    });
+
+    it('rejects a malformed zip body with 400 instead of a 500', async () => {
+        const r = await fetch(`${baseUrl}/api/restore`, {
+            method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: Buffer.from('not a zip'),
+        });
+        expect(r.status).toBe(400);
     });
 });
 

@@ -1344,13 +1344,15 @@
         </div>
         <div class="settings-card">
             <h3 class="settings-card-title" data-i18n="backup_title">Backup & Restore</h3>
-            <p class="settings-card-desc" data-i18n="backup_desc">Die komplette Datenbank (Shots, Bibliothek, Wartung, Bestellungen, Maschinen, Einstellungen) als JSON-Datei sichern oder wiederherstellen. MQTT-Zugangsdaten sind aus Sicherheitsgründen nicht enthalten.</p>
+            <p class="settings-card-desc" data-i18n="backup_desc">Die komplette Datenbank (Shots, Bibliothek, Wartung, Bestellungen, Maschinen, Einstellungen) als ZIP-Datei sichern oder wiederherstellen. MQTT-Zugangsdaten sind aus Sicherheitsgründen nicht enthalten.</p>
             <button id="backupDownloadBtn" type="button" class="backup-btn" data-i18n="backup_download">Backup herunterladen</button>
             <!-- Translation text must live in its own span: applyTranslations sets
-                 textContent on [data-i18n] nodes, which would wipe the file input -->
+                 textContent on [data-i18n] nodes, which would wipe the file input.
+                 Both .zip (current export format) and .json (backups downloaded
+                 before #658) are accepted -- see backup-modal.js's looksLikeZip(). -->
             <label class="backup-btn" style="cursor:pointer">
                 <span data-i18n="backup_restore">Aus Backup wiederherstellen …</span>
-                <input type="file" accept=".json" style="display:none">
+                <input type="file" accept=".zip,.json" style="display:none">
             </label>
         </div>
         <!-- Shown once the session holds a token. Since #533 /api/token serves

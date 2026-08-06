@@ -286,7 +286,7 @@ export default {
     degas_aging:(d)=>`${d} dagen na roosten — veroudert`,
     degas_old:(d)=>`${d} dagen na roosten — te oud`,
     backup_title:'Backup & Herstel',
-    backup_desc:'Sla de volledige database (shots, bibliotheek, onderhoud, bestellingen, machines, instellingen) op of herstel deze als JSON-bestand. MQTT-inloggegevens zijn om veiligheidsredenen uitgesloten.',
+    backup_desc:'Sla de volledige database (shots, bibliotheek, onderhoud, bestellingen, machines, instellingen) op of herstel deze als ZIP-bestand. MQTT-inloggegevens zijn om veiligheidsredenen uitgesloten.',
     backup_download:'Backup downloaden', backup_restore:'Backup herstellen', backup_close:'Sluiten',
     backup_confirm:'Alle huidige gegevens worden vervangen. Doorgaan?',
     backup_invalid:'Ongeldig backupbestand.',

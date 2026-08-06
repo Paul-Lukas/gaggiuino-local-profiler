@@ -286,7 +286,7 @@ export default {
     degas_aging:(d)=>`${d} días desde el tueste — envejeciendo`,
     degas_old:(d)=>`${d} días desde el tueste — demasiado viejo`,
     backup_title:'Backup & Restore',
-    backup_desc:'Guarda o restaura toda la base de datos (shots, biblioteca, mantenimiento, pedidos, máquinas, ajustes) como archivo JSON. Las credenciales MQTT quedan excluidas por seguridad.',
+    backup_desc:'Guarda o restaura toda la base de datos (shots, biblioteca, mantenimiento, pedidos, máquinas, ajustes) como archivo ZIP. Las credenciales MQTT quedan excluidas por seguridad.',
     backup_download:'Descargar copia de seguridad', backup_restore:'Restaurar copia de seguridad', backup_close:'Cerrar',
     backup_confirm:'Todos los datos actuales serán reemplazados. ¿Continuar?',
     backup_invalid:'Archivo de copia de seguridad no válido.',

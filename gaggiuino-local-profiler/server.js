@@ -139,6 +139,14 @@ app.use((req, res, next) => {
 // parse of a large payload (esp. /api/restore's 50mb limit) before being
 // rejected — the auth middleware above only reads headers/path, never body.
 app.use('/api/restore', express.json({ limit: '50mb' }));
+// A restore body is either JSON (legacy/already-downloaded backups) or a zip
+// (backup.json + real image files, see routes/backup.js's buildBackupZip()).
+// Express only invokes whichever of these matches the request's actual
+// Content-Type, so stacking both here is safe -- req.body ends up as either
+// a parsed object or a raw Buffer depending on what the client sent, same
+// size ceiling as the JSON path above (a zip is typically smaller than the
+// base64 JSON it replaces for the same content).
+app.use('/api/restore', express.raw({ type: 'application/zip', limit: '50mb' }));
 app.use(express.json({ limit: '16kb' }));
 
 // ── Routes ────────────────────────────────────────────────────────────────
