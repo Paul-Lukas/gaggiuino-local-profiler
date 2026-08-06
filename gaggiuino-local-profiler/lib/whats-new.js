@@ -18,6 +18,11 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.30.0', date: '2026-08-06', highlights: [
+        'Backup export now downloads as a real .zip with selectable sections, an optional encrypted API-token/MQTT-login section, and a dry-run preview before restoring.',
+        'Fixed the status dot/Live tab staying green for hours after the machine was switched off — and, on the same fix, staying red for minutes after it was switched back on.',
+        'Fixed barcode scanning during bean import being completely broken for every user, blocked by the app\'s own content-security policy.',
+    ] },
     { version: '2.29.0', date: '2026-08-04', highlights: [
         'Added Baskets and Puck Screens as new Coffee Library entity types, with photo upload and shot linkage like beans.',
     ] },
@@ -39,9 +44,6 @@ const WHATS_NEW_ENTRIES = [
     ] },
     { version: '2.27.0', date: '2026-08-03', highlights: [
         'Added MQTT as an alternative live-data transport (Settings → "Live connection"), with Supervisor broker auto-discovery and a one-click "apply to machine" button.',
-    ] },
-    { version: '2.26.0', date: '2026-08-03', highlights: [
-        'Added per-notification-type toggles (preheat-ready, low-stock, shop open/close, new order, order status) in Settings.',
     ] },
 ];
 
