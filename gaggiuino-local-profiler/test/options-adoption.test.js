@@ -195,4 +195,53 @@ describe('options.json adoption into the machine registry', () => {
         boot();
         expect(machine().host).toBe('edited-in-app.local');
     });
+
+    // #661: registry.restoreMachines() writes a backed-up machine row
+    // straight into the machines table, bypassing adoptOptionChanges()
+    // entirely. Without reconciliation, a restore from a backup taken at a
+    // different host/switch_entity silently reintroduces the stale value,
+    // and it survives every future restart because options.json itself
+    // never changed -- adoptOptionChanges()'s diff against its "seen"
+    // baseline sees no difference.
+    it('re-adopts the current add-on options after a restore reintroduces a stale host/switch_entity', () => {
+        writeOptions({ machine_host: 'gaggia.intern', switch_entity: 'switch.current' });
+        boot();
+        expect(machine().host).toBe('gaggia.intern');
+        expect(machine().switchEntity).toBe('switch.current');
+
+        // Restore a backup taken back when the machine lived at a different
+        // host/switch entity -- options.json is untouched throughout.
+        require('../lib/machines/registry').restoreMachines([{
+            id: 1, name: 'Gaggiuino', type: 'gaggiuino',
+            host: 'old-host.local', switchEntity: 'switch.stale',
+            isDefault: true, enabled: true, createdAt: Date.now(),
+        }]);
+
+        expect(machine().host).toBe('gaggia.intern');
+        expect(machine().switchEntity).toBe('switch.current');
+
+        // And the reconciliation must have updated the "seen" baseline too,
+        // so a subsequent boot() with the same unchanged options doesn't
+        // find a stale-vs-current diff and re-log/re-adopt for no reason.
+        boot();
+        expect(machine().host).toBe('gaggia.intern');
+        expect(machine().switchEntity).toBe('switch.current');
+    });
+
+    it('restore reconciliation leaves a restored host alone when the add-on option is empty', () => {
+        writeOptions({ machine_host: 'gaggia.intern' });
+        boot();
+
+        // Add-on option emptied at some point -- required fields are never
+        // cleared, so there's nothing for reconciliation to fall back to;
+        // the restored value (however stale) stands.
+        writeOptions({ machine_host: '' });
+        require('../lib/machines/registry').restoreMachines([{
+            id: 1, name: 'Gaggiuino', type: 'gaggiuino',
+            host: 'old-host.local', switchEntity: null,
+            isDefault: true, enabled: true, createdAt: Date.now(),
+        }]);
+
+        expect(machine().host).toBe('old-host.local');
+    });
 });

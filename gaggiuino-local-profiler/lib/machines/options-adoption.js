@@ -129,4 +129,39 @@ function adoptOptionChanges() {
     }
 }
 
-module.exports = { adoptOptionChanges };
+// Called right after registry.restoreMachines() restores the default
+// machine row (#661). A restored backup's host/switchEntity reflects
+// whatever this instance's add-on options said at *backup* time, and
+// restoreMachines() writes it straight into the machines table, bypassing
+// the tracked-input contract above entirely. Left alone, that stale value
+// survives every future startup: adoptOptionChanges() only re-adopts when
+// options.json's *current* value differs from the last-seen one, and a
+// restore doesn't touch options.json, so the seen baseline still matches —
+// no diff, no re-adoption, and the registry is silently stuck on data from
+// a point in time (or, restoring across installs, a machine) that may no
+// longer be this instance's own.
+//
+// Unlike adoptOptionChanges()'s diff-based adoption, this instance's add-on
+// options win here unconditionally: they describe this instance's actual
+// machine right now, and a restore is itself the kind of registry-replacing
+// event that a live option edit would also win against.
+function reconcileAfterRestore() {
+    const opts    = loadOptions();
+    const machine = registry.getDefaultMachine();
+    if (!machine) return;
+
+    for (const { optionKey, machineField, required } of TRACKED) {
+        const current = normalise(opts[optionKey]);
+        if (current === UNSET) continue;
+        if (required && current === null) { writeSeen(optionKey, current); continue; }
+
+        if (machine[machineField] !== current) {
+            registry.updateMachine(machine.id, { [machineField]: current });
+            log(`Machines: restore left ${optionKey} out of sync with add-on options, re-adopted into `
+                + `machine #${machine.id} ("${machine.name}"): ${machineField} = ${current === null ? '(cleared)' : current}`);
+        }
+        writeSeen(optionKey, current);
+    }
+}
+
+module.exports = { adoptOptionChanges, reconcileAfterRestore };

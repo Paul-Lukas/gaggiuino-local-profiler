@@ -176,6 +176,19 @@ function restoreMachines(machines) {
 
     for (const host of oldHosts) evictLiveSession(host);
 
+    // #661: a restored machine row can carry a stale host/switchEntity from
+    // whatever this instance's add-on options said at backup time --
+    // reconcile against the *current* options.json the same way a live
+    // option edit would, so the registry doesn't silently drift from what's
+    // actually configured. Lazy require: options-adoption.js requires this
+    // module at its own top level, so a top-level require here would form a
+    // cycle (see evictLiveSession() above for the same precedent).
+    try {
+        require('./options-adoption').reconcileAfterRestore();
+    } catch (e) {
+        log(`Machines: post-restore options reconciliation failed: ${e.message}`, true);
+    }
+
     log(`Machines: restored ${valid.length}/${machines.length} machine(s)`);
     return valid.length;
 }

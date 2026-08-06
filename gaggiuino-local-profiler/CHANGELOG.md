@@ -1,5 +1,8 @@
 ## Unreleased
 
+### Fixed
+- **Restoring a backup could silently reintroduce a stale `machine_host`/`switch_entity`, permanently out of sync with the add-on's own configuration.** Found while testing on GLP DEV: `machine_host` was set to a new value in the add-on options, then a backup restore (from before that change) put the old host straight back — and it stayed there across every subsequent restart. `registry.restoreMachines()` writes a backed-up machine row directly into the registry, bypassing `lib/machines/options-adoption.js` entirely; since a restore never touches `options.json` itself, the tracked-input baseline used to detect an add-on option change saw no diff on the next start and never re-adopted the still-current option value. A restore now reconciles the restored default machine's `host`/`switchEntity` against the current add-on options immediately afterward, the same way a live option edit would — the add-on's own config always describes this instance's actual machine, regardless of what a restored backup (possibly older, possibly from a different install) says. Closes #661
+
 ### Added
 - **Backup filenames now include the time, not just the date** (e.g. `glp-backup-2026-08-06_08-32-05.zip`). Requested by Max: two backups taken the same day previously collided on the same `glp-backup-YYYY-MM-DD` filename, forcing the browser to append "(1)"/"(2)" or silently overwrite the earlier one. Closes #660
 
