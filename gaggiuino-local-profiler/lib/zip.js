@@ -122,6 +122,14 @@ function createZip(entries) {
 // works if a future writer ever adds a data descriptor or extra fields this
 // module doesn't otherwise parse.
 function readZip(buffer) {
+    // #665: the only call site (routes/backup.js) already checks
+    // Buffer.isBuffer(req.body) before calling in, but that guard lives in a
+    // different function -- assert it again here too, as this function's own
+    // contract, so a future call site can't skip it and so static analysis
+    // tools that don't track guards across function boundaries (CodeQL
+    // flagged buffer.length/readUInt32LE below as a potential type-confusion
+    // sink without this) have a barrier in the same scope as the sink.
+    if (!Buffer.isBuffer(buffer)) throw new Error('readZip() expects a Buffer');
     // The EOCD record is fixed-size (22 bytes) plus an optional trailing
     // comment of up to 65535 bytes, so its signature isn't at a fixed offset
     // from the end -- scan backwards for it, same approach every ZIP reader

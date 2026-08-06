@@ -25,6 +25,14 @@ router.get('/api/library/scan/:barcode', validate(scanBarcodeSchema, 'params'), 
     res.set('Cache-Control', 'no-store');
     if (!rateLimit(`scan:${req.ip}`, 20)) return res.status(429).json({ error: 'rate_limited' });
     const { barcode } = req.params;
+    // #665: redundant with scanBarcodeSchema above (the validate() middleware
+    // already rejects anything but an 8/12/13/14-digit barcode) -- that check
+    // lives in a different file, so this re-asserts the same format in the
+    // same scope as the URL built below, as a local barrier for the request
+    // itself rather than relying on interprocedural analysis to connect the
+    // two (CodeQL flagged the URL as depending on a user-provided value
+    // without this).
+    if (!/^(\d{8}|\d{12}|\d{13}|\d{14})$/.test(barcode)) return res.status(400).json({ error: 'invalid_barcode' });
     try {
         // world.openfoodfacts.org is a fixed hostname, not user input, but
         // this still guards against DNS-rebinding-style redirection of that
