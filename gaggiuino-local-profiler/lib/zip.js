@@ -125,10 +125,13 @@ function readZip(buffer) {
     // #665: the only call site (routes/backup.js) already checks
     // Buffer.isBuffer(req.body) before calling in, but that guard lives in a
     // different function -- assert it again here too, as this function's own
-    // contract, so a future call site can't skip it and so static analysis
-    // tools that don't track guards across function boundaries (CodeQL
-    // flagged buffer.length/readUInt32LE below as a potential type-confusion
-    // sink without this) have a barrier in the same scope as the sink.
+    // contract, so a future call site can't skip it. Array.isArray is
+    // checked explicitly, not just Buffer.isBuffer: CodeQL's
+    // js/type-confusion-through-parameter-tampering doesn't recognize
+    // Buffer.isBuffer() as a barrier for this query, only the array/string
+    // confusion shape parameter tampering actually exploits -- same fix
+    // shape as ImageService.js's saveUploadedImage() (see 4efaa94, #373).
+    if (Array.isArray(buffer)) throw new Error('readZip() expects a Buffer');
     if (!Buffer.isBuffer(buffer)) throw new Error('readZip() expects a Buffer');
     // The EOCD record is fixed-size (22 bytes) plus an optional trailing
     // comment of up to 65535 bytes, so its signature isn't at a fixed offset
