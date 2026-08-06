@@ -1352,7 +1352,7 @@
                  before #658) are accepted -- see backup-modal.js's looksLikeZip(). -->
             <label class="backup-btn" style="cursor:pointer">
                 <span data-i18n="backup_restore">Aus Backup wiederherstellen …</span>
-                <input type="file" accept=".zip,.json" style="display:none">
+                <input type="file" id="backupRestoreInput" accept=".zip,.json" style="display:none">
             </label>
         </div>
         <!-- Shown once the session holds a token. Since #533 /api/token serves

@@ -718,7 +718,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // components/backup-modal.js) -- no separate wiring needed here, same
   // convention #scanModal uses (its "Schließen" button is wired once, in
   // main.js, but this modal's actions depend on which flow opened it).
-  document.querySelector('input[type="file"][accept=".json"]').addEventListener('change', e => openBackupRestoreModal(e.target));
+  document.getElementById('backupRestoreInput').addEventListener('change', e => openBackupRestoreModal(e.target));
   document.getElementById('backupDownloadBtn').addEventListener('click', openBackupExportModal);
   document.getElementById('apiTokenCopyBtn').addEventListener('click', copyApiToken);
   document.getElementById('addMachineBtn')?.addEventListener('click', () => openMachineForm(null));
