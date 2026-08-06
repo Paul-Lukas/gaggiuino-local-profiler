@@ -6,6 +6,7 @@ import { t } from '../i18n.js';
 import { localeFor, COFFEE_COUNTRIES, COUNTRY_CENTROIDS, countryName, flagEmoji } from '../constants.js';
 import { scoreClass } from '../utils.js';
 import { _parseGrindNum } from './shots/grind.js';
+import { _equipmentName } from './shots/index.js';
 import { TARGET_ICON_SVG } from '../icons.js';
 
 // ── Analytics entry point ─────────────────────────────────────────────────
@@ -18,6 +19,8 @@ export function initAnalytics() {
   buildWorldMap();
   buildProfileChart();
   buildGrinderStats();
+  buildBasketStats();
+  buildPuckScreenStats();
   buildDistribution();
   buildTimeOfDay();
   buildWeekdayHourHeatmap();
@@ -193,6 +196,83 @@ export function buildGrinderStats() {
     </div>`;
   }
   el.innerHTML = html + '</div>';
+}
+
+// ── Basket & Puck Screen Stats (#668) ───────────────────────────────────────
+// Score-by-equipment groupings, same shape/rendering as buildGrinderStats()
+// above. Baskets/puck screens are pure ID-based library links (#635) rather
+// than a name stored directly on the annotation the way grinder is, so
+// resolving id -> name needs a lookup — reuses _equipmentName() from
+// views/shots/index.js rather than a second local copy.
+
+// Pure aggregation kept separate from rendering, same pattern as
+// _computeBeanRanking() below — unit-testable without a DOM. Shared by
+// buildBasketStats()/buildPuckScreenStats(); only the annotation field and
+// library list differ between baskets and puck screens.
+//
+// Grouped by id, not by the resolved name: routes/library/baskets.js (and
+// the puck-screen equivalent) enforce no name uniqueness, so two baskets
+// both named e.g. "Standard" would otherwise merge into one card. The name
+// is only resolved for display, after grouping.
+export function _computeEquipmentStats(shots, library, idField) {
+  const byEquip = {};
+  for (const s of shots) {
+    const id = s.annotation?.[idField];
+    if (id == null) continue;
+    if (!byEquip[id]) byEquip[id] = { count: 0, scores: [], durations: [] };
+    byEquip[id].count++;
+    const sc = window.calcShotScore && window.getShotData ? window.calcShotScore(s, window.getShotData(s)) : null;
+    if (sc !== null) byEquip[id].scores.push(sc);
+    const dur = (s.duration || 0) / 10;
+    if (dur > 5) byEquip[id].durations.push(dur);
+  }
+  return Object.entries(byEquip)
+    .map(([id, d]) => {
+      const name = _equipmentName(library, Number(id));
+      return name ? {
+        name,
+        count:   d.count,
+        avgScore: d.scores.length    ? Math.round(d.scores.reduce((a, b) => a + b, 0) / d.scores.length) : null,
+        bestScore: d.scores.length   ? Math.max(...d.scores) : null,
+        avgDuration: d.durations.length ? Math.round((d.durations.reduce((a, b) => a + b, 0) / d.durations.length) * 10) / 10 : null,
+      } : null;
+    })
+    // A basket/puck screen deleted from the library after being annotated
+    // on past shots resolves to no name here — dropped rather than shown
+    // as a blank card, same "silently omitted" precedent the rest of this
+    // file uses for missing data (e.g. no-earlier-same-profile-shot).
+    .filter(Boolean)
+    .sort((a, b) => b.count - a.count);
+}
+
+function _renderEquipmentStats(containerId, entries, emptyKey) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (entries.length === 0) {
+    el.innerHTML = `<p style="color:#52525b;font-size:.85rem">${t(emptyKey)}</p>`;
+    return;
+  }
+  let html = '<div class="bean-cards">';
+  for (const d of entries) {
+    html += `<div class="bean-card">
+      <div class="bean-card-name" title="${_esc(d.name)}">${_esc(d.name)}</div>
+      <div class="bean-card-stats">
+        <div class="bean-stat"><span class="bean-stat-val">${d.count}</span><span class="bean-stat-lbl">${t('bean_stat_shots')}</span></div>
+        ${d.avgScore    !== null ? `<div class="bean-stat"><span class="bean-stat-val ${scoreClass(d.avgScore)}">${d.avgScore}</span><span class="bean-stat-lbl">${t('bean_stat_avg')}</span></div>` : ''}
+        ${d.bestScore   !== null ? `<div class="bean-stat"><span class="bean-stat-val">${d.bestScore}</span><span class="bean-stat-lbl">${t('bean_stat_best')}</span></div>` : ''}
+        ${d.avgDuration !== null ? `<div class="bean-stat"><span class="bean-stat-val">${d.avgDuration}s</span><span class="bean-stat-lbl">${t('bean_stat_duration')}</span></div>` : ''}
+      </div>
+    </div>`;
+  }
+  el.innerHTML = html + '</div>';
+}
+
+export function buildBasketStats() {
+  _renderEquipmentStats('basketStats', _computeEquipmentStats(S.shots, S.coffeeLibrary?.baskets, 'basketId'), 'analytics_no_baskets');
+}
+
+export function buildPuckScreenStats() {
+  _renderEquipmentStats('puckScreenStats', _computeEquipmentStats(S.shots, S.coffeeLibrary?.puckScreens, 'puckScreenId'), 'analytics_no_puckscreens');
 }
 
 // ── Distributions ─────────────────────────────────────────────────────────

@@ -123,6 +123,8 @@ import { loadMqttSettings, setMqttTransport, saveMqttSettings, applyMqttToMachin
 
 import { loadNotifySettingsCard, saveNotifySettings } from './components/notify-settings.js';
 
+import { loadShotDefaultsSettingsCard, saveShotDefaultsSettings } from './components/shot-defaults-settings.js';
+
 import { renderWhatsNewCard } from './components/whats-new.js';
 import { attachAutocomplete } from './components/autocomplete.js';
 
@@ -734,6 +736,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('mqttSaveBtn')?.addEventListener('click', saveMqttSettings);
   document.getElementById('mqttApplyToMachineBtn')?.addEventListener('click', applyMqttToMachine);
   document.getElementById('notifySettingsSaveBtn')?.addEventListener('click', saveNotifySettings);
+  document.getElementById('shotDefaultsSaveBtn')?.addEventListener('click', saveShotDefaultsSettings);
   document.getElementById('closeScanModalBtn').addEventListener('click', closeScanModal);
   // Tapping the dimmed backdrop (not the modal content itself) closes it —
   // there was no way back out of the flavor wheel on mobile without this.
@@ -861,6 +864,13 @@ document.addEventListener('DOMContentLoaded', () => {
     loadNotifySettingsCard();
     loadDrinkMenu();
     loadMilkTypes();
+    // Awaited (unlike the two loads above): loadData() below can render the
+    // annotation panel for the initially-selected shot synchronously once
+    // it resolves (updateView() -> renderAnnotationPanel()), which reads
+    // S.shotDefaults directly — on a slow connection, firing this
+    // unawaited could let that first render see S.shotDefaults still null
+    // with nothing to re-render it once the fetch actually completes.
+    await loadShotDefaultsSettingsCard();
     await loadData();
     loadLibrary();
     loadMachineProfileList();

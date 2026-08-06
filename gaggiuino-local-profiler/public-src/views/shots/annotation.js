@@ -199,6 +199,39 @@ export async function loadDrinkMenu() {
   } catch { /* non-critical */ }
 }
 
+// #654: optional per-install defaults auto-prefilled into a brand-new shot's
+// annotation panel — loaded once at app init (main.js), same as
+// loadDrinkMenu()/loadMilkTypes() above, and refreshed by
+// components/shot-defaults-settings.js whenever the Settings card saves.
+export async function loadShotDefaults() {
+  try {
+    const r = await apiFetch('api/shots/defaults');
+    if (r.ok) S.shotDefaults = await r.json();
+  } catch { /* non-critical */ }
+}
+
+// Merges the configured shot defaults into a shot's annotation, but only
+// when that annotation is genuinely empty — i.e. this shot has never been
+// annotated (see routes/shots.js: a synced-but-untouched shot's annotation
+// is always {}). Any existing annotation, even a single field, is returned
+// completely untouched: a configured default must never overwrite something
+// the user already recorded. Applied fields stay fully editable afterward —
+// this only changes what the form starts out showing.
+export function _applyShotDefaults(ann) {
+  if (ann && Object.keys(ann).length > 0) return ann;
+  const d = S.shotDefaults;
+  if (!d) return ann;
+  return {
+    drinkType:    d.drinkType    || null,
+    coffee:       d.coffee       || null,
+    beanId:       d.beanId       ?? null,
+    basketId:     d.basketId     ?? null,
+    puckScreenId: d.puckScreenId ?? null,
+    grinder:      d.grinder      || '',
+    dose:         d.dose         ?? null,
+  };
+}
+
 export async function loadMilkTypes() {
   try {
     const r = await apiFetch('api/library/milks');
@@ -305,7 +338,11 @@ function _updateMilkFieldVisibility() {
   field.style.display = (S.milkTypes?.length && drinkId) ? '' : 'none';
 }
 
-export function _renderBeanSelect(selectedName) {
+// selectedBeanId, when given, takes priority over selectedName: id survives
+// a bean rename, name does not. Without it (or when it no longer resolves
+// in the current library — e.g. a deleted bean), falls back to matching by
+// name, same as before this second parameter existed.
+export function _renderBeanSelect(selectedName, selectedBeanId) {
   const select = document.getElementById('annCoffee');
   if (!select) return;
   const beans = S.coffeeLibrary?.beans || [];
@@ -314,8 +351,10 @@ export function _renderBeanSelect(selectedName) {
   // name kept around because it no longer matches any current bean does not.
   const options = beans.map(b => ({ name: b.name, id: b.id }));
   if (selectedName && !options.some(o => o.name === selectedName)) options.push({ name: selectedName, id: null });
+  const byId = selectedBeanId != null ? options.find(o => o.id === selectedBeanId) : null;
+  const selected = byId ? byId.name : selectedName;
   select.innerHTML = `<option value=""></option>` +
-    options.map(o => `<option value="${esc(o.name)}"${o.id != null ? ` data-bean-id="${o.id}"` : ''}${o.name === selectedName ? ' selected' : ''}>${esc(o.name)}</option>`).join('');
+    options.map(o => `<option value="${esc(o.name)}"${o.id != null ? ` data-bean-id="${o.id}"` : ''}${o.name === selected ? ' selected' : ''}>${esc(o.name)}</option>`).join('');
 }
 
 // #635: baskets/puck screens are pure ID-based library selections (unlike
@@ -447,11 +486,11 @@ export async function removeShotImage() {
 }
 
 export function renderAnnotationPanel(shot) {
-  const ann = shot.annotation || {};
+  const ann = _applyShotDefaults(shot.annotation || {});
   _renderShotPhoto(shot);
   S.currentRating = ann.rating || 0;
   renderStars(S.currentRating);
-  _renderBeanSelect(ann.coffee || null);
+  _renderBeanSelect(ann.coffee || null, ann.beanId ?? null);
   _renderBasketSelect(ann.basketId ?? null);
   _renderPuckScreenSelect(ann.puckScreenId ?? null);
   _renderFrozenPortionPills(ann.coffee || null, shot?.timestamp ? shot.timestamp * 1000 : Date.now(), ann.frozenPortionId ?? null);
@@ -490,13 +529,14 @@ export function quickClone() {
   const currentAnn   = currentShot?.annotation || {};
   const useCurrentAnn = !!currentAnn.coffee;
   const beanName      = currentAnn.coffee || ann.coffee || null;
-  // #456: beanId mirrors the same currentAnn/ann precedence as beanName —
-  // re-derived below by _renderBeanSelect's data-bean-id from the CURRENT
-  // library (handles a bean renamed since either annotation was saved), but
-  // passed through explicitly too for the grind/degassing lookups that run
-  // before the DOM has been re-rendered with the new selection.
+  // #456: beanId mirrors the same currentAnn/ann precedence as beanName.
+  // Passed into _renderBeanSelect() below so it matches by id against the
+  // CURRENT library (handles a bean renamed since either annotation was
+  // saved), and passed through explicitly too for the grind/degassing
+  // lookups that run before the DOM has been re-rendered with the new
+  // selection.
   const beanId = useCurrentAnn ? (currentAnn.beanId ?? null) : (ann.beanId ?? null);
-  _renderBeanSelect(beanName);
+  _renderBeanSelect(beanName, beanId);
   // Grinder/grind setting/dose come from this bean's own history, not
   // blindly from prev — prev may have used a different bean entirely.
   // "↩ Letzten" means the grind last used for this bean, so prefer the
