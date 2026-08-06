@@ -11,6 +11,18 @@ import { shareOrDownloadBlob } from '../utils.js';
 
 const SECTION_KEYS = ['shots', 'maintenance', 'orders', 'machines', 'settings', 'secrets'];
 
+// Filename-safe local-time timestamp, e.g. "2026-08-06_08-32-05" -- mirrors
+// routes/backup.js's own backupTimestamp() (kept as two copies rather than
+// one shared module since one runs in the browser and one in Node, same
+// reasoning SECTION_PRESENCE_KEYS/SECTION_PRESENCE_BUNDLE_KEYS already
+// accept). A bare date collapsed every backup taken the same day into one
+// filename, forcing the browser to append "(1)"/"(2)" or overwrite silently.
+function backupTimestamp() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+}
+
 // Which top-level backup keys prove a given section actually has data in a
 // file being restored — mirrors routes/backup.js's SECTION_BUNDLE_KEYS.
 // Used only to decide which restore checkboxes to offer; export always
@@ -203,7 +215,7 @@ export function openBackupExportModal() {
             // image files, see routes/backup.js's buildBackupZip()) -- no
             // re-serialization needed, unlike the old JSON.stringify(bundle) here.
             const blob     = await r.blob();
-            const filename = `glp-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+            const filename = `glp-backup-${backupTimestamp()}.zip`;
             await shareOrDownloadBlob(blob, filename, { title: filename });
             closeBackupModal();
         } catch (e) { setError(t('backup_error', e.message)); }

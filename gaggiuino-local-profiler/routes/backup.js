@@ -23,6 +23,19 @@ const { encryptSecrets, decryptSecrets } = require('../lib/backup-crypto');
 const { createZip, readZip } = require('../lib/zip');
 const state = require('../lib/state');
 
+// Filename-safe local-time timestamp, e.g. "2026-08-06_08-32-05" -- a bare
+// date (the previous `.toISOString().slice(0, 10)`) collapsed every backup
+// taken on the same day into one filename, forcing the browser to append
+// "(1)"/"(2)" or silently overwrite the earlier one. Not `formatLogTimestamp`
+// (lib/helpers.js): that one uses `:` separators, invalid in a Windows
+// filename. Local time (not UTC, unlike the old `toISOString()` version) to
+// match what the user actually sees on their own clock.
+function backupTimestamp() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+}
+
 // The library entity types that can carry an uploaded image, and the
 // filename prefix each uses under BEAN_IMAGE_DIR (see routes/library/*.js).
 // Export no longer depends on this list (see buildBackupBundle()'s directory
@@ -393,7 +406,7 @@ function buildBackupZip(passphrase, sections) {
 router.get('/api/backup', (req, res, next) => {
     try {
         const bundle   = buildBackupBundleJson(null, null);
-        const filename = `glp-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        const filename = `glp-backup-${backupTimestamp()}.json`;
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.json(bundle);
     } catch (err) { next(err); }
@@ -413,7 +426,7 @@ router.post('/api/backup', (req, res, next) => {
     try {
         const passphrase = typeof req.body?.passphrase === 'string' && req.body.passphrase ? req.body.passphrase : null;
         const zip         = buildBackupZip(passphrase, normaliseSections(req.body?.sections));
-        const filename    = `glp-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+        const filename    = `glp-backup-${backupTimestamp()}.zip`;
         res.setHeader('Content-Type', 'application/zip');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(zip);
