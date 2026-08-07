@@ -76,7 +76,7 @@ app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'same-origin');
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
     // Chart.js, ECharts, topojson-client and QRCode are bundled into the app
     // (no third-party script host needed); Figtree font is still loaded from
     // bunny.net.
@@ -202,7 +202,7 @@ loadOrCreateApiToken();
 loadPreheatState();
 
 const PORT = DEFAULT_PORT;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     const { loadOptions, getMachineUrl } = require('./lib/data');
     const opts = loadOptions();
     log(`Gaggiuino Local Profiler v${GLP_VERSION} started on port ${PORT}`);
@@ -225,3 +225,17 @@ app.listen(PORT, () => {
         }
     })();
 });
+
+// #675: this process runs as PID 1 in the container (docker-entrypoint.sh
+// execs into `gosu node`), and Linux doesn't apply the default signal
+// disposition to PID 1 unless a handler is explicitly installed -- without
+// this, `docker stop`'s SIGTERM was silently ignored, so Supervisor always
+// hit the stop timeout and force-killed the process (exit 137, reported as
+// add-on state=error instead of a clean stop).
+function gracefulShutdown(signal) {
+    log(`${signal} received, shutting down`);
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 5000).unref();
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

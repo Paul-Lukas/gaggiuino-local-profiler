@@ -43,6 +43,7 @@ import { openBackupExportModal, openBackupRestoreModal } from './components/back
 import { renderSidebar, updateSidebarHighlighting, filterShots, setSortMode, sortedShots, updateFlapCounter,
          toggleDesktopSidebar, updateMobileShotSidebarVisibility, selectShot,
          openShotDrawer, closeShotDrawer, handleDrawerTouchStart, handleDrawerTouchEnd,
+         handleEdgeSwipeStart, handleEdgeSwipeEnd,
          toggleMonthGroup, setBeanFilter, clearBeanFilter } from './components/sidebar.js';
 import { updateStatus, updatePowerButton, toggleMachinePower, triggerSync } from './components/status.js';
 import { checkForUpdate } from './components/update-check.js';
@@ -122,6 +123,8 @@ import { loadMachines, openMachineForm, closeMachineForm, saveMachineForm, testM
 import { loadMqttSettings, setMqttTransport, saveMqttSettings, applyMqttToMachine } from './components/mqtt-settings.js';
 
 import { loadNotifySettingsCard, saveNotifySettings } from './components/notify-settings.js';
+
+import { loadShotDefaultsSettingsCard, saveShotDefaultsSettings } from './components/shot-defaults-settings.js';
 
 import { renderWhatsNewCard } from './components/whats-new.js';
 import { attachAutocomplete } from './components/autocomplete.js';
@@ -570,6 +573,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('sidebar-drawer-backdrop').addEventListener('click', closeShotDrawer);
   document.getElementById('sidebar').addEventListener('touchstart', handleDrawerTouchStart, { passive: true });
   document.getElementById('sidebar').addEventListener('touchend', handleDrawerTouchEnd, { passive: true });
+  // #682: edge-swipe-to-open is bound to `document`, not #sidebar -- the
+  // sidebar is transformed off-screen while closed and therefore can't
+  // receive touch events itself.
+  document.addEventListener('touchstart', handleEdgeSwipeStart, { passive: true });
+  document.addEventListener('touchend', handleEdgeSwipeEnd, { passive: true });
 
   // ── Bottom navigation (#403, #443, mobile) ───────────────────────────────
   // #431: Shots opens the shot detail directly (latest/last-selected shot) —
@@ -734,6 +742,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('mqttSaveBtn')?.addEventListener('click', saveMqttSettings);
   document.getElementById('mqttApplyToMachineBtn')?.addEventListener('click', applyMqttToMachine);
   document.getElementById('notifySettingsSaveBtn')?.addEventListener('click', saveNotifySettings);
+  document.getElementById('shotDefaultsSaveBtn')?.addEventListener('click', saveShotDefaultsSettings);
   document.getElementById('closeScanModalBtn').addEventListener('click', closeScanModal);
   // Tapping the dimmed backdrop (not the modal content itself) closes it —
   // there was no way back out of the flavor wheel on mobile without this.
@@ -861,6 +870,13 @@ document.addEventListener('DOMContentLoaded', () => {
     loadNotifySettingsCard();
     loadDrinkMenu();
     loadMilkTypes();
+    // Awaited (unlike the two loads above): loadData() below can render the
+    // annotation panel for the initially-selected shot synchronously once
+    // it resolves (updateView() -> renderAnnotationPanel()), which reads
+    // S.shotDefaults directly — on a slow connection, firing this
+    // unawaited could let that first render see S.shotDefaults still null
+    // with nothing to re-render it once the fetch actually completes.
+    await loadShotDefaultsSettingsCard();
     await loadData();
     loadLibrary();
     loadMachineProfileList();

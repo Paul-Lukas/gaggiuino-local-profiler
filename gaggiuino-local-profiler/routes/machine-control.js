@@ -21,19 +21,11 @@ const { GAGGIUINO_SETTINGS_CATEGORIES } = require('../lib/constants');
 const {
     operationModeSchema, serviceTestPeripheralSchema, settingsPayloadSchema,
 } = require('../lib/validation/schemas');
+const { getLatestFirmwareRelease } = require('../lib/machines/gaggiuino/firmware-check');
 
-// Same resolution convention as routes/system.js's resolveMachine(): an
-// explicit machineId (query on GET, body on POST) if it names a known
-// machine, otherwise the registry's default machine.
-function resolveMachine(rawId) {
-    registry.ensureDefaultMachine();
-    const machineId = rawId != null && rawId !== '' ? parseInt(rawId, 10) : NaN;
-    if (!Number.isNaN(machineId)) {
-        const machine = registry.getMachine(machineId);
-        if (machine) return machine;
-    }
-    return registry.getDefaultMachine();
-}
+// #679: resolveMachine() now lives in lib/machines/registry.js (was
+// duplicated verbatim here and in routes/system.js).
+const { resolveMachine } = registry;
 
 function requireSettingsProxySupport(adapter, machine, res) {
     if (adapter.capabilities().settingsProxy) return true;
@@ -192,6 +184,46 @@ router.post('/api/machine/firmware/update', async (req, res) => {
     }
 });
 
+// #620 Phase 1: "is an update even available", ahead of actually triggering
+// one via the route above. Compares the machine's own installed hash
+// (GET /api/settings/versions) against the latest matching GitHub release
+// for its configured system.releaseChannel — see firmware-check.js for the
+// channel<->tag-prefix mapping and its documented, unverified assumption.
+router.get('/api/machine/firmware/version', async (req, res) => {
+    const machine = resolveMachine(req.query.machineId);
+    const adapter = getAdapter(machine);
+    if (!requireSettingsProxySupport(adapter, machine, res)) return;
+    try {
+        const [versions, systemSettings] = await Promise.all([
+            adapter.getSettings(machine, 'versions'),
+            adapter.getSettings(machine, 'system'),
+        ]);
+        const installed = versions?.coreVersion || null;
+        const latest     = await getLatestFirmwareRelease(systemSettings?.releaseChannel);
+        // ASSUMPTION (flagged alongside the channel<->tag-prefix mapping in
+        // firmware-check.js, not verified any further than that): a raw
+        // string comparison, with no format/length/case normalization. The
+        // one real machine checked while researching #620 reported a
+        // coreVersion that matched its GitHub release tag's hash suffix
+        // exactly (both short, lowercase hex, e.g. "7889b7d") -- but nothing
+        // guarantees that holds for every firmware build. If installed and
+        // latest ever differ only in case or truncation length while
+        // referring to the same actual commit, this reports a phantom
+        // update forever (never the reverse -- a genuinely different commit
+        // could not accidentally compare equal this way).
+        const updateAvailable = !!(installed && latest && installed !== latest.hash);
+        res.json({
+            installed,
+            latest:          latest?.hash || null,
+            updateAvailable,
+            releaseUrl:      latest?.releaseUrl || null,
+        });
+    } catch (e) {
+        log(`Firmware version check failed: ${e.message}`, true);
+        res.status(502).json({ error: e.message });
+    }
+});
+
 // ── Live sensor/system state (#597) ─────────────────────────────────────
 // Reads from lib/gaggiuino-live-client.js's cache (persistent WS session,
 // reused across polls) rather than opening a fresh connection per request —
@@ -214,4 +246,9 @@ router.get('/api/machine/live', async (req, res) => {
     }
 });
 
+// #679: exported off the router function itself (not a wrapper object) so
+// server.js's `app.use(require('./routes/machine-control'))` keeps working
+// unchanged, while routes/mqtt.js can still pull in the same capability
+// check instead of reimplementing it.
 module.exports = router;
+module.exports.requireSettingsProxySupport = requireSettingsProxySupport;
