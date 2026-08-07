@@ -1,36 +1,36 @@
 # Development Stats
 
-Generated 2026-08-06 by `scripts/dev-stats.mjs`. Re-run it any time to refresh these numbers — they are computed live from git history, not hand-maintained.
+Generated 2026-08-07 by `scripts/dev-stats.mjs`. Re-run it any time to refresh these numbers — they are computed live from git history, not hand-maintained.
 
 ## Timeline
 
-The GLP ecosystem (this app + 3 companion repos) has been in development since **2026-05-20** — **79 days** as of the last commit (2026-08-06).
+The GLP ecosystem (this app + 3 companion repos) has been in development since **2026-05-20** — **80 days** as of the last commit (2026-08-07).
 
 | Repo | First commit | Last commit | Commits | Claude co-authored |
 |---|---|---|---|---|
-| gaggiuino-local-profiler | 2026-05-20 | 2026-08-06 | 823 | 598 (73%) |
-| glp-integration | 2026-05-22 | 2026-08-04 | 159 | 99 (62%) |
+| gaggiuino-local-profiler | 2026-05-20 | 2026-08-07 | 851 | 615 (72%) |
+| glp-integration | 2026-05-22 | 2026-08-07 | 165 | 103 (62%) |
 | glp-lovelace-card | 2026-05-24 | 2026-08-04 | 129 | 95 (74%) |
 | glp-order-card | 2026-05-25 | 2026-08-04 | 104 | 73 (70%) |
-| **Combined** | **2026-05-20** | **2026-08-06** | **1215** | **865 (71%)** |
+| **Combined** | **2026-05-20** | **2026-08-07** | **1249** | **886 (71%)** |
 
 ![Commits per repo](docs/dev-stats/commits-per-repo.png)
 
-Combined line changes (insertions + deletions across all commits): **323.290**, of which **241.662** landed in Claude-co-authored commits.
+Combined line changes (insertions + deletions across all commits): **327.539**, of which **245.012** landed in Claude-co-authored commits.
 
 Commits without a Claude co-author line are presumed human-only (manual fixes, merges, config tweaks) — not independently verified.
 
 ## Hours of development (lower-bound estimate)
 
-Clustering each repo's commit timestamps into working sessions — commits within 2h of each other join the same session, and each session gets a 30-minute lead-in credited ahead of its first commit — gives a combined **321.6 hours** across all four repos.
+Clustering each repo's commit timestamps into working sessions — commits within 2h of each other join the same session, and each session gets a 30-minute lead-in credited ahead of its first commit — gives a combined **331.2 hours** across all four repos.
 
 | Repo | Hours (session-clustered) |
 |---|---|
-| gaggiuino-local-profiler | 184.8 |
-| glp-integration | 51.1 |
+| gaggiuino-local-profiler | 192.1 |
+| glp-integration | 53.4 |
 | glp-lovelace-card | 45.8 |
 | glp-order-card | 39.9 |
-| **Combined** | **321.6** |
+| **Combined** | **331.2** |
 
 This is a **lower-bound estimate derived from git commit timestamps only**, not measured time — it undercounts real work because a long AI-agentic session (orchestration, agent dispatch, review between infrequent commits) can run for hours between commits.
 
@@ -38,7 +38,7 @@ This is a **lower-bound estimate derived from git commit timestamps only**, not 
 
 | Model | Commits |
 |---|---|
-| Claude Sonnet 5 | 399 |
+| Claude Sonnet 5 | 420 |
 | Claude Sonnet 4.6 | 348 |
 | Claude Opus 4.8 | 47 |
 | Claude Fable 5 | 40 |

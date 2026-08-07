@@ -18,6 +18,11 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.31.0', date: '2026-08-07', highlights: [
+        'Added optional per-install shot-logging defaults (Settings → "Shot logging defaults") that auto-prefill a new shot\'s annotation panel.',
+        'Added Basket Stats and Puck Screen Stats groupings to Analytics, alongside the existing Grinder Stats.',
+        'Added on-duration to the status footer, edge-swipe to open the mobile drawer, and a persistent dev-build warning banner.',
+    ] },
     { version: '2.30.0', date: '2026-08-06', highlights: [
         'Backup export now downloads as a real .zip with selectable sections, an optional encrypted API-token/MQTT-login section, and a dry-run preview before restoring.',
         'Fixed the status dot/Live tab staying green for hours after the machine was switched off — and, on the same fix, staying red for minutes after it was switched back on.',
@@ -41,9 +46,6 @@ const WHATS_NEW_ENTRIES = [
     ] },
     { version: '2.27.1', date: '2026-08-03', highlights: [
         'Added logging so the active live-data transport (WebSocket/MQTT) and its connection state are visible from the logs.',
-    ] },
-    { version: '2.27.0', date: '2026-08-03', highlights: [
-        'Added MQTT as an alternative live-data transport (Settings → "Live connection"), with Supervisor broker auto-discovery and a one-click "apply to machine" button.',
     ] },
 ];
 
