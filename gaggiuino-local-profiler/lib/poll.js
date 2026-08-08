@@ -72,7 +72,7 @@ async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
             sysState:   liveTransport.getLiveSystemState(baseUrl),
         };
         const {
-            isBrewing, pressure: presVal, temperature: tempVal, weight: weightVal,
+            isBrewing, pressure: presVal, temperature: tempVal, weight: weightVal, pumpFlow: pumpFlowVal,
             targetTemperature: tTempVal, profileName: profile, machineStatus,
         } = deriveMachineState(status, undefined, live);
         runtime.currentTemp       = tempVal  || runtime.currentTemp;
@@ -130,7 +130,7 @@ async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
             state.liveAccum.datapoints.temperature.push(Math.round(tempVal * 10));
             state.liveAccum.datapoints.shotWeight.push(Math.round(weightVal * 10));
             state.liveAccum.datapoints.weightFlow.push(Math.round(weightFlow * 10));
-            state.liveAccum.datapoints.pumpFlow.push(0);
+            state.liveAccum.datapoints.pumpFlow.push(Math.round(pumpFlowVal * 10));
             state.liveAccum.datapoints.targetTemperature.push(Math.round(tTempVal * 10));
         }
     } catch (err) {
