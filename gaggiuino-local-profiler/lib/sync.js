@@ -74,8 +74,13 @@ async function syncShots(runtime = defaultRuntime) {
         }
 
         for (let i = effectiveMax + 1; i <= latestMachineId; i++) {
-            debugLog(`GET ${machineUrl}/${i}`); // #714
+            // #716: elapsed time per shot, not just the URL (#714) -- lets a
+            // large backfill's per-request latency be checked against shot
+            // id afterward, to confirm or rule out the machine's own
+            // embedded HTTP server slowing down as shot history grows.
+            const shotStartedAt = Date.now();
             const r = await axios.get(`${machineUrl}/${i}`, { timeout: 10000 });
+            debugLog(`GET ${machineUrl}/${i} -> ${Date.now() - shotStartedAt}ms`);
             if (!r.data || typeof r.data.id === 'undefined' || !r.data.datapoints) {
                 log(`Shot ${i} has invalid data -- skipped`, true);
                 continue;
@@ -124,8 +129,9 @@ async function syncShots(runtime = defaultRuntime) {
 // native ids or another additional machine's shots in the shared `shots`
 // table.
 async function syncMachineShot(machine, nativeId, adapter) {
-    debugLog(`Sync (${machine.name}): fetching shot ${nativeId} from host=${machine.host}`); // #714
+    const shotStartedAt = Date.now(); // #716
     const shot = await adapter.getShot(machine, nativeId);
+    debugLog(`Sync (${machine.name}): fetched shot ${nativeId} from host=${machine.host} -> ${Date.now() - shotStartedAt}ms`);
     if (!shot || !shot.datapoints) {
         log(`Sync (${machine.name}): shot ${nativeId} has invalid data -- skipped`, true);
         return;
