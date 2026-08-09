@@ -11,6 +11,7 @@ const { deriveMachineState, isStillWarm } = require('./machine-state');
 const liveTransport = require('./live-transport');
 const { savePreheatState, isTempStable } = require('./preheat');
 const { syncAfterBrew, syncShots, fetchMachineVersion } = require('./sync');
+const { summarizeConnectivity, WINDOW_MS: CONN_WINDOW_MS } = require('./connectivity-stats');
 
 // #549: this module is hard single-machine (always the default/legacy
 // machine, id 1) — one runtime instance obtained once at module load,
@@ -18,6 +19,25 @@ const { syncAfterBrew, syncShots, fetchMachineVersion } = require('./sync');
 // fields. Functions below still accept it as a parameter so callers (and
 // tests) can pass a different instance instead of relying on this default.
 const defaultRuntime = getMachineRuntimeState();
+
+// #710: rolling window of pollViaGaggiuinoStatus() outcomes, module-scoped
+// like the rest of this hard single-machine module (see #549 comment
+// above) -- flushed to a debug-gated summary line once the window closes,
+// so a flaky connection is diagnosable from the log alone instead of
+// needing the user to run ping/curl by hand from the right host.
+let _connWindow      = [];
+let _connWindowStart = Date.now();
+
+function recordConnectivity(ok, latencyMs, err) {
+    _connWindow.push({ ok, latencyMs, err });
+    const now = Date.now();
+    if (now - _connWindowStart >= CONN_WINDOW_MS) {
+        const summary = summarizeConnectivity(_connWindow);
+        if (summary) debugLog(`Connectivity (last ${Math.round((now - _connWindowStart) / 1000)}s): ${summary}`);
+        _connWindow      = [];
+        _connWindowStart = now;
+    }
+}
 
 function startLivePolling(runtime = defaultRuntime) {
     if (runtime.livePollTimer) return;
@@ -49,9 +69,11 @@ async function pollLive(runtime = defaultRuntime) {
 
 async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
     const opts = loadOptions();
+    const startedAt = Date.now();
     try {
         const baseUrl = registry.baseUrlFor();
         const statusRes = await axios.get(`${baseUrl}/api/system/status`, { timeout: 3000 });
+        recordConnectivity(true, Date.now() - startedAt, null);
         state.machineReachable   = true;
         state.lastMachineError   = null;
         state.lastMachineSuccess = Date.now();
@@ -142,6 +164,7 @@ async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
             state.liveAccum.datapoints.targetTemperature.push(Math.round(tTempVal * 10));
         }
     } catch (err) {
+        recordConnectivity(false, null, err.code || null);
         state.machineReachable = false;
         state.lastMachineError = err.message.replace(/https?:\/\/\S+/g, '[url]');
         log(`Live poll error: ${err.message}`, true);
