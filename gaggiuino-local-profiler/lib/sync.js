@@ -45,6 +45,12 @@ async function syncShots(runtime = defaultRuntime) {
         const machineUrl = registry.apiUrlFor();
         debugLog(`GET ${machineUrl}/latest`); // #714
         const latestResponse  = await axios.get(`${machineUrl}/latest`, { timeout: 10000 });
+        // #717: raw response, not just the extracted lastShotId -- lets a
+        // genuinely corrupted/absurd value reported by the machine's own
+        // firmware be told apart from something produced locally (e.g. a
+        // blocklist entry or a second machine's synthetic id ending up on
+        // the default machine's rows).
+        debugLog(`/latest raw response: ${JSON.stringify(latestResponse.data).slice(0, 500)}`);
         // eslint-disable-next-line require-atomic-updates -- syncShots() has no mutex guarding overlapping calls (pre-existing); a real fix is a synchronization change out of scope for this lint-only pass
         state.machineReachable   = true;
         // eslint-disable-next-line require-atomic-updates -- see above
