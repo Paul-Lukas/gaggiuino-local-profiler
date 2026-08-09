@@ -1,5 +1,8 @@
 ## Unreleased
 
+### Fixed
+- **Startup log's "Machine URL" line always showed the hardcoded fallback host, never the actually configured one.** It called `getMachineUrl(opts)` with the raw `options.json`-derived `opts` directly, instead of going through `registry.apiUrlFor()` — the source of truth since #662 removed `machine_host`/`switch_entity` from the add-on's Configuration schema entirely. Since `opts.machine_host` is now permanently empty on every install, the raw call always fell through `getMachineUrl()`'s own fallback chain to its hardcoded default host, regardless of what was actually saved in Settings → Machines — actively misleading during a live support round (changed the configured host, restarted, log line didn't change). The real poll/sync request paths were unaffected (already correctly used the registry); only this one diagnostic log line was wrong. Closes #712
+
 ### Changed
 - **GLP DEV's startup log line now includes the dev build tag** (e.g. `Gaggiuino Local Profiler v2.30.0 (dev-20260809_1534) started on port 8099`), instead of only the frozen `GLP_VERSION` that never moves on the dev branch between releases (#704). Came up during a live support round where a downloaded log's startup line alone gave no way to tell a GLP DEV build apart from stable. Stable builds unaffected. Closes #711
 

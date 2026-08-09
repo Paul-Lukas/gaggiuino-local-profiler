@@ -210,7 +210,7 @@ loadPreheatState();
 
 const PORT = DEFAULT_PORT;
 const server = app.listen(PORT, () => {
-    const { loadOptions, getMachineUrl } = require('./lib/data');
+    const { loadOptions } = require('./lib/data');
     const opts = loadOptions();
     // #711: GLP_VERSION is frozen at the last real release on the dev
     // branch (see #704) -- without the dev build tag appended here, a raw
@@ -219,7 +219,13 @@ const server = app.listen(PORT, () => {
     // UI banner.
     const devSuffix = process.env.GLP_DEV_BUILD ? ` (${process.env.GLP_DEV_BUILD})` : '';
     log(`Gaggiuino Local Profiler v${GLP_VERSION}${devSuffix} started on port ${PORT}`);
-    log(`Machine URL: ${getMachineUrl(opts)} | sync every ${opts.sync_interval || 5} min`);
+    // #712: registry.apiUrlFor() (the source of truth since #662, matching
+    // every real poll/sync request path), not raw getMachineUrl(opts) --
+    // opts.machine_host is permanently empty post-#662 (removed from the
+    // add-on's Configuration schema), so the raw call always bottomed out
+    // at getMachineUrl()'s hardcoded fallback host regardless of whatever
+    // was actually configured in Settings -> Machines.
+    log(`Machine URL: ${require('./lib/machines/registry').apiUrlFor()} | sync every ${opts.sync_interval || 5} min`);
     log(`HA integration: ${require('./lib/constants').HA_TOKEN ? 'active (auto-sync via latest_shot_id)' : 'unavailable (no SUPERVISOR_TOKEN)'}`);
     setInterval(() => { backgroundHaCheck().catch(e => log(`Background HA check failed: ${e.message}`, true)); }, 30000);
     startPreheatWatcher();
