@@ -212,7 +212,13 @@ const PORT = DEFAULT_PORT;
 const server = app.listen(PORT, () => {
     const { loadOptions, getMachineUrl } = require('./lib/data');
     const opts = loadOptions();
-    log(`Gaggiuino Local Profiler v${GLP_VERSION} started on port ${PORT}`);
+    // #711: GLP_VERSION is frozen at the last real release on the dev
+    // branch (see #704) -- without the dev build tag appended here, a raw
+    // downloaded log gives no way to tell a GLP DEV build apart from
+    // stable, short of cross-referencing the separate "UNSTABLE DEV BUILD"
+    // UI banner.
+    const devSuffix = process.env.GLP_DEV_BUILD ? ` (${process.env.GLP_DEV_BUILD})` : '';
+    log(`Gaggiuino Local Profiler v${GLP_VERSION}${devSuffix} started on port ${PORT}`);
     log(`Machine URL: ${getMachineUrl(opts)} | sync every ${opts.sync_interval || 5} min`);
     log(`HA integration: ${require('./lib/constants').HA_TOKEN ? 'active (auto-sync via latest_shot_id)' : 'unavailable (no SUPERVISOR_TOKEN)'}`);
     setInterval(() => { backgroundHaCheck().catch(e => log(`Background HA check failed: ${e.message}`, true)); }, 30000);
