@@ -58,18 +58,21 @@ jobs:
       contents: read
       packages: write
 
-    # amd64 only: the dev channel exists to test code on the maintainer's own
-    # HAOS box, which is amd64. The release build (build.yaml) still covers
-    # armv7/aarch64 for users -- arch-specific problems surface there. Kept as
-    # a matrix so adding an architecture back is a two-line change, and so the
-    # `arch:` list in glp-dev-app's config.yaml stays the only other place
-    # that has to agree.
+    # #702: now matches the release build's (build.yaml) three-arch matrix --
+    # dev builds get tested on armv7/aarch64 HAOS boxes too, not just the
+    # maintainer's amd64 one. The `arch:` list in glp-dev-app's config.yaml
+    # must keep agreeing with this matrix (publish-manifest only runs once
+    # every arch here has succeeded).
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
             platform: linux/amd64
+          - arch: armv7
+            platform: linux/arm/v7
+          - arch: aarch64
+            platform: linux/arm64
 
     steps:
       - name: Checkout
