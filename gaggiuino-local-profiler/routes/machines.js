@@ -41,7 +41,8 @@ router.post('/api/machines', async (req, res) => {
         return res.status(400).json({ error: e.message });
     }
     const machine = registry.createMachine(parsed.data);
-    log(`Machine added: #${machine.id} "${machine.name}" (${machine.type})`);
+    log(`Machine added: #${machine.id} "${machine.name}" (${machine.type}) host=${machine.host}`);
+    registry.logRegistrySnapshot();
     res.json(machine);
 });
 
@@ -62,7 +63,12 @@ router.put('/api/machines/:id', async (req, res) => {
         }
     }
     const machine = registry.updateMachine(id, parsed.data);
-    log(`Machine updated: #${id}`);
+    // #713: host omitted from this line before -- during a live support
+    // round there was no way to confirm from the log alone whether a host
+    // change via Settings -> Machines actually took effect.
+    const hostSuffix = parsed.data.host ? ` host=${parsed.data.host}` : '';
+    log(`Machine updated: #${id}${hostSuffix}`);
+    registry.logRegistrySnapshot();
     res.json(machine);
 });
 
@@ -72,6 +78,7 @@ router.delete('/api/machines/:id', (req, res) => {
         const ok = registry.deleteMachine(id);
         if (!ok) return res.status(404).json({ error: 'not found' });
         log(`Machine deleted: #${id}`);
+        registry.logRegistrySnapshot();
         res.json({ ok: true });
     } catch (e) {
         res.status(400).json({ error: e.message });

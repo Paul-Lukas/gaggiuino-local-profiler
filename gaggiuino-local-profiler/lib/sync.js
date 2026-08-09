@@ -43,6 +43,7 @@ async function syncShots(runtime = defaultRuntime) {
     if (!runtime.machineOn && switchEntity) return true;
     try {
         const machineUrl = registry.apiUrlFor();
+        debugLog(`GET ${machineUrl}/latest`); // #714
         const latestResponse  = await axios.get(`${machineUrl}/latest`, { timeout: 10000 });
         // eslint-disable-next-line require-atomic-updates -- syncShots() has no mutex guarding overlapping calls (pre-existing); a real fix is a synchronization change out of scope for this lint-only pass
         state.machineReachable   = true;
@@ -73,6 +74,7 @@ async function syncShots(runtime = defaultRuntime) {
         }
 
         for (let i = effectiveMax + 1; i <= latestMachineId; i++) {
+            debugLog(`GET ${machineUrl}/${i}`); // #714
             const r = await axios.get(`${machineUrl}/${i}`, { timeout: 10000 });
             if (!r.data || typeof r.data.id === 'undefined' || !r.data.datapoints) {
                 log(`Shot ${i} has invalid data -- skipped`, true);
@@ -122,6 +124,7 @@ async function syncShots(runtime = defaultRuntime) {
 // native ids or another additional machine's shots in the shared `shots`
 // table.
 async function syncMachineShot(machine, nativeId, adapter) {
+    debugLog(`Sync (${machine.name}): fetching shot ${nativeId} from host=${machine.host}`); // #714
     const shot = await adapter.getShot(machine, nativeId);
     if (!shot || !shot.datapoints) {
         log(`Sync (${machine.name}): shot ${nativeId} has invalid data -- skipped`, true);

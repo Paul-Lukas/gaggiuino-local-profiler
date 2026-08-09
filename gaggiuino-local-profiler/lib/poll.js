@@ -72,6 +72,10 @@ async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
     const startedAt = Date.now();
     try {
         const baseUrl = registry.baseUrlFor();
+        // #714: URL of every request, not just failing ones (#709 already
+        // covers those) -- a wrong/stale registry host that still resolves
+        // to *something* was otherwise invisible until it happened to fail.
+        debugLog(`GET ${baseUrl}/api/system/status`);
         const statusRes = await axios.get(`${baseUrl}/api/system/status`, { timeout: 3000 });
         recordConnectivity(true, Date.now() - startedAt, null);
         state.machineReachable   = true;

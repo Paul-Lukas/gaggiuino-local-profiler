@@ -10,7 +10,7 @@ const { log } = require('../helpers');
 // needs getMachineUrl()/getMachineBaseUrl() from there anyway for the
 // config facade below -- no cycle: lib/data.js's own require graph
 // (repositories/services) never reaches back into this module.
-const { loadOptions, getMachineUrl, getMachineBaseUrl } = require('../data');
+const { loadOptions, getMachineUrl, getMachineBaseUrl, debugLog } = require('../data');
 
 // theme is stored as a JSON string (see lib/db.js's machines table comment
 // for the exact contract); parse defensively so a hand-edited/corrupt row
@@ -72,6 +72,18 @@ function ensureDefaultMachine() {
 
 function listMachines() {
     return getDb().prepare('SELECT * FROM machines ORDER BY is_default DESC, id ASC').all().map(row);
+}
+
+// #714: a mismatch between a machine's registry id and which row is
+// actually flagged is_default (e.g. after repeated add/remove cycles bump
+// the AUTOINCREMENT id) is otherwise only reconstructible by reverse-
+// engineering a synthetic shot id -- this makes the whole registry visible
+// in the log at the moments it's most likely to matter (startup, any CRUD).
+function logRegistrySnapshot() {
+    const summary = listMachines()
+        .map(m => `#${m.id} "${m.name}" host=${m.host} default=${m.isDefault} enabled=${m.enabled}`)
+        .join(' | ');
+    debugLog(`Machines: ${summary || '(none)'}`);
 }
 
 function getMachine(id) {
@@ -265,4 +277,5 @@ module.exports = {
     ensureDefaultMachine, listMachines, getMachine, getDefaultMachine,
     createMachine, updateMachine, deleteMachine, restoreMachines,
     hostFor, switchEntityFor, baseUrlFor, apiUrlFor, resolveMachine,
+    logRegistrySnapshot,
 };
