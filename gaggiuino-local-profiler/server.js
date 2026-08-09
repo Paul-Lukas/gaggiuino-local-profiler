@@ -226,7 +226,8 @@ const server = app.listen(PORT, () => {
     // at getMachineUrl()'s hardcoded fallback host regardless of whatever
     // was actually configured in Settings -> Machines.
     const registry = require('./lib/machines/registry');
-    log(`Machine URL: ${registry.apiUrlFor()} | sync every ${opts.sync_interval || 5} min`);
+    // #718: apiUrlFor() is null when no host is configured anywhere
+    log(`Machine URL: ${registry.apiUrlFor() || '(not configured)'} | sync every ${opts.sync_interval || 5} min`);
     registry.logRegistrySnapshot(); // #714
     log(`HA integration: ${require('./lib/constants').HA_TOKEN ? 'active (auto-sync via latest_shot_id)' : 'unavailable (no SUPERVISOR_TOKEN)'}`);
     setInterval(() => { backgroundHaCheck().catch(e => log(`Background HA check failed: ${e.message}`, true)); }, 30000);

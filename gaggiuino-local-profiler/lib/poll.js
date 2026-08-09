@@ -72,6 +72,9 @@ async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
     const startedAt = Date.now();
     try {
         const baseUrl = registry.baseUrlFor();
+        // #718: null means no host configured anywhere -- skip cleanly,
+        // don't request against a placeholder/fallback hostname.
+        if (!baseUrl) return;
         // #714: URL of every request, not just failing ones (#709 already
         // covers those) -- a wrong/stale registry host that still resolves
         // to *something* was otherwise invisible until it happened to fail.

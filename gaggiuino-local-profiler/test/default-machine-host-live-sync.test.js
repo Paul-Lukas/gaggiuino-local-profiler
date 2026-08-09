@@ -120,4 +120,32 @@ describe('#638 default-machine host stays live (registry, not stale options.json
 
         spy.mockRestore();
     });
+
+    // #718: nothing configured anywhere (registry host explicitly cleared
+    // *and* no options.json fallback either -- the real post-#662 shape,
+    // since options.json's machine_host is always empty now) must skip the
+    // request entirely, not fall back to a hardcoded placeholder hostname.
+    it('pollViaGaggiuinoStatus() skips cleanly when no host is configured anywhere', async () => {
+        const registry = require('../lib/machines/registry');
+        registry.updateMachine(1, { host: '' });
+        fs.writeFileSync(tmpFile, JSON.stringify({})); // no options.json fallback either
+
+        const { pollViaGaggiuinoStatus } = require('../lib/poll');
+        const { MachineRuntimeState } = require('../lib/machine-runtime-state');
+        await pollViaGaggiuinoStatus(new MachineRuntimeState());
+
+        expect(axiosGetMock).not.toHaveBeenCalled();
+    });
+
+    it('syncShots() skips cleanly (and reports ok) when no host is configured anywhere', async () => {
+        const registry = require('../lib/machines/registry');
+        registry.updateMachine(1, { host: '' });
+        fs.writeFileSync(tmpFile, JSON.stringify({})); // no options.json fallback either
+
+        const { syncShots } = require('../lib/sync');
+        const ok = await syncShots({ machineOn: true });
+
+        expect(ok).toBe(true);
+        expect(axiosGetMock).not.toHaveBeenCalled();
+    });
 });

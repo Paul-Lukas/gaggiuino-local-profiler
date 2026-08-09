@@ -43,6 +43,9 @@ async function syncShots(runtime = defaultRuntime) {
     if (!runtime.machineOn && switchEntity) return true;
     try {
         const machineUrl = registry.apiUrlFor();
+        // #718: null means no host configured anywhere -- nothing to sync,
+        // don't request against a placeholder/fallback hostname.
+        if (!machineUrl) return true;
         debugLog(`GET ${machineUrl}/latest`); // #714
         const latestResponse  = await axios.get(`${machineUrl}/latest`, { timeout: 10000 });
         // #717: raw response, not just the extracted lastShotId -- lets a
@@ -225,6 +228,7 @@ async function fetchMachineVersion() {
     // edited via Settings UI could make backgroundHaCheck() (30s interval)
     // mark a correctly-rehosted machine unreachable.
     const baseUrl   = registry.baseUrlFor();
+    if (!baseUrl) return; // #718: no host configured anywhere -- nothing to check
     const endpoints = ['/api/system/info', '/api/firmware', '/api/about'];
     let lastErr = null, anySuccess = false;
     for (const path of endpoints) {

@@ -19,8 +19,15 @@ function loadOptions() {
     return {};
 }
 
+// #718: null means "genuinely nothing configured anywhere" -- callers must
+// treat that as "skip, don't request" rather than contacting a fallback
+// host. A malformed-but-non-empty value (bad scheme, unparseable) is a
+// different case -- that keeps its own explicit-default fallback below
+// (#699's tests cover it), since there the user typed *something* and a
+// clear signal beats a silent null.
 function getMachineUrl(opts) {
-    const raw = (opts.machine_host || opts.machine_url || process.env.MACHINE_URL || 'gaggia.intern').trim();
+    const raw = (opts.machine_host || opts.machine_url || process.env.MACHINE_URL || '').trim();
+    if (!raw) return null;
     // #699: normalise unconditionally instead of only appending /api/shots
     // when no scheme is present -- a host entered *with* a scheme (e.g.
     // "http://192.168.1.50/", the format the Machines "Add machine" dialog
@@ -42,10 +49,12 @@ function getMachineUrl(opts) {
 }
 
 function getMachineBaseUrl(opts) {
+    const url = getMachineUrl(opts);
+    if (!url) return null;
     try {
-        const u = new URL(getMachineUrl(opts));
+        const u = new URL(url);
         return `${u.protocol}//${u.host}`;
-    } catch { return 'http://gaggia.intern'; }
+    } catch { return null; }
 }
 
 function getSyncIntervalMs(opts) {

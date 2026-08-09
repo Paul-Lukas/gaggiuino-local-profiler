@@ -62,12 +62,16 @@ function ensureDefaultMachine() {
     if (count > 0) return;
 
     const opts = loadOptions();
-    const host = (opts.machine_host || opts.machine_url || 'gaggia.intern').trim();
+    // #718: empty (not a hardcoded placeholder hostname) when no legacy
+    // machine_host/machine_url exists either -- a fresh install starts in
+    // an explicit "not configured" state instead of silently pointing at
+    // a fake-looking host.
+    const host = (opts.machine_host || opts.machine_url || '').trim();
     db.prepare(
         `INSERT INTO machines (id, name, type, host, switch_entity, is_default, enabled, created_at)
          VALUES (1, ?, 'gaggiuino', ?, ?, 1, 1, ?)`
     ).run('Gaggiuino', host, opts.switch_entity || null, Date.now());
-    log(`Machines: seeded default machine #1 "Gaggiuino" (${host})`);
+    log(`Machines: seeded default machine #1 "Gaggiuino" (${host || '(no host configured)'})`);
 }
 
 function listMachines() {

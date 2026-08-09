@@ -5,7 +5,7 @@
 // status/live polling -- which only ever reduce the URL back to origin --
 // kept looking completely normal.
 import { describe, it, expect } from 'vitest';
-import { getMachineUrl } from '../lib/data.js';
+import { getMachineUrl, getMachineBaseUrl } from '../lib/data.js';
 
 describe('#699 getMachineUrl() always appends /api/shots regardless of input format', () => {
     it('appends /api/shots for a bare hostname (no scheme)', () => {
@@ -34,5 +34,26 @@ describe('#699 getMachineUrl() always appends /api/shots regardless of input for
 
     it('falls back to the default host for a malformed machine_host', () => {
         expect(getMachineUrl({ machine_host: 'http://[invalid' })).toBe('http://gaggia.intern/api/shots');
+    });
+});
+
+// #718: null (not a hardcoded placeholder hostname) when nothing is
+// configured anywhere -- callers must treat that as "skip, don't request".
+describe('#718 getMachineUrl()/getMachineBaseUrl() return null when no host is configured', () => {
+    it('getMachineUrl returns null for empty opts', () => {
+        expect(getMachineUrl({})).toBeNull();
+    });
+
+    it('getMachineUrl returns null when machine_host is an empty string', () => {
+        expect(getMachineUrl({ machine_host: '' })).toBeNull();
+    });
+
+    it('getMachineBaseUrl returns null for empty opts', () => {
+        expect(getMachineBaseUrl({})).toBeNull();
+    });
+
+    it('still resolves normally once a host is set', () => {
+        expect(getMachineUrl({ machine_host: '192.168.1.50' })).toBe('http://192.168.1.50/api/shots');
+        expect(getMachineBaseUrl({ machine_host: '192.168.1.50' })).toBe('http://192.168.1.50');
     });
 });

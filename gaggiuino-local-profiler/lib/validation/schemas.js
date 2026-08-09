@@ -158,7 +158,9 @@ const themeSchema = z.union([
 const machineSchema = z.object({
     name:         z.string().min(1).max(100),
     type:         z.enum(['gaggiuino', 'gaggimate']),
-    host:         z.string().min(1).max(255),
+    // #718: empty allowed -- a machine can be saved "not configured yet"
+    // instead of being forced to hold a real-looking host value.
+    host:         z.string().max(255),
     switchEntity: z.string().max(200).optional().nullable(),
     theme:        themeSchema.optional(),
     enabled:      z.boolean().optional().default(true),

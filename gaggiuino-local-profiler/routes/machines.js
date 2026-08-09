@@ -34,11 +34,13 @@ router.get('/api/machines', (req, res) => {
 router.post('/api/machines', async (req, res) => {
     const parsed = machineSchema.safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'invalid machine', details: parsed.error.issues });
-    try {
-        await validateHost(parsed.data.host);
-    } catch (e) {
-        if (e instanceof SsrfBlockedError) return res.status(400).json({ error: 'host not allowed' });
-        return res.status(400).json({ error: e.message });
+    if (parsed.data.host) { // #718: empty host is a valid "not configured yet" state -- nothing to validate
+        try {
+            await validateHost(parsed.data.host);
+        } catch (e) {
+            if (e instanceof SsrfBlockedError) return res.status(400).json({ error: 'host not allowed' });
+            return res.status(400).json({ error: e.message });
+        }
     }
     const machine = registry.createMachine(parsed.data);
     log(`Machine added: #${machine.id} "${machine.name}" (${machine.type}) host=${machine.host}`);
