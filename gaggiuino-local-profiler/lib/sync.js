@@ -1,7 +1,7 @@
 'use strict';
 const axios      = require('axios');
 const { log }    = require('./helpers');
-const { loadOptions, getSyncIntervalMs } = require('./data');
+const { loadOptions, getSyncIntervalMs, debugLog } = require('./data');
 const shotService = require('./services/ShotService');
 const state      = require('./state');
 const { getMachineRuntimeState } = require('./machine-runtime-state');
@@ -101,6 +101,15 @@ async function syncShots(runtime = defaultRuntime) {
         state.machineReachable = false;
         state.lastMachineError = state.lastSyncError;
         log(`Sync error: ${err.message}`, true);
+        // #709: err.message alone (e.g. "Request failed with status code
+        // 404") doesn't say which endpoint/shot id 404'd or what the
+        // machine actually returned -- debug-gated since it echoes response
+        // bodies, which could be large/noisy for normal users.
+        if (err.response) {
+            const url  = (err.config?.url || '').replace(/https?:\/\/\S+/g, '[url]');
+            const body = JSON.stringify(err.response.data).slice(0, 500);
+            debugLog(`Sync error detail: ${err.response.status} on ${url} -- body: ${body}`);
+        }
         return false;
     }
 }

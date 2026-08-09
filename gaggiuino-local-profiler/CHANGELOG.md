@@ -1,6 +1,7 @@
 ## Unreleased
 
 ### Added
+- **Debug-gated logging (Settings → `debug_logging`) for sync 404s and rapid brew-event flapping.** `syncShots()` now also logs the failed request's URL (redacted) plus the HTTP status and a truncated response body on error, instead of only `err.message` — useful when a 404 gives no clue which endpoint/shot id failed or what the machine actually returned. `pollViaGaggiuinoStatus()` now also logs the raw `status.brewSwitchState`/`upTime` alongside each `Brew started`/`Brew finished` line, so a session with many rapid brew-start/stop flips (seconds apart, too fast for real shots) can be told apart after the fact from genuine repeated brewing. Diagnostic addition for a user report of an unstable/flapping connection to the machine (intermittent `EHOSTUNREACH` alongside persistent sync 404s). Closes #709
 - **Startup log now includes the key set of `options.json`** (keys only, never values — `machine_host` can be a private hostname/IP). Diagnostic addition for #662: a dev-channel tester still saw the deprecated `machine_host`/`switch_entity` Configuration fields on a build that should no longer expose them, suspected to be Home Assistant Supervisor caching the add-on's `config.yaml` schema independently of the image version. This log line lets that be confirmed or ruled out from the Supervisor log tab alone, without shell access to the affected instance. Closes #706
 
 ### Fixed

@@ -2,7 +2,7 @@
 const axios = require('axios');
 const { TEMP_HISTORY_MAX } = require('./constants');
 const { log } = require('./helpers');
-const { loadOptions } = require('./data');
+const { loadOptions, debugLog } = require('./data');
 const { getSwitchState, HA_TOKEN } = require('./ha');
 const registry = require('./machines/registry');
 const state = require('./state');
@@ -112,10 +112,18 @@ async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
                 }
             };
             log(`Brew started: profile ${profile}`);
+            // #709: isBrewing is derived purely from the REST poll's raw
+            // status.brewSwitchState (see machine-state.js) -- logging it
+            // plus upTime lets a rapid start/finish flap be told apart from
+            // a genuine repeated brew after the fact: the same upTime
+            // repeating across flaps would mean the machine is echoing a
+            // stale/cached status rather than a fresh read each poll.
+            debugLog(`Brew started detail: brewSwitchState=${status.brewSwitchState} upTime=${status.upTime}`);
         }
 
         if (!isBrewing && state.liveAccum) {
             log('Brew finished');
+            debugLog(`Brew finished detail: brewSwitchState=${status.brewSwitchState} upTime=${status.upTime}`);
             state.liveAccum = null;
             state.liveSeq++;
             setTimeout(syncAfterBrew, 3000);
