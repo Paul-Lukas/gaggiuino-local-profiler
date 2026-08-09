@@ -178,6 +178,10 @@ router.get('/api/status', async (req, res) => {
             id: m.id, name: m.name, type: m.type, isDefault: m.isDefault, enabled: m.enabled,
             reachable: m.isDefault ? state.machineReachable : null,
             on:        m.isDefault ? defaultRuntime.machineOn : null,
+            // #701: cards read this to sync their accent color to the app's
+            // own Settings -> Machines theme picker instead of only the
+            // YAML-config fallback (glp-lovelace-card#87/glp-order-card#62).
+            theme:     m.theme,
         }));
     } catch { /* ignore */ }
     res.json({
