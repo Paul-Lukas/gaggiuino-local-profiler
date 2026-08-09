@@ -508,7 +508,14 @@ router.get('/api/version', async (req, res) => {
         } catch { /* ignore */ }
     }
     const latest = _versionCache;
-    const updateAvailable = !!(latest && latest !== GLP_VERSION);
+    // #704: GLP_VERSION only moves at an actual release, so a dev build is
+    // permanently "behind" the last stable tag by design -- comparing
+    // against it here would tell dev-channel users to update via the
+    // stable Add-on Store, which is wrong (there's no store listing for
+    // GLP DEV, and it would just take them back to stable). Same
+    // dev-build-aware guard as the "UNSTABLE DEV BUILD" banner (#683) and
+    // /api/status's devBuild field.
+    const updateAvailable = !process.env.GLP_DEV_BUILD && !!(latest && latest !== GLP_VERSION);
     res.json({
         current:          GLP_VERSION,
         latest:           latest || null,

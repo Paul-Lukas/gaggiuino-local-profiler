@@ -6,7 +6,13 @@
 // might want to hide. Styled to match the existing yellow update banner
 // (same accent color / dark text), positioned above it so it reads as the
 // most fundamental of the stacked banners.
-export function showDevBuildBanner() {
+// #704 follow-up: takes the same `devBuild` string already shown in the
+// small version-badge suffix (e.g. "dev-20260809_0800") and repeats it here
+// too -- the badge is easy to miss, this banner isn't, and telling two
+// dev builds apart at a glance (did my latest push actually land?) was
+// otherwise only possible by digging into the version badge or the
+// container tag.
+export function showDevBuildBanner(devBuild) {
   if (document.getElementById('glpDevBanner')) return;
 
   const banner = document.createElement('div');
@@ -18,7 +24,7 @@ export function showDevBuildBanner() {
     fontSize: '.8rem', fontWeight: '700', letterSpacing: '.02em',
     boxShadow: '0 2px 8px rgba(0,0,0,.35)',
   });
-  banner.textContent = '⚠ UNSTABLE DEV BUILD';
+  banner.textContent = '⚠ UNSTABLE DEV BUILD' + (devBuild ? ` (${devBuild})` : '');
   document.body.insertAdjacentElement('afterbegin', banner);
   // #683 follow-up: body is `height: 100vh; overflow: hidden` with global
   // `box-sizing: border-box` (style.css), so padding-top here shrinks the

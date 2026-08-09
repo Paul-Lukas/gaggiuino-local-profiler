@@ -109,7 +109,7 @@ export async function updateStatus(machineId) {
     // #683: same devBuild signal as the version-badge suffix above, but as a
     // persistent top-of-page banner -- much harder to miss than the small
     // badge text alone.
-    if (s.devBuild) showDevBuildBanner();
+    if (s.devBuild) showDevBuildBanner(s.devBuild);
     const ordersBtn = document.getElementById('btnOrders');
     if (ordersBtn) ordersBtn.style.display = s.ordersFeature ? '' : 'none';
     // Bottom nav "Mehr" sheet (#403, mobile) mirrors the same feature gate.
