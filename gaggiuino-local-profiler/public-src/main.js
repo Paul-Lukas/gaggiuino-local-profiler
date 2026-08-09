@@ -877,8 +877,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // unawaited could let that first render see S.shotDefaults still null
     // with nothing to re-render it once the fetch actually completes.
     await loadShotDefaultsSettingsCard();
+    // #700: same class of bug as above — renderAnnotationPanel() also reads
+    // S.coffeeLibrary.baskets/puckScreens (via _renderBasketSelect/
+    // _renderPuckScreenSelect). Firing loadLibrary() unawaited let the first
+    // render of the initially-selected shot run against an empty library,
+    // so Basket/Puck Screen showed "No basket"/"No puck screen" until the
+    // user navigated to another shot and back (which re-runs the render
+    // after loadLibrary() had since resolved).
+    await loadLibrary();
     await loadData();
-    loadLibrary();
     loadMachineProfileList();
     updateStatus();
     checkForUpdate();
