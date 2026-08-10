@@ -75,7 +75,16 @@ router.post('/api/debug/import-db', (req, res) => {
 
     try {
         const buf = req.body;
-        if (!Buffer.isBuffer(buf) || buf.length === 0) {
+        // CodeQL's js/type-confusion-through-parameter-tampering doesn't
+        // recognise Buffer.isBuffer() alone as a type-narrowing barrier for
+        // an HTTP body value (same false-positive class as v2.30.0's release
+        // notes -- CodeQL wants Array.isArray() explicitly ruled out, not
+        // just Buffer.isBuffer() asserted) -- express.raw() only ever hands
+        // this route a real Buffer or leaves req.body untouched (the {}
+        // default from the global express.json() parser earlier in
+        // server.js), so this is already impossible at runtime; the
+        // Array.isArray() check documents that explicitly for the analyzer.
+        if (Array.isArray(buf) || !Buffer.isBuffer(buf) || buf.length === 0) {
             return res.status(400).json({ error: 'No database file uploaded' });
         }
         if (!buf.subarray(0, SQLITE_MAGIC.length).equals(SQLITE_MAGIC)) {
