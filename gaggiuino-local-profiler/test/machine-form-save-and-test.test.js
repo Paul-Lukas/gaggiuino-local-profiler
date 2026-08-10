@@ -237,6 +237,28 @@ describe('testMachineForm (#729/#733)', () => {
 
     expect(fakeElement('machineFormTestResult').textContent).toBe('');
   });
+
+  // #748: this is the crux of the original bug report — Test connection's
+  // implicit save-before-test must NOT be mistaken for an explicit save by
+  // anything downstream, or the setup wizard closes/advances prematurely.
+  it('#748: does NOT set S.machineExplicitSave (implicit save-before-test stays distinct from an explicit save)', async () => {
+    setFormFields({ id: '' });
+    globalThis.fetch = async (url, opts) => {
+      if (String(url) === 'api/machines?sync=0' && opts?.method === 'POST') {
+        return { ok: true, json: async () => ({ id: 42, name: 'Test Machine' }) };
+      }
+      if (String(url) === 'api/machines/42/test' && opts?.method === 'POST') {
+        return { ok: true, json: async () => ({ ok: true, reachable: true }) };
+      }
+      if (String(url) === 'api/machines') return { ok: true, json: async () => [] };
+      throw new Error(`unexpected fetch: ${opts?.method || 'GET'} ${url}`);
+    };
+
+    S.machineExplicitSave = null;
+    await testMachineForm();
+
+    expect(S.machineExplicitSave).toBe(null);
+  });
 });
 
 describe('saveMachineForm (unchanged behavior)', () => {
@@ -257,6 +279,26 @@ describe('saveMachineForm (unchanged behavior)', () => {
     await saveMachineForm();
 
     expect(fakeElement('machineFormCard').style.display).toBe('none');
+  });
+
+  // #748: the setup wizard's connect->done auto-advance must only fire on an
+  // explicit Save, never on Test-connection's implicit save-before-test —
+  // saveMachineForm() sets this dedicated signal so the two are
+  // distinguishable; testMachineForm() (above) deliberately never touches it.
+  it('on success sets S.machineExplicitSave to the saved id (#748)', async () => {
+    setFormFields({ id: '' });
+    globalThis.fetch = async (url, opts) => {
+      if (String(url) === 'api/machines' && opts?.method === 'POST') {
+        return { ok: true, json: async () => ({ id: 5, name: 'Test Machine' }) };
+      }
+      if (String(url) === 'api/machines') return { ok: true, json: async () => [] };
+      return { ok: true, json: async () => ({}) };
+    };
+
+    S.machineExplicitSave = null;
+    await saveMachineForm();
+
+    expect(S.machineExplicitSave).toBe(5);
   });
 
   it('on failure shows the save error and does not close the form', async () => {

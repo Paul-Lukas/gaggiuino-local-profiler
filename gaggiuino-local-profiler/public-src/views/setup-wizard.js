@@ -78,13 +78,18 @@ export async function setupWizardSkipToDemo() {
   renderSetupWizard();
 }
 
-// Auto-advances connect -> done the moment a machine actually gets saved:
-// saveMachineForm() (machines-settings.js) calls loadMachines(), which
-// setState()s 'machines' on success — this only ever fires while the wizard
-// itself is open and sitting on the connect step, so it's a no-op for every
-// other loadMachines() call (initial load, machine switch, later edits).
-subscribe('machines', machines => {
-  if (S.setupWizardOpen && S.setupWizardStep === 'connect' && (machines || []).length > 0) {
+// Auto-advances connect -> done, but only on an explicit "Save" — NOT on
+// Test-connection's implicit save-before-test (#729/#733).
+//
+// #748: this used to subscribe to the generic 'machines' state instead,
+// which both saveMachineForm() and testMachineForm() trigger indirectly via
+// loadMachines() on success. That meant clicking "Test connection" advanced
+// (and effectively closed) the wizard before the user ever saw the test
+// result. saveMachineForm() now setState()s this dedicated
+// 'machineExplicitSave' signal itself, which testMachineForm() never touches,
+// so only a real Save can complete this step.
+subscribe('machineExplicitSave', id => {
+  if (S.setupWizardOpen && S.setupWizardStep === 'connect' && id) {
     S.setupWizardStep = 'done';
     renderSetupWizard();
   }
@@ -109,7 +114,12 @@ function _enterConnectStep() {
   const card = document.getElementById('machineFormCard');
   if (!slot || !card) return;
   if (!_formOrigParent) { _formOrigParent = card.parentNode; _formOrigNextSibling = card.nextSibling; }
-  openMachineForm(null); // same reset used by Settings' own "+ Add machine" button
+  // #748: edit the already-seeded default machine (registry.ensureDefaultMachine())
+  // instead of always opening a blank "new machine" form — openMachineForm(null)
+  // here used to POST a brand new machine on save/test, leaving the user with
+  // both the empty-host default and the one they just configured.
+  const defaultMachine = (S.machines || []).find(m => m.isDefault) || null;
+  openMachineForm(defaultMachine);
   slot.appendChild(card);
   // Cancel only makes sense inside the Settings card it normally lives in —
   // here it's replaced by the wizard's own close (X) / demo-data escape
