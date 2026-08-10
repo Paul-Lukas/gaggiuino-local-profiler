@@ -52,9 +52,6 @@ const WHATS_NEW_ENTRIES = [
         'Fixed a stale WebSocket session leak when a machine is removed or re-hosted.',
         'Fixed component-test commands (pump/valve/LED) always timing out despite succeeding.',
     ] },
-    { version: '2.27.3', date: '2026-08-04', highlights: [
-        'Live temperature/pressure/weight readings now actually update in real time over WebSocket/MQTT, instead of lagging on the 1s REST poll.',
-    ] },
 ];
 
 const MAX_ENTRIES = 8;
