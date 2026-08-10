@@ -5,6 +5,7 @@ import { apiFetch } from '../api.js';
 import { shareOrDownloadBlob } from '../utils.js';
 import { updateMachineBanner, updateOnboardingPanel, updateDemoBadge, updateLegacyMachineOptionsBanner } from './onboarding.js';
 import { showDevBuildBanner } from './dev-banner.js';
+import { syncInstallId } from '../views/setup-wizard.js';
 
 // Tracks the server-side shot count as of the last status poll, so the periodic
 // poll below can detect a newly-finished shot even when the user isn't on the
@@ -228,6 +229,9 @@ export async function updateStatus(machineId) {
     updateMachineBanner(s);
     updateLegacyMachineOptionsBanner(s);
     updateOnboardingPanel();
+    // #750: must run before main.js's shouldOpenSetupWizard() check on the
+    // very first status poll after boot -- see syncInstallId()'s own comment.
+    syncInstallId(s.installId);
     if (typeof s.shotCount === 'number') {
       if (knownShotCount !== null && s.shotCount > knownShotCount && window.loadData) {
         window.loadData();

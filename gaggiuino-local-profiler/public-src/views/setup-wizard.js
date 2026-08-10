@@ -21,7 +21,8 @@ import { esc } from '../utils.js';
 import { openMachineForm } from '../components/machines-settings.js';
 import { loadDemoData } from '../components/onboarding.js';
 
-const COMPLETED_KEY = 'glp_setup_wizard_completed';
+const COMPLETED_KEY  = 'glp_setup_wizard_completed';
+const INSTALL_ID_KEY = 'glp_install_id';
 
 // Captured once, the first time the wizard ever reaches the connect step —
 // #machineFormCard's original position in the Settings "Machines" card, so
@@ -40,6 +41,26 @@ let _formOrigNextSibling = null;
 // empty by the time the frontend checks it.
 export function shouldOpenSetupWizard(machines) {
   return (machines || []).every(m => !m?.host) && !localStorage.getItem(COMPLETED_KEY);
+}
+
+// #750: glp_setup_wizard_completed lives in the browser, not the app's DB —
+// an HA Supervisor-level "uninstall + delete add-on data" wipes /data/glp.db
+// server-side but leaves the browser's localStorage untouched, so a user who
+// completed the wizard once and later wipes the add-on's data for a genuine
+// fresh start never sees it again; the stale flag silently suppresses it
+// forever. installId (lib/db.js's ensureInstallId(), served on every
+// GET /api/status) is a random id generated once per DB file — a mismatch
+// against the locally-remembered one means "this isn't the DB this browser
+// last saw", so the stale completed flag gets cleared before
+// shouldOpenSetupWizard() runs. A normal user whose DB file is untouched
+// keeps a stable installId, so this is a no-op for them on every call.
+export function syncInstallId(installId) {
+  if (!installId) return;
+  const stored = localStorage.getItem(INSTALL_ID_KEY);
+  if (stored && stored !== installId) {
+    try { localStorage.removeItem(COMPLETED_KEY); } catch { /* ignore */ }
+  }
+  try { localStorage.setItem(INSTALL_ID_KEY, installId); } catch { /* ignore */ }
 }
 
 export function openSetupWizard() {

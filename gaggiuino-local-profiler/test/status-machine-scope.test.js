@@ -15,7 +15,7 @@ const dbPath   = require.resolve('../lib/db');
 const realDb   = require(dbPath);
 const memDb    = new Database(':memory:');
 realDb.initSchema(memDb);
-require.cache[dbPath].exports = { getDb: () => memDb, initSchema: realDb.initSchema };
+require.cache[dbPath].exports = { getDb: () => memDb, initSchema: realDb.initSchema, getInstallId: () => 'test-install-id' };
 
 const machinesIndexPath = require.resolve('../lib/machines');
 const systemPath        = require.resolve('../routes/system');

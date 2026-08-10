@@ -939,7 +939,11 @@ document.addEventListener('DOMContentLoaded', () => {
     await machinesPromise;
     renderMachinesList();
     loadMachineProfileList();
-    updateStatus();
+    // #750: awaited (was fire-and-forget) so the installId comparison inside
+    // updateStatus() -> syncInstallId() has a chance to clear a stale
+    // setup-wizard-completed flag before the shouldOpenSetupWizard() check
+    // below runs -- see setup-wizard.js's syncInstallId() comment.
+    await updateStatus();
     checkForUpdate();
     renderApiTokenCard();
     // #744: first-run setup wizard — auto-opens once S.machines is actually
