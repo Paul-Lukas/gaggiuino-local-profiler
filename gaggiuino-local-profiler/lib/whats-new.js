@@ -18,6 +18,9 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.33.1', date: '2026-08-10', highlights: [
+        'Fixed the first-run setup wizard never actually opening on a real fresh install.',
+    ] },
     { version: '2.33.0', date: '2026-08-10', highlights: [
         'Added a guided first-run setup wizard: a first-time install with no machines configured now gets a welcome -> connect machine -> done walkthrough automatically.',
         'The wizard offers a one-click "load demo data" shortcut for trying GLP before connecting a real machine.',
@@ -48,9 +51,6 @@ const WHATS_NEW_ENTRIES = [
     { version: '2.27.4', date: '2026-08-04', highlights: [
         'Fixed a stale WebSocket session leak when a machine is removed or re-hosted.',
         'Fixed component-test commands (pump/valve/LED) always timing out despite succeeding.',
-    ] },
-    { version: '2.27.3', date: '2026-08-04', highlights: [
-        'Live temperature/pressure/weight readings now actually update in real time over WebSocket/MQTT, instead of lagging on the 1s REST poll.',
     ] },
 ];
 
