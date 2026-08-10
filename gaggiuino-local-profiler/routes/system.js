@@ -36,6 +36,7 @@ const { profileSchema } = require('../lib/validation/schemas');
 const registry = require('../lib/machines/registry');
 const { hasUnconfirmedLegacyMachineOptions } = require('../lib/machines/options-adoption');
 const { getAdapter } = require('../lib/machines');
+const { getInstallId } = require('../lib/db');
 
 // ── Profile cache helpers ─────────────────────────────────────────────────
 
@@ -212,6 +213,11 @@ router.get('/api/status', async (req, res) => {
         // deprecated from config.yaml's schema) -- see
         // options-adoption.js's hasUnconfirmedLegacyMachineOptions().
         legacyMachineOptionsPending: hasUnconfirmedLegacyMachineOptions(),
+        // #751: lets the frontend tell an unchanged install apart from a
+        // freshly (re-)created DB (e.g. after an HA Supervisor "delete
+        // add-on data" wipe) so it can clear the stale setup-wizard
+        // completed flag in localStorage -- see main.js.
+        installId:          getInstallId(),
         machines,
         // #729/#730: only present while at least one shot-import backfill is
         // actively tracking progress -- clients that don't know the field

@@ -13,9 +13,10 @@ globalThis.localStorage ??= {
 globalThis.navigator ??= { language: 'en-US' };
 
 const { S, setState } = await import('../public-src/state.js');
-const { shouldOpenSetupWizard } = await import('../public-src/views/setup-wizard.js');
+const { shouldOpenSetupWizard, syncInstallId } = await import('../public-src/views/setup-wizard.js');
 
-const COMPLETED_KEY = 'glp_setup_wizard_completed';
+const COMPLETED_KEY  = 'glp_setup_wizard_completed';
+const INSTALL_ID_KEY = 'glp_install_id';
 
 describe('shouldOpenSetupWizard (#744, #746)', () => {
   beforeEach(() => {
@@ -82,5 +83,45 @@ describe('setup wizard connect->done auto-advance (#748)', () => {
     S.setupWizardStep = 'welcome';
     setState('machineExplicitSave', 42);
     expect(S.setupWizardStep).toBe('welcome');
+  });
+});
+
+// #750: glp_setup_wizard_completed lives in the browser, not the app's DB —
+// a Supervisor-level "delete add-on data" wipes the DB server-side but
+// leaves localStorage untouched, so a stale completed flag could otherwise
+// suppress the wizard forever after a genuine fresh start.
+describe('syncInstallId (#750)', () => {
+  beforeEach(() => {
+    delete store[COMPLETED_KEY];
+    delete store[INSTALL_ID_KEY];
+  });
+
+  it('does nothing on the very first call (no locally-remembered id yet)', () => {
+    localStorage.setItem(COMPLETED_KEY, '1');
+    syncInstallId('install-a');
+    expect(localStorage.getItem(COMPLETED_KEY)).toBe('1');
+    expect(localStorage.getItem(INSTALL_ID_KEY)).toBe('install-a');
+  });
+
+  it('leaves the completed flag alone when the installId is unchanged', () => {
+    syncInstallId('install-a');
+    localStorage.setItem(COMPLETED_KEY, '1');
+    syncInstallId('install-a');
+    expect(localStorage.getItem(COMPLETED_KEY)).toBe('1');
+  });
+
+  it('clears the completed flag when the installId changed (DB was wiped/recreated)', () => {
+    syncInstallId('install-a');
+    localStorage.setItem(COMPLETED_KEY, '1');
+    syncInstallId('install-b');
+    expect(localStorage.getItem(COMPLETED_KEY)).toBe(null);
+    expect(localStorage.getItem(INSTALL_ID_KEY)).toBe('install-b');
+  });
+
+  it('is a no-op when installId is missing (e.g. an old backend before #750)', () => {
+    localStorage.setItem(COMPLETED_KEY, '1');
+    syncInstallId(undefined);
+    expect(localStorage.getItem(COMPLETED_KEY)).toBe('1');
+    expect(localStorage.getItem(INSTALL_ID_KEY)).toBe(null);
   });
 });

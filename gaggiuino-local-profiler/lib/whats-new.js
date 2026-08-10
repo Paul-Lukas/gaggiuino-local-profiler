@@ -18,6 +18,9 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.33.3', date: '2026-08-10', highlights: [
+        'Fixed the first-run setup wizard staying permanently suppressed after wiping the add-on\'s data — it now reopens correctly on a genuine fresh start instead of only via the manual "Restart setup tour" control.',
+    ] },
     { version: '2.33.2', date: '2026-08-10', highlights: [
         'Fixed the setup wizard closing itself the instant "Test connection" was clicked, and no longer leaves a duplicate machine behind.',
     ] },
@@ -47,9 +50,6 @@ const WHATS_NEW_ENTRIES = [
     ] },
     { version: '2.29.0', date: '2026-08-04', highlights: [
         'Added Baskets and Puck Screens as new Coffee Library entity types, with photo upload and shot linkage like beans.',
-    ] },
-    { version: '2.28.0', date: '2026-08-04', highlights: [
-        'Added an in-app "What\'s New" changelog to Settings — this list.',
     ] },
 ];
 
