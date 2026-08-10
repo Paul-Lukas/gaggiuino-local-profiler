@@ -123,6 +123,9 @@ describe('PUT/DELETE /api/machines/:id', () => {
     });
 
     it('deletes a non-default machine', async () => {
+        // #753: deleteMachine() also refuses to delete the last remaining
+        // machine -- seed the default first so 'A' isn't the only row.
+        registry.ensureDefaultMachine();
         const created = registry.createMachine({ name: 'A', type: 'gaggiuino', host: 'a.local' });
         const r = await fetch(`${baseUrl}/api/machines/${created.id}`, { method: 'DELETE' });
         expect(r.status).toBe(200);
@@ -138,6 +141,31 @@ describe('PUT/DELETE /api/machines/:id', () => {
     it('404s for an unknown machine id', async () => {
         const r = await fetch(`${baseUrl}/api/machines/999`, { method: 'DELETE' });
         expect(r.status).toBe(404);
+    });
+});
+
+describe('POST /api/machines/:id/default (#753)', () => {
+    it('reassigns the default machine', async () => {
+        registry.ensureDefaultMachine();
+        const other = registry.createMachine({ name: 'B', type: 'gaggiuino', host: 'b.local' });
+        const r = await fetch(`${baseUrl}/api/machines/${other.id}/default`, { method: 'POST' });
+        expect(r.status).toBe(200);
+        const body = await r.json();
+        expect(body.isDefault).toBe(true);
+        expect(registry.getMachine(1).isDefault).toBe(false);
+    });
+
+    it('404s for an unknown machine id', async () => {
+        const r = await fetch(`${baseUrl}/api/machines/999/default`, { method: 'POST' });
+        expect(r.status).toBe(404);
+    });
+
+    it('lets the now-non-default machine be deleted once it is no longer default', async () => {
+        registry.ensureDefaultMachine();
+        const other = registry.createMachine({ name: 'C', type: 'gaggiuino', host: 'c.local' });
+        await fetch(`${baseUrl}/api/machines/${other.id}/default`, { method: 'POST' });
+        const r = await fetch(`${baseUrl}/api/machines/1`, { method: 'DELETE' });
+        expect(r.status).toBe(200);
     });
 });
 

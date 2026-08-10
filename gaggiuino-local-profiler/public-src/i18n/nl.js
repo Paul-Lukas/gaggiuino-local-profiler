@@ -204,6 +204,7 @@ export default {
     settings_machine_theme:'Kleur', settings_machine_theme_gradient:'Verloop', settings_machine_theme_none:'Geen', settings_machine_theme_custom:'Aangepast',
     settings_machine_test:'Verbinding testen', settings_machine_save:'Opslaan', settings_machine_cancel:'Annuleren', settings_machine_default:'Standaard',
     settings_machine_edit:'Bewerken', settings_machine_delete:'Verwijderen', settings_machine_delete_confirm:'Deze machine echt verwijderen?',
+    settings_machine_set_default:'Als standaard instellen', settings_machine_delete_default_confirm:'Dit is de standaardmachine. Verwijderen wijzigt ook de actieve machine en het thema. Echt verwijderen?', settings_machine_delete_failed:'Deze machine kon niet worden verwijderd.',
     settings_machine_testing:'Verbinding testen…', settings_machine_test_ok:'✓ Bereikbaar', settings_machine_test_fail:'✗ Niet bereikbaar',
     settings_machine_type_gaggimate:'GaggiMate (experimenteel)', settings_machine_experimental_badge:'Experimenteel',
     settings_machine_shot_count:(n)=>`${n} shot${n === 1 ? '' : 's'}`,

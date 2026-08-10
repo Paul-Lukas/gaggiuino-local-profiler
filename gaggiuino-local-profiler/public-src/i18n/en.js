@@ -204,6 +204,7 @@ export default {
     settings_machine_theme:'Color', settings_machine_theme_gradient:'Gradient', settings_machine_theme_none:'None', settings_machine_theme_custom:'Custom',
     settings_machine_test:'Test connection', settings_machine_save:'Save', settings_machine_cancel:'Cancel', settings_machine_default:'Default',
     settings_machine_edit:'Edit', settings_machine_delete:'Delete', settings_machine_delete_confirm:'Really remove this machine?',
+    settings_machine_set_default:'Set as default', settings_machine_delete_default_confirm:'This is the default machine. Deleting it also changes the active machine and its theme. Really delete it?', settings_machine_delete_failed:'Could not delete this machine.',
     settings_machine_testing:'Testing connection…', settings_machine_test_ok:'✓ Reachable', settings_machine_test_fail:'✗ Not reachable',
     settings_machine_type_gaggimate:'GaggiMate (experimental)', settings_machine_experimental_badge:'Experimental',
     settings_machine_shot_count:(n)=>`${n} shot${n === 1 ? '' : 's'}`,

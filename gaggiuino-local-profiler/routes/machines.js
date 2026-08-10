@@ -113,6 +113,18 @@ router.delete('/api/machines/:id', (req, res) => {
     }
 });
 
+// #753: reassign which machine is default. Deleting the current default is
+// still blocked (registry.deleteMachine()) -- reassign here first, then
+// delete the now-non-default machine as a separate step.
+router.post('/api/machines/:id/default', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const machine = registry.setDefaultMachine(id);
+    if (!machine) return res.status(404).json({ error: 'not found' });
+    log(`Machine #${id} set as default`);
+    registry.logRegistrySnapshot();
+    res.json(machine);
+});
+
 router.post('/api/machines/:id/test', async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const machine = registry.getMachine(id);
