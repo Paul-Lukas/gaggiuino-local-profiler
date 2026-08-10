@@ -389,6 +389,15 @@ async function _saveMachine({ triggerSync = true } = {}) {
 
 // #727: shared by testMachineForm() — runs the connection test against a
 // known machine id and renders the result into #machineFormTestResult.
+//
+// #734 review: #733 removed testMachineForm()'s auto-close, so the form
+// (and the still-clickable machines list behind it) can now stay open long
+// enough for the user to switch to editing a *different* machine while this
+// test is still in flight — openMachineForm() overwrites #machineFormId
+// synchronously, so by the time this resolves the form may no longer be
+// showing the machine that was actually tested. Re-check #machineFormId
+// still matches before writing the result, so a stale in-flight test can't
+// land its result under the wrong machine's name/host.
 async function _testMachine(id) {
   const resultEl = document.getElementById('machineFormTestResult');
   if (!resultEl) return;
@@ -396,8 +405,10 @@ async function _testMachine(id) {
   try {
     const r = await apiFetch(`api/machines/${id}/test`, { method: 'POST' });
     const data = await r.json().catch(() => ({}));
+    if (String(document.getElementById('machineFormId').value) !== String(id)) return;
     resultEl.textContent = data.reachable ? t('settings_machine_test_ok') : t('settings_machine_test_fail');
   } catch {
+    if (String(document.getElementById('machineFormId').value) !== String(id)) return;
     resultEl.textContent = t('settings_machine_test_fail');
   }
 }
@@ -415,22 +426,26 @@ export async function deleteMachine(id) {
 
 // #729: saves first (create or update, same as saveMachineForm()) so a
 // not-yet-saved machine can be tested too, then runs the connection test
-// against the now-known id, briefly shows the result inline, and closes the
-// form like saveMachineForm() does. On save failure, _saveMachine() already
-// surfaced the save error; the test is skipped entirely.
+// against the now-known id and shows the result inline.
+//
+// #733: unlike saveMachineForm(), this deliberately does NOT close the
+// form -- testing is meant to be an in-place check the user can react to
+// (e.g. fix a bad host and test again) without losing their place. #729
+// originally auto-closed it to mirror Save, but that turned out to be
+// confusing for a *test* action; only the explicit Save button closes now.
 //
 // #731: this save is only a means to get a testable id -- it must not start
 // a shot import the way an explicit "Speichern" does, so triggerSync:false
 // is passed through to _saveMachine() (server-side gate in routes/machines.js).
 //
-// #730 review: the form stays open (and clickable) for the 1200ms dwell
-// before it auto-closes -- a double-click used to re-enter _saveMachine()
-// with #machineFormId still empty (never written back after the first
-// save), turning a single "new machine" save into two POSTs. Fixed two
-// ways: the id is written back into the DOM the moment the first save
-// succeeds (so even a concurrent second call would PUT, not POST again),
-// and the button itself is disabled for the whole in-flight+dwell window so
-// a second click can't start a second call in the first place.
+// #730 review: the form stays open (and clickable) while the request is in
+// flight -- a double-click used to re-enter _saveMachine() with
+// #machineFormId still empty (never written back after the first save),
+// turning a single "new machine" save into two POSTs. Fixed two ways: the
+// id is written back into the DOM the moment the first save succeeds (so
+// even a concurrent second call would PUT, not POST again), and the button
+// itself is disabled for the whole in-flight window so a second click can't
+// start a second call in the first place.
 export async function testMachineForm() {
   const btn = document.getElementById('machineFormTestBtn');
   if (btn) btn.disabled = true;
@@ -441,9 +456,6 @@ export async function testMachineForm() {
   }
   document.getElementById('machineFormId').value = id;
   await _testMachine(id);
-  setTimeout(() => {
-    closeMachineForm();
-    loadMachines();
-    if (btn) btn.disabled = false;
-  }, 1200);
+  loadMachines();
+  if (btn) btn.disabled = false;
 }
