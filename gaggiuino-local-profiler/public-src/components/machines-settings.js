@@ -415,7 +415,15 @@ async function _testMachine(id) {
 
 export async function saveMachineForm() {
   const id = await _saveMachine();
-  if (id !== null) { closeMachineForm(); loadMachines(); }
+  if (id !== null) {
+    closeMachineForm();
+    loadMachines();
+    // #748: dedicated signal for an *explicit* save, separate from the
+    // generic 'machines' state that testMachineForm()'s implicit
+    // save-before-test also triggers via loadMachines() — the setup wizard
+    // subscribes to this one so "Test connection" can't prematurely close it.
+    setState('machineExplicitSave', id);
+  }
 }
 
 export async function deleteMachine(id) {

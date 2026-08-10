@@ -18,6 +18,9 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.33.2', date: '2026-08-10', highlights: [
+        'Fixed the setup wizard closing itself the instant "Test connection" was clicked, and no longer leaves a duplicate machine behind.',
+    ] },
     { version: '2.33.1', date: '2026-08-10', highlights: [
         'Fixed the first-run setup wizard never actually opening on a real fresh install.',
     ] },
@@ -47,10 +50,6 @@ const WHATS_NEW_ENTRIES = [
     ] },
     { version: '2.28.0', date: '2026-08-04', highlights: [
         'Added an in-app "What\'s New" changelog to Settings — this list.',
-    ] },
-    { version: '2.27.4', date: '2026-08-04', highlights: [
-        'Fixed a stale WebSocket session leak when a machine is removed or re-hosted.',
-        'Fixed component-test commands (pump/valve/LED) always timing out despite succeeding.',
     ] },
 ];
 
