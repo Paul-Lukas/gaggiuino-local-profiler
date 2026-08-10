@@ -333,6 +333,7 @@ export default {
     settings_api_token_desc:'Integraties zoals de Order Card in directe-URL-modus (zonder HA Ingress) hebben deze token nodig als glp_token in hun YAML-configuratie.',
     settings_api_token_copy:'Kopiëren', settings_api_token_copied:'Token gekopieerd',
     settings_devtools_title:'Ontwikkelaarstools', settings_devtools_desc:'Alleen GLP DEV-kanaal — nooit beschikbaar op een echte installatie.', settings_devtools_export_db:'Ruwe database downloaden',
+    settings_devtools_import_db:'Ruwe database uploaden …', settings_devtools_import_db_confirm:'Dit vervangt de volledige database door het geüploade bestand. Er blijft een back-up van de huidige database bewaard, maar een herstart is nodig voordat de import actief wordt. Doorgaan?', settings_devtools_import_db_done:'Import geslaagd — herstart de add-on om deze te laden.', settings_devtools_import_db_failed:'Import mislukt.',
     preheat_warming:'Opwarmen …', preheat_ready:'Klaar om te extraheren',
     preheat_remain:(m,s)=>`${m}:${String(s).padStart(2,'0')} resterend`,
     machine_on_duration:(m)=>`${m} min aan`, machine_on_duration_hours:(h,m)=>`${h}u ${m}m aan`,

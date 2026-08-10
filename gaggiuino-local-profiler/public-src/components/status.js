@@ -358,6 +358,31 @@ export async function exportDevDb() {
   } catch { /* ignore -- dev-only diagnostic tool, no user-facing error UI needed */ }
 }
 
+// #755: counterpart to exportDevDb() above -- uploads a raw .db file to
+// replace the whole database. Destructive and irreversible from the UI's
+// point of view (the backend keeps a timestamped safety-copy on disk, but
+// there's no in-app undo), so this confirms before sending, unlike the
+// export button. The backend swaps the file via a rename rather than an
+// in-place write specifically so the currently-running server keeps serving
+// from its already-open handle untouched -- the import only takes effect
+// after a manual restart of the add-on, which this tells the user about
+// via alert() since there's no toast/notification system wired into this
+// dev-only diagnostic card.
+export async function importDevDb(file) {
+  if (!file) return;
+  if (!confirm(t('settings_devtools_import_db_confirm'))) return;
+  try {
+    const r = await apiFetch('api/debug/import-db', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: await file.arrayBuffer(),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) { alert(body.error || t('settings_devtools_import_db_failed')); return; }
+    alert(t('settings_devtools_import_db_done'));
+  } catch { alert(t('settings_devtools_import_db_failed')); }
+}
+
 export function updatePowerButton(sw) {
   const btn = document.getElementById('powerBtn');
   const liveBtn = document.getElementById('btnLive');
