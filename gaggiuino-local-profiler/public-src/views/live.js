@@ -150,8 +150,20 @@ export function connectLiveStream() {
   S.liveWasLive = false;
   fetchLiveData();
   fetchPreheatData();
-  S.livePollInterval    = setInterval(fetchLiveData, 1000);
-  S.preheatPollInterval = setInterval(fetchPreheatData, 10000);
+  // #736 review: SSE push (handleLiveSnapshotEvent/handlePreheatUpdateEvent,
+  // wired once in main.js's bootstrap) covers both once connected -- these
+  // polling intervals are only needed as the fallback for whenever SSE
+  // hasn't (yet, or ever) taken over for this session. A one-time
+  // `if (!S.sseActive)` check here (at the moment the tab opens) isn't
+  // enough: EventSource can take up to sse.js's WATCHDOG_MS (8s, longer
+  // still over HA Ingress per #738/#740) to actually open, so S.sseActive
+  // can still be null/false right now even though it flips true moments
+  // later -- these intervals must always start, and instead self-correct on
+  // every tick, same convention as status.js's updateStatus()/
+  // pollSyncProgressFallback() (a 30s interval that always fires, gating its
+  // own fallback-only work behind a fresh S.sseActive check each time).
+  S.livePollInterval    = setInterval(() => { if (!S.sseActive) fetchLiveData(); }, 1000);
+  S.preheatPollInterval = setInterval(() => { if (!S.sseActive) fetchPreheatData(); }, 10000);
 }
 
 export async function fetchPreheatData() {
@@ -245,6 +257,20 @@ export function setLiveBadge(state, detail = '') {
 
   if (state === 'brewing') liveBtn.classList.add('live-brewing');
   if (state === 'ready' || state === 'idle') liveBtn.classList.add('live-ready');
+}
+
+// #736: SSE push handlers -- registered once in main.js's bootstrap
+// (connectEvents()/onEvent()), independent of whichever view is currently
+// open. Both payloads are already the identical shape their REST
+// counterparts (GET /api/live/data, GET /api/preheat) return -- see
+// lib/poll.js's buildLiveDataResponse()/lib/preheat.js's
+// buildPreheatResponse() -- so these are thin passthroughs, not adapters.
+export function handleLiveSnapshotEvent(payload) {
+  handleLiveData(payload);
+}
+
+export function handlePreheatUpdateEvent(payload) {
+  updatePreheatWidget(payload);
 }
 
 export function handleLiveData(msg) {

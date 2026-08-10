@@ -38,6 +38,45 @@ let _lastSyncProgress = new Map();
 // the polling fallback's /api/status response does.
 const _pushSyncProgress = new Map();
 
+// #742 review: two machines can genuinely backfill concurrently (syncShots()/
+// syncMachineShots() are not mutually exclusive, see lib/sync.js) -- an
+// earlier version of this tracked a baseline PER machine and displayed
+// "that machine's own baseline + current" on every event, which made the
+// shared header flicker/regress between each machine's independent total
+// (e.g. 42 -> 39 -> 42...) instead of showing one consistent combined
+// count. The same global/scalar-instead-of-per-machine-keyed bug class
+// already fixed in #730/#732, except inverted here: S.shots.length is a
+// single global count (not per-machine), so there can only be ONE shared
+// base, with each machine contributing its own `current` on top of it.
+//
+// _midSyncCurrent: machineId -> that machine's own last-seen `current`, for
+// every machine presently mid-sync. The displayed count is always
+// _globalBaseline + the SUM of every entry here.
+// _globalBaseline: S.shots.length (or a running fold of already-finished
+// machines' final `current`, see below), captured fresh the moment the
+// FIRST machine of a new "nobody currently mid-sync" round starts
+// backfilling -- stays fixed while anything is still mid-sync, so a second
+// machine joining in never re-samples S.shots.length out from under an
+// already-in-progress display. Reserved for the SSE push path only.
+let _midSyncCurrent = new Map();
+let _globalBaseline = null;
+
+function displaySyncCount() {
+  let sum = 0;
+  for (const c of _midSyncCurrent.values()) sum += c;
+  setShotCountDisplay((_globalBaseline ?? S.shots.length) + sum);
+}
+
+// #742: updates just the two DOM bits that show the shot count -- the
+// sidebar header's "(N)" text and the flap-board odometer -- without going
+// through the full renderSidebar()/loadData() cycle, which would be far too
+// expensive to run on every SYNC_PROGRESS tick (as fast as per-shot).
+function setShotCountDisplay(n) {
+  const countEl = document.getElementById('shot-count');
+  if (countEl) countEl.textContent = `(${n})`;
+  if (window.updateFlapCounter) window.updateFlapCounter(n);
+}
+
 // #735: shared bar-rendering helper -- both the polling fallback and the
 // SSE push handlers need to render "this machine's import is at
 // current/total" (or hide the bar entirely) the exact same way.
@@ -96,18 +135,54 @@ function pollSyncProgressFallback(list, machineId) {
 export function handleSyncProgressEvent({ machineId, current, total }) {
   _pushSyncProgress.set(machineId, { current, total });
   renderSyncProgressBar(_pickPushEntry());
+
+  // #742 review: per-machine sequence detection (a fresh backfill for THIS
+  // machine, either never tracked before or `current` resetting lower than
+  // previously seen -- e.g. it restarted without a SYNC_COMPLETE ever
+  // arriving for the prior attempt) is still needed, but must never disturb
+  // another machine's already-in-flight contribution.
+  const prevCurrent = _midSyncCurrent.get(machineId);
+  if (prevCurrent === undefined) {
+    // Only resample the shared base when NOTHING is currently mid-sync --
+    // otherwise this machine is simply joining an already-active round.
+    if (_midSyncCurrent.size === 0) _globalBaseline = S.shots.length;
+  } else if (current < prevCurrent) {
+    // This machine restarted its own sequence without ever completing the
+    // previous one -- fold what it had already contributed into the shared
+    // base (so the total never visibly regresses), then start it fresh.
+    _globalBaseline = (_globalBaseline ?? S.shots.length) + prevCurrent;
+  }
+  _midSyncCurrent.set(machineId, current);
+  displaySyncCount();
 }
 
 export function handleSyncCompleteEvent({ machineId, total, success }) {
   _pushSyncProgress.delete(machineId);
+  // #742 review: fold this machine's final `current` into the shared base
+  // instead of just dropping its entry -- those shots are already saved to
+  // the DB (bumpSyncProgress() only fires per successfully-saved shot, see
+  // lib/sync.js), so removing its contribution outright would make the
+  // displayed count visibly drop by exactly that amount the moment it
+  // finishes, even though nothing was actually lost.
+  const finalCurrent = _midSyncCurrent.get(machineId) ?? 0;
+  _midSyncCurrent.delete(machineId);
+  _globalBaseline = (_globalBaseline ?? S.shots.length) + finalCurrent;
+  displaySyncCount();
   renderSyncProgressBar(_pickPushEntry());
   // #737 review: the polling fallback above always toasts on completion
   // (it has no success/failure signal to work with) -- mirror that here so
   // an aborted backfill (success:false, e.g. a non-404 network error mid-
   // loop, see lib/sync.js) isn't silently swallowed just because SSE
   // happened to be the active transport this session.
-  if (!window.showToast) return;
-  window.showToast(success ? t('sync_complete_toast', total) : t('sync_failed_toast'));
+  if (window.showToast) {
+    window.showToast(success ? t('sync_complete_toast', total) : t('sync_failed_toast'));
+  }
+  // #742: on success, reconcile the exact DB count/shot list against the
+  // baseline+current running total shown during the backfill above -- which
+  // can drift from the truth (interleaved multi-machine backfills, a missed
+  // tick) -- window.loadData() also calls renderSidebar() internally, so
+  // this corrects the displayed count too, not just S.shots itself.
+  if (success && window.loadData) window.loadData();
 }
 
 // Same "prefer the active machine, fall back to the first active entry"
