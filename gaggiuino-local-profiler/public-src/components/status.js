@@ -12,6 +12,22 @@ import { showDevBuildBanner } from './dev-banner.js';
 // see #296.
 let knownShotCount = null;
 
+// #731: active shot-import progress entries (see the syncProgress block in
+// updateStatus() below), keyed by machineId -- kept only so the poll that
+// finds a given machine's entry gone can show that machine's own "done"
+// toast. Must be per-machine, not a single scalar: lib/state.js's own
+// state.syncProgress is deliberately keyed by machineId too (see its and
+// lib/sync.js's comments), because more than one machine can be backfilling
+// at once and their progress must not clobber each other -- a scalar here
+// would let machine B's completion go untoasted for as long as machine A is
+// still active (whichever entry happened to be tracked last wins), and would
+// misattribute A's total to B's toast once A also finished. An entry is
+// deleted the moment its toast fires, so it doesn't repeat on later polls,
+// and a machineId only ever toasts once it's first been seen active (so
+// app startup never fires it for an import already in progress before this
+// session opened).
+let _lastSyncProgress = new Map();
+
 // #464: an explicit machineId scopes the status-dot/hostname fields below to
 // that machine (see routes/system.js's /api/status). 'all'/null/undefined
 // fall back to the unscoped call (default machine), mirroring the same
@@ -44,14 +60,30 @@ export async function updateStatus(machineId) {
     // counter -- only present in the response while at least one backfill
     // is actively tracking progress (see lib/state.js's syncProgress),
     // hidden the rest of the time. Rides the existing 30s updateStatus()
-    // poll, no separate interval. s.syncProgress is a list (more than one
-    // machine can be backfilling at once) -- there's only one bar to show,
-    // so prefer whichever machine this poll was scoped to, falling back to
-    // the first active entry otherwise.
+    // poll, no separate interval. s.syncProgress is a list -- more than one
+    // machine can be backfilling at once, see _lastSyncProgress's comment.
     const syncProgressBar = document.getElementById('syncProgressBar');
     if (syncProgressBar) {
-      const entry = Array.isArray(s.syncProgress) && s.syncProgress.length
-        ? (s.syncProgress.find(p => p.machineId === Number(machineId)) || s.syncProgress[0])
+      const list = Array.isArray(s.syncProgress) ? s.syncProgress : [];
+      // #731: toast every previously-tracked machine whose entry is gone
+      // from this poll's list -- independent of whichever single entry the
+      // bar itself ends up showing below, so machine B finishing while A is
+      // still backfilling still gets its own toast right away, not only
+      // once A also finishes (or never, if A finished first and B's entry
+      // never got picked as "the" entry to track).
+      for (const [id, prev] of _lastSyncProgress) {
+        if (!list.some(p => p.machineId === id)) {
+          if (window.showToast) window.showToast(t('sync_complete_toast', prev.total));
+          _lastSyncProgress.delete(id);
+        }
+      }
+      for (const p of list) _lastSyncProgress.set(p.machineId, p);
+
+      // There's only one bar to show even with multiple machines active --
+      // prefer whichever machine this poll was scoped to, falling back to
+      // the first active entry otherwise.
+      const entry = list.length
+        ? (list.find(p => p.machineId === Number(machineId)) || list[0])
         : null;
       if (entry) {
         const { current, total } = entry;
