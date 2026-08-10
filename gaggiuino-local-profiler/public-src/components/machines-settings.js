@@ -247,10 +247,12 @@ export function renderMachinesList() {
       ${m.isDefault ? `<span class="machine-row-badge">${t('settings_machine_default')}</span>` : ''}
       <span class="machine-row-actions">
         <button type="button" class="machine-edit-btn">${t('settings_machine_edit')}</button>
-        ${!m.isDefault ? `<button type="button" class="machine-delete-btn">${t('settings_machine_delete')}</button>` : ''}
+        ${!m.isDefault ? `<button type="button" class="machine-set-default-btn">${t('settings_machine_set_default')}</button>` : ''}
+        <button type="button" class="machine-delete-btn">${t('settings_machine_delete')}</button>
       </span>`;
     row.querySelector('.machine-edit-btn').addEventListener('click', () => openMachineForm(m));
-    row.querySelector('.machine-delete-btn')?.addEventListener('click', () => deleteMachine(m.id));
+    row.querySelector('.machine-set-default-btn')?.addEventListener('click', () => setDefaultMachine(m.id));
+    row.querySelector('.machine-delete-btn')?.addEventListener('click', () => deleteMachine(m.id, m.isDefault));
     list.appendChild(row);
   });
 }
@@ -426,10 +428,28 @@ export async function saveMachineForm() {
   }
 }
 
-export async function deleteMachine(id) {
-  if (!confirm(t('settings_machine_delete_confirm'))) return;
-  const r = await apiFetch(`api/machines/${id}`, { method: 'DELETE' });
+// #753: reassigns the default machine, then reloads so both this list's
+// badge/actions and getDefaultMachineId() consumers (views/live.js,
+// applyDefaultMachineAccentTheme() below) pick up the change.
+export async function setDefaultMachine(id) {
+  const r = await apiFetch(`api/machines/${id}/default`, { method: 'POST' });
   if (r.ok) loadMachines();
+}
+
+// #753: deleting the current default is more consequential (reassigns
+// activeMachineId/theme fallout for whoever was viewing it) than a regular
+// non-default machine, so it gets its own, more explicit confirmation text.
+// Both cases can still be rejected by the backend (still-default after a
+// stale read, or the last remaining machine) -- that error is surfaced via
+// showToast rather than silently doing nothing, same as the sync-failed
+// toast pattern in components/status.js.
+export async function deleteMachine(id, isDefault) {
+  const confirmKey = isDefault ? 'settings_machine_delete_default_confirm' : 'settings_machine_delete_confirm';
+  if (!confirm(t(confirmKey))) return;
+  const r = await apiFetch(`api/machines/${id}`, { method: 'DELETE' });
+  if (r.ok) { loadMachines(); return; }
+  const body = await r.json().catch(() => ({}));
+  if (window.showToast) window.showToast(body.error || t('settings_machine_delete_failed'));
 }
 
 // #729: saves first (create or update, same as saveMachineForm()) so a

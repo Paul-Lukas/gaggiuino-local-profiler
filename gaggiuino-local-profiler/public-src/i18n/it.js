@@ -204,6 +204,7 @@ export default {
     settings_machine_theme:'Colore', settings_machine_theme_gradient:'Sfumatura', settings_machine_theme_none:'Nessuno', settings_machine_theme_custom:'Personalizzato',
     settings_machine_test:'Testa connessione', settings_machine_save:'Salva', settings_machine_cancel:'Annulla', settings_machine_default:'Predefinita',
     settings_machine_edit:'Modifica', settings_machine_delete:'Elimina', settings_machine_delete_confirm:'Rimuovere davvero questa macchina?',
+    settings_machine_set_default:'Imposta come predefinita', settings_machine_delete_default_confirm:'Questa è la macchina predefinita. Eliminandola cambieranno anche la macchina attiva e il suo tema. Eliminare davvero?', settings_machine_delete_failed:'Impossibile eliminare questa macchina.',
     settings_machine_testing:'Test connessione…', settings_machine_test_ok:'✓ Raggiungibile', settings_machine_test_fail:'✗ Non raggiungibile',
     settings_machine_type_gaggimate:'GaggiMate (sperimentale)', settings_machine_experimental_badge:'Sperimentale',
     settings_machine_shot_count:(n)=>`${n} shot`,

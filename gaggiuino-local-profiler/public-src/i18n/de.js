@@ -204,6 +204,7 @@ export default {
     settings_machine_theme:'Farbe', settings_machine_theme_gradient:'Verlauf', settings_machine_theme_none:'Keine', settings_machine_theme_custom:'Eigene',
     settings_machine_test:'Verbindung testen', settings_machine_save:'Speichern', settings_machine_cancel:'Abbrechen', settings_machine_default:'Standard',
     settings_machine_edit:'Bearbeiten', settings_machine_delete:'Löschen', settings_machine_delete_confirm:'Diese Maschine wirklich entfernen?',
+    settings_machine_set_default:'Als Standard festlegen', settings_machine_delete_default_confirm:'Dies ist die Standardmaschine. Beim Löschen ändern sich auch die aktive Maschine und ihr Theme. Wirklich löschen?', settings_machine_delete_failed:'Maschine konnte nicht gelöscht werden.',
     settings_machine_testing:'Teste Verbindung …', settings_machine_test_ok:'✓ Erreichbar', settings_machine_test_fail:'✗ Nicht erreichbar',
     settings_machine_type_gaggimate:'GaggiMate (experimentell)', settings_machine_experimental_badge:'Experimentell',
     settings_machine_shot_count:(n)=>`${n} Shot${n === 1 ? '' : 's'}`,

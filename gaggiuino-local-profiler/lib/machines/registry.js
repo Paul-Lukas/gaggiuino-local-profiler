@@ -132,10 +132,32 @@ function updateMachine(id, fields) {
     return getMachine(id);
 }
 
+// #753: flips is_default from whichever machine currently has it onto `id`,
+// transactionally -- exactly one machine has is_default afterward, same
+// invariant restoreMachines() enforces above. Deliberately does NOT touch
+// deleteMachine()'s "can't delete the default" guard below: a user who wants
+// to delete the current default must reassign it here first, then delete
+// the now-non-default machine as a separate step -- no auto-promotion.
+function setDefaultMachine(id) {
+    const existing = getMachine(id);
+    if (!existing) return null;
+    if (existing.isDefault) return existing;
+    getDb().transaction(() => {
+        getDb().prepare('UPDATE machines SET is_default = (id = ?)').run(id);
+    })();
+    log(`Machines: #${id} "${existing.name}" is now the default machine`);
+    return getMachine(id);
+}
+
 function deleteMachine(id) {
     const existing = getMachine(id);
     if (!existing) return false;
     if (existing.isDefault) throw new Error('cannot delete the default machine');
+    // #753: at least one machine must always exist -- ensureDefaultMachine()
+    // only re-seeds an empty table, it won't help if the table still has
+    // other (non-default) rows after this one is removed.
+    const count = getDb().prepare('SELECT COUNT(*) AS n FROM machines').get().n;
+    if (count <= 1) throw new Error('cannot delete the last remaining machine');
     getDb().prepare('DELETE FROM machines WHERE id = ?').run(id);
     evictLiveSession(existing.host);
     return true;
@@ -279,7 +301,7 @@ function hostFor(machineId = null) {
 
 module.exports = {
     ensureDefaultMachine, listMachines, getMachine, getDefaultMachine,
-    createMachine, updateMachine, deleteMachine, restoreMachines,
+    createMachine, updateMachine, deleteMachine, setDefaultMachine, restoreMachines,
     hostFor, switchEntityFor, baseUrlFor, apiUrlFor, resolveMachine,
     logRegistrySnapshot,
 };
