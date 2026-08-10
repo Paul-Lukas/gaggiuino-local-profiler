@@ -18,6 +18,9 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.35.0', date: '2026-08-10', highlights: [
+        'The dev-only raw database export (Settings → Dev Tools) now has an import counterpart, for GLP DEV builds only — separate from, and no change to, the regular Backup & Restore feature.',
+    ] },
     { version: '2.34.0', date: '2026-08-10', highlights: [
         'Settings → Machines can now change the default machine ("Set as default") and delete any machine, including the current default (behind a confirmation) — not just non-default ones.',
     ] },
@@ -45,11 +48,6 @@ const WHATS_NEW_ENTRIES = [
         'Added optional per-install shot-logging defaults (Settings → "Shot logging defaults") that auto-prefill a new shot\'s annotation panel.',
         'Added Basket Stats and Puck Screen Stats groupings to Analytics, alongside the existing Grinder Stats.',
         'Added on-duration to the status footer, edge-swipe to open the mobile drawer, and a persistent dev-build warning banner.',
-    ] },
-    { version: '2.30.0', date: '2026-08-06', highlights: [
-        'Backup export now downloads as a real .zip with selectable sections, an optional encrypted API-token/MQTT-login section, and a dry-run preview before restoring.',
-        'Fixed the status dot/Live tab staying green for hours after the machine was switched off — and, on the same fix, staying red for minutes after it was switched back on.',
-        'Fixed barcode scanning during bean import being completely broken for every user, blocked by the app\'s own content-security policy.',
     ] },
 ];
 

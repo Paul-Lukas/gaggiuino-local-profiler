@@ -46,7 +46,7 @@ import { renderSidebar, updateSidebarHighlighting, filterShots, setSortMode, sor
          openShotDrawer, closeShotDrawer, handleDrawerTouchStart, handleDrawerTouchEnd,
          handleEdgeSwipeStart, handleEdgeSwipeEnd,
          toggleMonthGroup, setBeanFilter, clearBeanFilter } from './components/sidebar.js';
-import { updateStatus, updatePowerButton, toggleMachinePower, triggerSync, exportDevDb,
+import { updateStatus, updatePowerButton, toggleMachinePower, triggerSync, exportDevDb, importDevDb,
          handleSyncProgressEvent, handleSyncCompleteEvent } from './components/status.js';
 import { checkForUpdate } from './components/update-check.js';
 import { switchMode, goToShot } from './components/mode.js';
@@ -751,6 +751,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('backupRestoreInput').addEventListener('change', e => openBackupRestoreModal(e.target));
   document.getElementById('backupDownloadBtn').addEventListener('click', openBackupExportModal);
   document.getElementById('devExportDbBtn')?.addEventListener('click', exportDevDb);
+  document.getElementById('devImportDbInput')?.addEventListener('change', e => {
+    importDevDb(e.target.files[0]);
+    e.target.value = '';
+  });
   document.getElementById('apiTokenCopyBtn').addEventListener('click', copyApiToken);
   document.getElementById('addMachineBtn')?.addEventListener('click', () => openMachineForm(null));
   document.getElementById('machineFormCancelBtn')?.addEventListener('click', closeMachineForm);

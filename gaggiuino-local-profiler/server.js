@@ -164,6 +164,12 @@ app.use('/api/restore', express.json({ limit: '50mb' }));
 // size ceiling as the JSON path above (a zip is typically smaller than the
 // base64 JSON it replaces for the same content).
 app.use('/api/restore', express.raw({ type: 'application/zip', limit: '50mb' }));
+// #755: raw SQLite DB upload for routes/debug.js's dev-only import-db route
+// (counterpart to its existing export-db route) -- a DB with years of shot
+// history (no images, those live outside the DB, see BEAN_IMAGE_DIR) can
+// still run well past a typical JSON payload, same generous ceiling as the
+// zip restore body above.
+app.use('/api/debug/import-db', express.raw({ type: 'application/octet-stream', limit: '500mb' }));
 app.use(express.json({ limit: '16kb' }));
 
 // ── Routes ────────────────────────────────────────────────────────────────
