@@ -77,6 +77,17 @@ Concretely:
   (b) If the same resolution logic is needed in more than two places, it
   belongs in one shared helper — copied logic multiplies its own bugs (#643:
   five copies of the same three-line function).
+- **This app supports multiple concurrent machines.** Any new state that
+  tracks an in-progress, per-operation value — sync/import progress, live
+  counters, displayed totals, timers, "which machine is this about" — must
+  be keyed by `machineId`, never a shared scalar/global that the
+  last-writing machine overwrites. Design it explicitly for N concurrent
+  machines from the start, don't default to a single-machine mental model
+  and fix it after review. (Precedent: this exact bug class shipped three
+  times before being caught — #730/#732's sync-progress toast tracked one
+  scalar "last progress" instead of a per-machine map, and #742/#743's
+  live shot-counter display had the same issue with two machines
+  backfilling concurrently.)
 
 ## Versioning
 
