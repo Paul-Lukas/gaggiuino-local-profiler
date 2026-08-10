@@ -5,5 +5,8 @@ gaggiuino-local-profiler/coverage/
 .memsearch/
 graphify-out/
 .claude/settings.local.json
+**/.claude/skills/
+**/.agents/
+**/skills-lock.json
 __pycache__/
 *.pyc

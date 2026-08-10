@@ -239,6 +239,14 @@ Jede Runde: den Test-Shot bestätigen (nie automatisch zugeordnet, gleiche Begr�
 
 Diese erste Version liest bewusst nicht die auf einem Shot-Datensatz eingebetteten Phasen-Daten als Abstimmungssignal aus — das genaue Format dieses Felds ist gegen echte Hardware nicht bestätigt — die Vorschlagslogik stützt sich daher nur auf den Gesamt-Score des Shots und die eigene Geschmackseinschätzung, nicht auf einen automatisierten Kurvenvergleich.
 
+### Geführter Einrichtungsassistent (v2.33.0)
+
+Eine Neuinstallation mit **null konfigurierten Maschinen** öffnet automatisch einen geführten 3-Schritte-Assistenten, statt direkt in der leeren Shots-Ansicht zu landen: ein **Willkommens**-Schritt, der erklärt was GLP macht ("Los geht's" / "Später"), ein Schritt **erste Maschine verbinden**, der exakt dasselbe Formular und dieselbe Verbindungstest-Logik wie Einstellungen → Maschinen wiederverwendet (keine separate Kopie), und ein **Fertig**-Schritt, der auf Einstellungen → Maschinen verweist, falls später weitere Maschinen hinzukommen sollen.
+
+Ein Klick auf „Später" — oder das Schließen des Assistenten vor dem Fertig-Schritt — markiert ihn **nicht** als abgeschlossen, er öffnet sich also beim nächsten Start automatisch erneut, bis entweder erfolgreich eine Maschine hinzugefügt oder der Assistent bis zum Ende durchlaufen wurde. Der Verbinden-Schritt bietet zusätzlich einen Link **„Ich habe noch keine Maschine, zeig mir Demo-Daten"**, der denselben unten beschriebenen Demo-Datensatz lädt und direkt zum Fertig-Schritt springt. Ein Button **„Setup-Tour erneut starten"** unter Einstellungen → Maschinen öffnet den Assistenten jederzeit erneut, ohne den Abschluss-Status zu beeinflussen.
+
+Dies ist unabhängig vom „Maschine nicht erreichbar"-Banner und dem Ersteinrichtungs-Panel weiter unten, die einen anderen Fall abdecken: eine Maschine, die konfiguriert *ist*, aber gerade nicht erreicht werden kann.
+
 ### Ersteinrichtung & Demo-Modus
 
 Ist die Gaggiuino-Maschine nicht erreichbar (falscher/nicht erreichbarer Host, einstellbar unter Einstellungen → Maschinen), zeigt GLP ein schließbares Banner am oberen Seitenrand mit dem konfigurierten Host und einem Link zum [Wiki](https://github.com/mxkissnr/gaggiuino-local-profiler/wiki) mit Einrichtungshilfe. Das Ausblenden gilt nur für die aktuelle Browser-Sitzung.

@@ -18,6 +18,11 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.33.0', date: '2026-08-10', highlights: [
+        'Added a guided first-run setup wizard: a first-time install with no machines configured now gets a welcome -> connect machine -> done walkthrough automatically.',
+        'The wizard offers a one-click "load demo data" shortcut for trying GLP before connecting a real machine.',
+        'A new "Restart setup tour" control in Settings → Machines reopens the wizard anytime.',
+    ] },
     { version: '2.32.0', date: '2026-08-10', highlights: [
         'Machine setup\'s "Test connection" button now saves first automatically, instead of requiring the machine to already be saved.',
         'New machines show an import progress indicator for their initial shot sync.',
@@ -46,9 +51,6 @@ const WHATS_NEW_ENTRIES = [
     ] },
     { version: '2.27.3', date: '2026-08-04', highlights: [
         'Live temperature/pressure/weight readings now actually update in real time over WebSocket/MQTT, instead of lagging on the 1s REST poll.',
-    ] },
-    { version: '2.27.2', date: '2026-08-04', highlights: [
-        'Preheat-ready and low-stock notification toggles are now reachable in Settings even when Orders is disabled.',
     ] },
 ];
 

@@ -122,6 +122,9 @@ import { loadDemoData, endDemo } from './components/onboarding.js';
 import { loadMachines, openMachineForm, closeMachineForm, saveMachineForm, testMachineForm, switchActiveMachine, renderMachinesList,
          onThemeCustomColorAChange, onThemeCustomColorBChange, onThemeGradientToggleChange } from './components/machines-settings.js';
 
+import { openSetupWizard, closeSetupWizard, setupWizardGetStarted, setupWizardSkipToDemo,
+         shouldOpenSetupWizard } from './views/setup-wizard.js';
+
 import { loadMqttSettings, setMqttTransport, saveMqttSettings, applyMqttToMachine } from './components/mqtt-settings.js';
 
 import { loadNotifySettingsCard, saveNotifySettings } from './components/notify-settings.js';
@@ -752,6 +755,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('machineFormCancelBtn')?.addEventListener('click', closeMachineForm);
   document.getElementById('machineFormSaveBtn')?.addEventListener('click', saveMachineForm);
   document.getElementById('machineFormTestBtn')?.addEventListener('click', testMachineForm);
+  document.getElementById('restartSetupWizardBtn')?.addEventListener('click', () => openSetupWizard());
+  document.getElementById('setupWizardModal')?.addEventListener('click', e => {
+    if (e.target.id === 'setupWizardModal') closeSetupWizard();
+  });
   document.getElementById('machineThemeCustomA')?.addEventListener('input', onThemeCustomColorAChange);
   document.getElementById('machineThemeCustomB')?.addEventListener('input', onThemeCustomColorBChange);
   document.getElementById('machineThemeGradientToggle')?.addEventListener('change', onThemeGradientToggleChange);
@@ -851,6 +858,9 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'profile-dialin-override':     profileDialinOverride(); break;
       case 'profile-dialin-end':          profileDialinEnd(); break;
       case 'profile-dialin-close':        profileDialinClose(); break;
+      case 'setup-wizard-close':          closeSetupWizard(); break;
+      case 'setup-wizard-get-started':    setupWizardGetStarted(); break;
+      case 'setup-wizard-skip-demo':      setupWizardSkipToDemo(); break;
     }
   });
 
@@ -927,6 +937,10 @@ document.addEventListener('DOMContentLoaded', () => {
     updateStatus();
     checkForUpdate();
     renderApiTokenCard();
+    // #744: first-run setup wizard — auto-opens once S.machines is actually
+    // known (after machinesPromise resolves), not before, so a returning
+    // multi-machine user never sees a false-positive flash of it.
+    if (shouldOpenSetupWizard(S.machines.length)) openSetupWizard();
   });
 
   setInterval(updateStatus, 30000);
