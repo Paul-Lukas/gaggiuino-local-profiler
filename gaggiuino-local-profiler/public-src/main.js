@@ -945,7 +945,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // #744: first-run setup wizard — auto-opens once S.machines is actually
     // known (after machinesPromise resolves), not before, so a returning
     // multi-machine user never sees a false-positive flash of it.
-    if (shouldOpenSetupWizard(S.machines.length)) openSetupWizard();
+    if (shouldOpenSetupWizard(S.machines)) openSetupWizard();
   });
 
   setInterval(updateStatus, 30000);

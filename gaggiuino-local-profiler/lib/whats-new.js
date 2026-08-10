@@ -18,6 +18,9 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.33.1', date: '2026-08-10', highlights: [
+        'Fixed the first-run setup wizard never actually opening on a real fresh install.',
+    ] },
     { version: '2.33.0', date: '2026-08-10', highlights: [
         'Added a guided first-run setup wizard: a first-time install with no machines configured now gets a welcome -> connect machine -> done walkthrough automatically.',
         'The wizard offers a one-click "load demo data" shortcut for trying GLP before connecting a real machine.',

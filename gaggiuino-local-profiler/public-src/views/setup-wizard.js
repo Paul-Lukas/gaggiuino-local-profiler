@@ -31,9 +31,15 @@ let _formOrigNextSibling = null;
 
 // Pure trigger check (#744) — no DOM/localStorage side effects beyond the
 // read, so main.js's init sequence (and tests) can call it directly against
-// S.machines.length without needing a real document.
-export function shouldOpenSetupWizard(machineCount) {
-  return machineCount === 0 && !localStorage.getItem(COMPLETED_KEY);
+// S.machines without needing a real document.
+//
+// #746: triggers on "no machine has a configured host", not "zero machine
+// rows" — registry.ensureDefaultMachine() (lib/machines/registry.js) always
+// seeds an empty-host default machine #1 on a fresh DB, called on every
+// GET /api/machines, so a real fresh install's S.machines is never actually
+// empty by the time the frontend checks it.
+export function shouldOpenSetupWizard(machines) {
+  return (machines || []).every(m => !m?.host) && !localStorage.getItem(COMPLETED_KEY);
 }
 
 export function openSetupWizard() {
