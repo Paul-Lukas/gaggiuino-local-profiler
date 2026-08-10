@@ -239,6 +239,14 @@ Each round: confirm the trial shot (never auto-matched, same reasoning as the gr
 
 This first version deliberately doesn't parse the phase data embedded on a shot record as a tuning signal — that field's exact shape hasn't been confirmed against real hardware — so the suggestion logic relies only on the shot's overall score and your own taste judgment, not an automated curve comparison.
 
+### Guided setup wizard (v2.33.0)
+
+A first-time install with **zero machines configured** opens a guided 3-step modal automatically, instead of landing directly on the empty Shots view: a **welcome** step explaining what GLP does ("Get started" / "Later"), a **connect your first machine** step that reuses the exact same add-machine form and test-connect logic as Settings → Machines (not a separate copy), and a **done** step pointing to Settings → Machines for adding more machines later.
+
+Clicking "Later" — or closing the wizard at any point before the done step — does **not** mark it complete, so it reopens automatically on the next launch until either a machine gets successfully added or the wizard is seen through to the end. The connect step also offers an **"I don't have a machine yet, show me demo data"** link that seeds the same demo dataset described below and skips straight to the done step. A **"Restart setup tour"** button in Settings → Machines reopens the wizard on demand at any time, without affecting the completion state.
+
+This is separate from the "machine unreachable" banner and first-run panel below, which cover a different situation: a machine that *is* configured but currently can't be reached.
+
 ### First-run onboarding & demo mode
 
 If the Gaggiuino controller can't be reached (wrong/unreachable host, set under Settings → Machines), GLP shows a dismissible banner at the top of the page naming the configured host, with a link to the [wiki](https://github.com/mxkissnr/gaggiuino-local-profiler/wiki) for setup help. Dismissal is per browser session.

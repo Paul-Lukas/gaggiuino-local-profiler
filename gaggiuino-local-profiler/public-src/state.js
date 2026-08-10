@@ -115,6 +115,13 @@ export const S = {
     try { return JSON.parse(localStorage.getItem('glp_profile_dialin_session') || 'null'); }
     catch { return null; }
   })(),
+  // First-run setup wizard (#744) — in-memory only, deliberately not
+  // mirrored to localStorage (unlike dialinSession above): a reload mid-wizard
+  // just reopens at the welcome step, which is fine since the wizard's own
+  // trigger condition (zero machines configured) still holds either way.
+  // See views/setup-wizard.js.
+  setupWizardOpen: false,
+  setupWizardStep: 'welcome',
 };
 
 // ── Reactive pub/sub ──────────────────────────────────────────────────────
