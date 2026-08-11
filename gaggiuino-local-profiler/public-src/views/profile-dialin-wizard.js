@@ -259,9 +259,11 @@ export function renderProfileDialinWizard() {
   if (!body) return;
   if (!s) { body.innerHTML = ''; return; }
 
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   if (s.status === 'converged' || s.status === 'ended') { body.innerHTML = _renderSummary(s); return; }
 
   if (!s.candidateShotId && !s.reviewRound) _checkForCandidate(s);
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   body.innerHTML = _renderRound(s);
 }
 

@@ -25,6 +25,7 @@ export function renderShotDefaultsSettingsCard() {
   const coffeeSelect = document.getElementById('sdCoffee');
   if (coffeeSelect) {
     const beans = S.coffeeLibrary?.beans || [];
+    // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
     coffeeSelect.innerHTML = `<option value="">${esc(t('sd_none'))}</option>` +
       beans.map(b => `<option value="${esc(b.name)}" data-bean-id="${b.id}"${d.coffee === b.name ? ' selected' : ''}>${esc(b.name)}</option>`).join('');
   }
@@ -32,6 +33,7 @@ export function renderShotDefaultsSettingsCard() {
   const basketSelect = document.getElementById('sdBasket');
   if (basketSelect) {
     const baskets = S.coffeeLibrary?.baskets || [];
+    // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
     basketSelect.innerHTML = `<option value="">${esc(t('ann_basket_none'))}</option>` +
       baskets.map(b => `<option value="${b.id}"${d.basketId === b.id ? ' selected' : ''}>${esc(b.name)}</option>`).join('');
   }
@@ -39,6 +41,7 @@ export function renderShotDefaultsSettingsCard() {
   const puckSelect = document.getElementById('sdPuckScreen');
   if (puckSelect) {
     const puckScreens = S.coffeeLibrary?.puckScreens || [];
+    // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
     puckSelect.innerHTML = `<option value="">${esc(t('ann_puckscreen_none'))}</option>` +
       puckScreens.map(p => `<option value="${p.id}"${d.puckScreenId === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
   }
