@@ -241,7 +241,7 @@ Jede Runde: den Test-Shot bestätigen (nie automatisch zugeordnet, gleiche Begr�
 
 Diese erste Version liest bewusst nicht die auf einem Shot-Datensatz eingebetteten Phasen-Daten als Abstimmungssignal aus — das genaue Format dieses Felds ist gegen echte Hardware nicht bestätigt — die Vorschlagslogik stützt sich daher nur auf den Gesamt-Score des Shots und die eigene Geschmackseinschätzung, nicht auf einen automatisierten Kurvenvergleich.
 
-### Geführter Einrichtungsassistent (v2.33.0)
+### Geführter Einrichtungsassistent (v2.32.0)
 
 Eine Neuinstallation mit **null konfigurierten Maschinen** öffnet automatisch einen geführten 3-Schritte-Assistenten, statt direkt in der leeren Shots-Ansicht zu landen: ein **Willkommens**-Schritt, der erklärt was GLP macht ("Los geht's" / "Später"), ein Schritt **erste Maschine verbinden**, der exakt dasselbe Formular und dieselbe Verbindungstest-Logik wie Einstellungen → Maschinen wiederverwendet (keine separate Kopie), und ein **Fertig**-Schritt, der auf Einstellungen → Maschinen verweist, falls später weitere Maschinen hinzukommen sollen.
 

@@ -241,7 +241,7 @@ Each round: confirm the trial shot (never auto-matched, same reasoning as the gr
 
 This first version deliberately doesn't parse the phase data embedded on a shot record as a tuning signal — that field's exact shape hasn't been confirmed against real hardware — so the suggestion logic relies only on the shot's overall score and your own taste judgment, not an automated curve comparison.
 
-### Guided setup wizard (v2.33.0)
+### Guided setup wizard (v2.32.0)
 
 A first-time install with **zero machines configured** opens a guided 3-step modal automatically, instead of landing directly on the empty Shots view: a **welcome** step explaining what GLP does ("Get started" / "Later"), a **connect your first machine** step that reuses the exact same add-machine form and test-connect logic as Settings → Machines (not a separate copy), and a **done** step pointing to Settings → Machines for adding more machines later.
 

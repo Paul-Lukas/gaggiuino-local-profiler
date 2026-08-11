@@ -18,34 +18,12 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
-    { version: '2.35.1', date: '2026-08-10', highlights: [
-        'Fixed the previous data-wipe wizard fix (v2.33.3) never actually firing on its first run for any existing browser — it now genuinely reopens the setup wizard after a real data wipe.',
-    ] },
-    { version: '2.35.0', date: '2026-08-10', highlights: [
-        'The dev-only raw database export (Settings → Dev Tools) now has an import counterpart, for GLP DEV builds only — separate from, and no change to, the regular Backup & Restore feature.',
-    ] },
-    { version: '2.34.0', date: '2026-08-10', highlights: [
-        'Settings → Machines can now change the default machine ("Set as default") and delete any machine, including the current default (behind a confirmation) — not just non-default ones.',
-    ] },
-    { version: '2.33.3', date: '2026-08-10', highlights: [
-        'Fixed the first-run setup wizard staying permanently suppressed after wiping the add-on\'s data — it now reopens correctly on a genuine fresh start instead of only via the manual "Restart setup tour" control.',
-    ] },
-    { version: '2.33.2', date: '2026-08-10', highlights: [
-        'Fixed the setup wizard closing itself the instant "Test connection" was clicked, and no longer leaves a duplicate machine behind.',
-    ] },
-    { version: '2.33.1', date: '2026-08-10', highlights: [
-        'Fixed the first-run setup wizard never actually opening on a real fresh install.',
-    ] },
-    { version: '2.33.0', date: '2026-08-10', highlights: [
-        'Added a guided first-run setup wizard: a first-time install with no machines configured now gets a welcome -> connect machine -> done walkthrough automatically.',
-        'The wizard offers a one-click "load demo data" shortcut for trying GLP before connecting a real machine.',
-        'A new "Restart setup tour" control in Settings → Machines reopens the wizard anytime.',
-    ] },
-    { version: '2.32.0', date: '2026-08-10', highlights: [
-        'Machine setup\'s "Test connection" button now saves first automatically, instead of requiring the machine to already be saved.',
-        'New machines show an import progress indicator for their initial shot sync.',
-        'Saving any machine now triggers a catch-up shot sync for it, not just default-machine host changes.',
-        'Shot-import progress now updates live instead of in 30s polling jumps, and the completion toast is now reliable — falls back to the previous polling behavior automatically if a live connection can\'t be established.',
+    { version: '2.32.0', date: '2026-08-11', highlights: [
+        'Heads up if you manage the machine host/switch entity via the add-on\'s Configuration tab: those fields are removed there. Your existing value carries over automatically, but from now on the default machine is configured entirely under Settings → Machines instead.',
+        'Added a guided first-run setup wizard: a fresh install with no machines configured now gets a welcome -> connect machine -> done walkthrough, with a one-click demo-data option and a "Restart setup tour" control in Settings → Machines.',
+        'The Live tab and the sidebar\'s shot counter now update in real time instead of only polling every few seconds, falling back automatically if a live connection can\'t be established.',
+        'Settings → Machines: "Test connection" now saves the machine automatically first, you can change the default machine or delete any machine, and the host field can be left empty to save a machine as "not configured yet".',
+        'Fixed several shot-sync sticking points (a stuck backfill, an out-of-range shot id) and the Live tab\'s flow reading always showing 0.',
     ] },
 ];
 

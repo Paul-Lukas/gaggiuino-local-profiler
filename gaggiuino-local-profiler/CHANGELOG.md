@@ -1,4 +1,4 @@
-## Unreleased
+## [2.32.0] – 2026-08-11
 
 ### Added
 - **The dev-only raw database export (Settings → Dev Tools, GLP DEV builds only) now has an import counterpart.** `POST /api/debug/import-db` uploads a raw `.db` file and replaces `/data/glp.db` with it — 404s exactly like the existing export route on any real install (`GLP_DEV_BUILD` unset). The current database is checkpointed and backed up to a timestamped file before the swap; the new file is written via a rename rather than in-place, so the already-running server keeps serving from its existing connection untouched until the add-on is restarted, at which point it loads the imported file. Separate from, and doesn't change, the existing curated ZIP Backup & Restore feature (`Settings → Backup & Restore`), which stays available in every build. Closes #755
