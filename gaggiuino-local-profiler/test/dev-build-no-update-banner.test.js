@@ -20,7 +20,14 @@ const realFetch = globalThis.fetch;
 // it directly (no injectable HTTP client).
 function stubGithubFetch(tag) {
     globalThis.fetch = vi.fn((url, ...rest) => {
-        if (typeof url === 'string' && url.includes('api.github.com')) {
+        const isGithubApiUrl = typeof url === 'string' && (() => {
+            try {
+                return new URL(url).hostname === 'api.github.com';
+            } catch {
+                return false;
+            }
+        })();
+        if (isGithubApiUrl) {
             return Promise.resolve({ ok: true, json: async () => ({ tag_name: tag }) });
         }
         return realFetch(url, ...rest);
