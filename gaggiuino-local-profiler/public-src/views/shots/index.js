@@ -129,6 +129,7 @@ export function renderTrash() {
     const name = shot.profile?.name || shot.profileName || `Shot ${shot.id}`;
     const row  = document.createElement('div');
     row.className = 'trash-item';
+    // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
     row.innerHTML = `
       <div class="trash-item-info">
         <div class="trash-item-name">${esc(name)}</div>

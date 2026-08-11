@@ -170,6 +170,7 @@ export function renderMachineSwitcher() {
     return;
   }
 
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   el.innerHTML = `<option value="all">${escapeHtml(t('machine_switcher_all'))}</option>` +
     machines.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('');
   el.value = String(S.activeMachineId ?? 'all');

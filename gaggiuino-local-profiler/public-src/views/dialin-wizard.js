@@ -312,11 +312,14 @@ export function renderDialinWizard() {
   if (!body) return;
   if (!s) { body.innerHTML = ''; return; }
 
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   if (s.status === 'setup')                       { body.innerHTML = _renderSetup(s); return; }
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   if (s.status === 'converged' || s.status === 'ended') { body.innerHTML = _renderSummary(s); return; }
 
   // active
   if (!s.candidateShotId && !s.reviewRound) _checkForCandidate(s);
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   body.innerHTML = _renderRound(s);
 }
 

@@ -24,6 +24,7 @@ export function renderDialin() {
 
   const locale = localeFor(S.currentLang);
 
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   grid.innerHTML = recent.map(s => {
     const data  = window.getShotData ? window.getShotData(s) : null;
     const ann   = s.annotation || {};

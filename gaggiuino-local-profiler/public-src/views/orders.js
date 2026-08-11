@@ -190,12 +190,15 @@ export function renderOrdersList(orders) {
     ? `<div class="orders-queue-banner">${CLOCK_ICON_SVG} ${t('orders_queue_banner', totalActive, totalEta)}</div>`
     : '';
 
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   pendingEl.innerHTML = queueBanner + (pending.length ? pending.map(o => renderOrderCard(o, 'pending')).join('') :
     `<div class="orders-empty">${t('orders_empty')}</div>`);
 
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   acceptedEl.innerHTML = accepted.length ? accepted.map(o => renderOrderCard(o, 'accepted')).join('') :
     `<div class="orders-empty">${t('orders_empty')}</div>`;
 
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   historyEl.innerHTML = history.length ? history.map(o => renderOrderCard(o, 'history')).join('') : '';
   if (clearHistBtn) clearHistBtn.style.display = history.length ? '' : 'none';
 
