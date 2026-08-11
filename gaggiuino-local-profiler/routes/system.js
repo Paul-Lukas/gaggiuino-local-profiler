@@ -23,6 +23,7 @@ const shotRepo = require('../lib/repositories/ShotRepository');
 const { loadOptions, isOrdersEnabled, loadMenu } = require('../lib/data');
 const { getSwitchState, callHaService } = require('../lib/ha');
 const { setReadyByTarget, buildPreheatResponse } = require('../lib/preheat');
+const { buildLiveDataResponse } = require('../lib/poll');
 const { log, rateLimit } = require('../lib/helpers');
 const state = require('../lib/state');
 const { getMachineRuntimeState } = require('../lib/machine-runtime-state');
@@ -33,7 +34,9 @@ const demoService = require('../lib/services/DemoService');
 const defaultRuntime = getMachineRuntimeState();
 const { profileSchema } = require('../lib/validation/schemas');
 const registry = require('../lib/machines/registry');
+const { hasUnconfirmedLegacyMachineOptions } = require('../lib/machines/options-adoption');
 const { getAdapter } = require('../lib/machines');
+const { getInstallId } = require('../lib/db');
 
 // ── Profile cache helpers ─────────────────────────────────────────────────
 
@@ -177,6 +180,10 @@ router.get('/api/status', async (req, res) => {
             id: m.id, name: m.name, type: m.type, isDefault: m.isDefault, enabled: m.enabled,
             reachable: m.isDefault ? state.machineReachable : null,
             on:        m.isDefault ? defaultRuntime.machineOn : null,
+            // #701: cards read this to sync their accent color to the app's
+            // own Settings -> Machines theme picker instead of only the
+            // YAML-config fallback (glp-lovelace-card#87/glp-order-card#62).
+            theme:     m.theme,
         }));
     } catch { /* ignore */ }
     res.json({
@@ -201,7 +208,25 @@ router.get('/api/status', async (req, res) => {
         // Xh Ym" instead of adding a second timestamp to track.
         machineOn:          defaultRuntime.machineOn,
         machineOnSince:     defaultRuntime.switchOnAt,
+        // #662: true only while the default machine still has an
+        // unconfirmed legacy add-on option (machine_host/switch_entity,
+        // deprecated from config.yaml's schema) -- see
+        // options-adoption.js's hasUnconfirmedLegacyMachineOptions().
+        legacyMachineOptionsPending: hasUnconfirmedLegacyMachineOptions(),
+        // #751: lets the frontend tell an unchanged install apart from a
+        // freshly (re-)created DB (e.g. after an HA Supervisor "delete
+        // add-on data" wipe) so it can clear the stale setup-wizard
+        // completed flag in localStorage -- see main.js.
+        installId:          getInstallId(),
         machines,
+        // #729/#730: only present while at least one shot-import backfill is
+        // actively tracking progress -- clients that don't know the field
+        // just see it absent, same pattern as devBuild above. state.syncProgress
+        // is a Map keyed by machineId (more than one entry can be active at
+        // once -- e.g. the default machine and a newly-saved other machine
+        // backfilling concurrently), serialized here as a plain array since
+        // a Map doesn't survive res.json() on its own.
+        ...(state.syncProgress.size ? { syncProgress: Array.from(state.syncProgress, ([machineId, p]) => ({ machineId, ...p })) } : {}),
         ...sensitive,
     });
 });
@@ -451,16 +476,7 @@ router.post('/api/preheat/ready-by', (req, res) => {
 // ── Live data ─────────────────────────────────────────────────────────────
 
 router.get('/api/live/data', (req, res) => {
-    res.json({
-        isLive:           !!state.liveAccum,
-        profileName:      state.liveAccum?.profileName || '',
-        datapoints:       state.liveAccum ? state.liveAccum.datapoints : null,
-        seq:              state.liveSeq,
-        // #655: without this, a powered-off machine looked identical to an
-        // idle-but-reachable one (state.liveAccum is null either way) — the
-        // live tab kept showing "Ready to brew" indefinitely.
-        machineReachable: state.machineReachable,
-    });
+    res.json(buildLiveDataResponse());
 });
 
 // ── Public menu (drink types for annotations; always available) ───────────
@@ -498,7 +514,14 @@ router.get('/api/version', async (req, res) => {
         } catch { /* ignore */ }
     }
     const latest = _versionCache;
-    const updateAvailable = !!(latest && latest !== GLP_VERSION);
+    // #704: GLP_VERSION only moves at an actual release, so a dev build is
+    // permanently "behind" the last stable tag by design -- comparing
+    // against it here would tell dev-channel users to update via the
+    // stable Add-on Store, which is wrong (there's no store listing for
+    // GLP DEV, and it would just take them back to stable). Same
+    // dev-build-aware guard as the "UNSTABLE DEV BUILD" banner (#683) and
+    // /api/status's devBuild field.
+    const updateAvailable = !process.env.GLP_DEV_BUILD && !!(latest && latest !== GLP_VERSION);
     res.json({
         current:          GLP_VERSION,
         latest:           latest || null,

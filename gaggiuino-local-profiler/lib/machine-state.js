@@ -45,6 +45,10 @@ function deriveMachineState(status, now = Date.now(), live = {}) {
     const pressure          = sensorSnap ? (parseFloat(sensorSnap.pressure)    || 0) : (parseFloat(status.pressure)    || 0);
     const temperature       = sensorSnap ? (parseFloat(sensorSnap.temperature) || 0) : (parseFloat(status.temperature) || 0);
     const weight             = sensorSnap ? (parseFloat(sensorSnap.weight)     || 0) : (parseFloat(status.weight)     || 0);
+    // #698: only sensorSnap (WS/MQTT live transport) carries a flow reading —
+    // REST /api/system/status has no equivalent field, so this is 0 whenever
+    // no live transport is connected, same as before this field existed.
+    const pumpFlow           = sensorSnap ? (parseFloat(sensorSnap.pumpFlow)   || 0) : 0;
     const targetTemperature = parseFloat(status.targetTemperature) || 0;
     const profileName       = status.profileName || 'Unknown';
 
@@ -63,7 +67,7 @@ function deriveMachineState(status, now = Date.now(), live = {}) {
     };
 
     if (sensorSnap) {
-        machineStatus.pumpFlow              = sensorSnap.pumpFlow    || 0;
+        machineStatus.pumpFlow              = pumpFlow;
         machineStatus.weightFlow            = sensorSnap.weightFlow  || 0;
         machineStatus.waterTemperature      = sensorSnap.waterTemperature || 0;
         machineStatus.boilerState           = !!sensorSnap.boilerState;
@@ -79,7 +83,7 @@ function deriveMachineState(status, now = Date.now(), live = {}) {
         machineStatus.pressureSensorFaultReason   = sysState.pressureSensorFaultReason || '';
     }
 
-    return { isBrewing, pressure, temperature, weight, targetTemperature, profileName, machineStatus };
+    return { isBrewing, pressure, temperature, weight, pumpFlow, targetTemperature, profileName, machineStatus };
 }
 
 // Warm/cold heuristic: whether a machine that was polling before should be

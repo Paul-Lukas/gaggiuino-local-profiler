@@ -9,7 +9,7 @@ const dbPath    = require.resolve('../lib/db');
 const realDb    = require(dbPath);
 const memDb     = new Database(':memory:');
 realDb.initSchema(memDb);
-require.cache[dbPath].exports = { getDb: () => memDb, initSchema: realDb.initSchema };
+require.cache[dbPath].exports = { getDb: () => memDb, initSchema: realDb.initSchema, getInstallId: () => 'test-install-id' };
 
 // Orders routes sit behind the enable_orders guard; options.json does not exist
 // in tests, so patch lib/data.js the same way to force the feature on (the guard

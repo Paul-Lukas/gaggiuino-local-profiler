@@ -123,6 +123,54 @@ describe('lib/machines/registry', () => {
         expect(def.id).toBe(1);
         expect(def.isDefault).toBe(true);
     });
+
+    // #753: deleteMachine() also refuses to delete the last remaining
+    // machine, regardless of its default status -- at least one machine must
+    // always exist. In practice the sole remaining row is always the default
+    // (which the earlier guard above already catches), so this is only
+    // reachable via a corrupted/hand-edited DB with no is_default row at
+    // all -- force that state directly to prove the guard still holds.
+    it('deleteMachine refuses to delete the last remaining machine even if it is not flagged default', () => {
+        const registry = require('../lib/machines/registry');
+        const created = registry.createMachine({ name: 'Solo', type: 'gaggiuino', host: '10.0.0.9' });
+        memDb.prepare('UPDATE machines SET is_default = 0').run();
+        expect(() => registry.deleteMachine(created.id)).toThrow(/last remaining/);
+    });
+
+    describe('setDefaultMachine (#753)', () => {
+        it('flips is_default from the old default onto the target machine', () => {
+            const registry = require('../lib/machines/registry');
+            registry.ensureDefaultMachine();
+            const other = registry.createMachine({ name: 'B', type: 'gaggiuino', host: '10.0.0.5' });
+            const result = registry.setDefaultMachine(other.id);
+            expect(result.isDefault).toBe(true);
+            expect(registry.getMachine(1).isDefault).toBe(false);
+        });
+
+        it('keeps exactly one machine flagged default, never zero or two', () => {
+            const registry = require('../lib/machines/registry');
+            registry.ensureDefaultMachine();
+            const b = registry.createMachine({ name: 'B', type: 'gaggiuino', host: '10.0.0.6' });
+            const c = registry.createMachine({ name: 'C', type: 'gaggiuino', host: '10.0.0.7' });
+            registry.setDefaultMachine(b.id);
+            registry.setDefaultMachine(c.id);
+            const defaults = registry.listMachines().filter(m => m.isDefault);
+            expect(defaults).toHaveLength(1);
+            expect(defaults[0].id).toBe(c.id);
+        });
+
+        it('is a no-op that still returns the machine when it is already default', () => {
+            const registry = require('../lib/machines/registry');
+            registry.ensureDefaultMachine();
+            const result = registry.setDefaultMachine(1);
+            expect(result.isDefault).toBe(true);
+        });
+
+        it('returns null for an unknown machine id', () => {
+            const registry = require('../lib/machines/registry');
+            expect(registry.setDefaultMachine(999)).toBeNull();
+        });
+    });
 });
 
 // #600: deleteMachine/updateMachine must evict the removed/re-hosted

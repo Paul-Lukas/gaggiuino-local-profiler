@@ -87,6 +87,12 @@ export const S = {
   _ordersDeclineOpen: {},
   _ordersStatsOpen: false,
   machineReachable: null,
+  legacyMachineOptionsPending: false, // #662
+  // #735: SSE push connection state -- null = "not yet known" (treated the
+  // same as false by consumers until proven true), true once EventSource
+  // has successfully opened at least once, false once fallback detection
+  // (see sse.js) has given up on it for this session.
+  sseActive: null,
   isDemo: false,
   // Multi-machine registry (#319) — S.machines mirrors GET /api/machines;
   // activeMachineId is restored from localStorage in machines-settings.js.
@@ -109,6 +115,13 @@ export const S = {
     try { return JSON.parse(localStorage.getItem('glp_profile_dialin_session') || 'null'); }
     catch { return null; }
   })(),
+  // First-run setup wizard (#744) — in-memory only, deliberately not
+  // mirrored to localStorage (unlike dialinSession above): a reload mid-wizard
+  // just reopens at the welcome step, which is fine since the wizard's own
+  // trigger condition (zero machines configured) still holds either way.
+  // See views/setup-wizard.js.
+  setupWizardOpen: false,
+  setupWizardStep: 'welcome',
 };
 
 // ── Reactive pub/sub ──────────────────────────────────────────────────────

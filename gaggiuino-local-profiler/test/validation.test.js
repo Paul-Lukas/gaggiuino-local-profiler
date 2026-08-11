@@ -95,6 +95,18 @@ describe('beanSchema', () => {
     });
 });
 
+describe('machineSchema host (#718)', () => {
+    it('accepts an empty host string -- a machine can be "not configured yet"', () => {
+        const result = machineSchema.safeParse({ name: 'Kitchen', type: 'gaggiuino', host: '' });
+        expect(result.success).toBe(true);
+    });
+
+    it('still rejects a host over the max length', () => {
+        const result = machineSchema.safeParse({ name: 'Kitchen', type: 'gaggiuino', host: 'a'.repeat(256) });
+        expect(result.success).toBe(false);
+    });
+});
+
 describe('machineSchema theme (#594)', () => {
     const base = { name: 'Kitchen', type: 'gaggiuino', host: 'gaggiuino.local' };
 

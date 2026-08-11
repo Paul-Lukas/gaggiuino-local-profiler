@@ -106,13 +106,7 @@ Eine maschinenlesbare OpenAPI-3.0.3-Spezifikation aller Endpunkte ist unter `GET
 
 ## Schnellstart
 
-`machine_host` auf die IP oder den Hostnamen des Controllers setzen und App starten.
-
-```yaml
-machine_host: "192.168.1.42"                 # IP oder Hostname des Gaggiuino-Controllers
-sync_interval: 5
-switch_entity: "switch.espresso_steckdose"   # optional
-```
+App starten, dann IP/Hostname des Gaggiuino-Controllers (optional eine HA-Switch-Entität zum Ein-/Ausschalten) unter **Einstellungen → Maschinen** setzen — die Standardmaschine (#1) wird genau wie jede weitere Maschine komplett in der App konfiguriert, dafür gibt es keine Add-on-Option.
 
 Verbindung im HA-Terminal testen:
 ```bash
@@ -146,13 +140,13 @@ Auf schmalen Bildschirmen (Smartphones, Tablets im Hochformat) wird die Tab-Leis
 
 | Option | Beschreibung | Standard |
 |---|---|---|
-| `machine_host` | **Veraltet seit v2.0.0** — IP oder Hostname des Gaggiuino-Controllers. Wird nur einmalig beim ersten Start genutzt, um die Standardmaschine in der neuen [Multi-Maschinen-Registry](#multi-maschinen-modus-v200) zu erzeugen; danach Maschinen über die Settings-Ansicht der App verwalten, nicht über diese Option. | `gaggiuino.local` |
 | `sync_interval` | Automatischer Sync-Intervall in Minuten (1–60) | `5` |
-| `switch_entity` | HA-Switch-Entität zum Ein-/Ausschalten der Maschine | *(leer)* |
 | `preheat_time` | Aufwärmzeit in Minuten — wie lange nach dem Einschalten bis die Maschine brühbereit ist (1–120) | `20` |
 | `enable_orders` | Bestellsystem aktivieren — Barista-Backend-Tab + Kunden-Bestellkarte; standardmäßig deaktiviert | `false` |
 | `debug_logging` | Ausführliches Diagnose-Logging (z.B. jeder Schritt des Bohnen-Imports) im Add-on-Log — standardmäßig aus, damit der Normalbetrieb nicht zugespammt wird, bei Bedarf zum Debuggen einschalten | `false` |
 | `port` | Port, auf dem der Server lauscht (1024–65535) | `8099` |
+
+**Maschinen-Host und Switch-Entität werden in der App konfiguriert, nicht hier.** Sie waren früher Add-on-Optionen (`machine_host`/`switch_entity`); seit dieser Version sind sie komplett aus der Configuration-Seite des Add-ons entfernt — stattdessen unter **Einstellungen → Maschinen** setzen, für die Standardmaschine (#1) genau wie für jede weitere Maschine. Bereits konfigurierte Werte einer bestehenden Installation werden automatisch übernommen; nichts muss neu eingegeben werden.
 
 ## Multi-Maschinen-Modus (v2.0.0)
 
@@ -171,9 +165,11 @@ GLP kann mehr als eine Espressomaschine aus einer einzigen Add-on-Instanz heraus
 | Profil erstellen/ändern/löschen | ✅ | 🚧 nur lesend in v2.0.0 |
 | Brühen aus GLP starten | ❌ (Maschine hat auch keine Start-API) | ❌ (keine Start-API) |
 
-Beim Upgrade von einer Installation vor v2.0.0 werden die bestehenden Add-on-Optionen `machine_host`/`switch_entity` automatisch in Maschine #1 übernommen (benannt „Gaggiuino", als **Standardmaschine** markiert) — keine manuellen Schritte nötig, jede bestehende URL, Shot-ID, jedes Bild und jede Annotation funktioniert unverändert weiter. Weitere Maschinen werden über die **Settings**-Ansicht der App angelegt (Name, Typ, Host, optionale HA-Switch-Entität); vor dem Speichern gibt es jeweils einen „Verbindung testen"-Button. Die Standardmaschine behält ihre ursprüngliche REST-API-Oberfläche unverändert.
+Beim Upgrade von einer Installation vor v2.0.0 wurden die bestehenden Add-on-Optionen `machine_host`/`switch_entity` automatisch in Maschine #1 übernommen (benannt „Gaggiuino", als **Standardmaschine** markiert) — keine manuellen Schritte nötig, jede bestehende URL, Shot-ID, jedes Bild und jede Annotation funktioniert unverändert weiter. (Diese beiden Add-on-Optionen sind inzwischen komplett aus der Configuration-Seite entfernt — siehe [Konfigurationsoptionen](#konfigurationsoptionen) oben.) Weitere Maschinen werden über die **Settings**-Ansicht der App angelegt (Name, Typ, Host, optionale HA-Switch-Entität); der „Verbindung testen"-Button im Formular speichert die Maschine zuerst (falls noch nicht geschehen) und testet sie danach, zeigt das Ergebnis inline an, während das Formular geöffnet bleibt — dieses implizite Speichern löst nie von selbst einen Shot-Import aus (siehe unten), das tut nur ein expliziter Klick auf „Speichern" (und nur „Speichern" schließt das Formular). Die Standardmaschine behält ihre ursprüngliche REST-API-Oberfläche unverändert.
 
-Ein Maschinen-Umschalter in der Topbar (nur sichtbar, sobald eine zweite Maschine registriert ist) lässt „Alle Maschinen" oder eine bestimmte Maschine wählen — Shot-Liste und Analytics richten sich nach dieser Auswahl, und im Modus „Alle Maschinen" trägt jeder Shot in der Liste ein kleines Maschinen-Badge. **Der Shot-Sync läuft jetzt für jede registrierte Maschine** (nicht mehr nur für die Standardmaschine) — seit v2.2.0 fragen sowohl der geplante als auch der manuelle Sync-Lauf jede aktivierte Maschine über ihren eigenen Adapter ab und übernehmen deren Shots. **Die Live-Ansicht ist derzeit nur für die Standardmaschine verfügbar** — weitere Maschinen haben noch keine Live-Status-Abfrageschleife; beim Wechsel zu einer solchen Maschine im Live-Tab erscheint ein Hinweistext statt veralteter/vorgetäuschter Daten.
+Jede Maschinenzeile hat einen **„Als Standard festlegen"**-Button, und jede Maschine — auch die aktuelle Standardmaschine — kann jetzt **gelöscht** werden, beides hinter einer Bestätigung. Das Löschen der aktuellen Standardmaschine erfordert, solange noch andere Maschinen existieren, erst das Umsetzen des Standards auf eine andere Maschine (bewusst ein zweistufiger Ablauf, keine automatische Umsetzung); das Löschen der allerletzten verbleibenden Maschine ist immer blockiert, da mindestens eine Maschine jederzeit existieren muss.
+
+Ein Maschinen-Umschalter in der Topbar (nur sichtbar, sobald eine zweite Maschine registriert ist) lässt „Alle Maschinen" oder eine bestimmte Maschine wählen — Shot-Liste und Analytics richten sich nach dieser Auswahl, und im Modus „Alle Maschinen" trägt jeder Shot in der Liste ein kleines Maschinen-Badge. **Der Shot-Sync läuft jetzt für jede registrierte Maschine** (nicht mehr nur für die Standardmaschine) — seit v2.2.0 fragen sowohl der geplante als auch der manuelle Sync-Lauf jede aktivierte Maschine über ihren eigenen Adapter ab und übernehmen deren Shots, und das explizite Speichern einer beliebigen Maschine (nicht nur eine Host-Änderung der Standardmaschine) löst sofort einen Nachhol-Sync für sie aus, statt auf den nächsten geplanten Durchlauf zu warten. Hat der initiale Import einer Maschine mehr als eine Handvoll Shots zu holen, erscheint unter dem Shot-Zähler eine eigene Zeile mit Fortschrittsanzeige (z.B. „Import 12/40"), bis er fertig ist, gefolgt von einem kurzen Toast, der den Abschluss bestätigt. Dieser Fortschritt aktualisiert sich in Echtzeit über eine Push-Verbindung (`GET /api/events`, Server-Sent Events) statt nur alle 30 Sekunden — lässt sich diese Verbindung nicht aufbauen (z.B. bei einem ungewöhnlichen Netzwerkpfad), fällt die App automatisch auf das bisherige 30s-Polling zurück, sodass Anzeige und Toast in jedem Fall funktionieren. **Die Live-Ansicht ist derzeit nur für die Standardmaschine verfügbar** — weitere Maschinen haben noch keine Live-Status-Abfrageschleife; beim Wechsel zu einer solchen Maschine im Live-Tab erscheint ein Hinweistext statt veralteter/vorgetäuschter Daten.
 
 Jede Maschine kann ihr eigenes **Farbthema** bekommen, damit sich Maschinen in einem Multi-Maschinen-Setup auf einen Blick unterscheiden lassen. Zur Wahl stehen 8 kuratierte Presets (Amber Americano, Ruby Ristretto, Copper Cortado, Twilight Turkish, Marbled Macchiato, Ember Espresso, Mulberry Mocha, Frosty Flat White) oder eine eigene flache Farbe bzw. ein Zweifarben-Verlauf über den Farb-Picker im Maschinenformular. Das Farbthema färbt ein neues, detailliertes Gaggia-artiges Maschinensymbol ein, das in der Maschinenliste, der Live-Vorschau des Maschinenformulars und im Maschinen-Umschalter der Topbar erscheint; eine Maschine ohne gesetztes Farbthema wird weiterhin in der Akzentfarbe der App dargestellt.
 
@@ -245,11 +241,19 @@ Jede Runde: den Test-Shot bestätigen (nie automatisch zugeordnet, gleiche Begr�
 
 Diese erste Version liest bewusst nicht die auf einem Shot-Datensatz eingebetteten Phasen-Daten als Abstimmungssignal aus — das genaue Format dieses Felds ist gegen echte Hardware nicht bestätigt — die Vorschlagslogik stützt sich daher nur auf den Gesamt-Score des Shots und die eigene Geschmackseinschätzung, nicht auf einen automatisierten Kurvenvergleich.
 
+### Geführter Einrichtungsassistent (v2.32.0)
+
+Eine Neuinstallation mit **null konfigurierten Maschinen** öffnet automatisch einen geführten 3-Schritte-Assistenten, statt direkt in der leeren Shots-Ansicht zu landen: ein **Willkommens**-Schritt, der erklärt was GLP macht ("Los geht's" / "Später"), ein Schritt **erste Maschine verbinden**, der exakt dasselbe Formular und dieselbe Verbindungstest-Logik wie Einstellungen → Maschinen wiederverwendet (keine separate Kopie), und ein **Fertig**-Schritt, der auf Einstellungen → Maschinen verweist, falls später weitere Maschinen hinzukommen sollen.
+
+Ein Klick auf „Später" — oder das Schließen des Assistenten vor dem Fertig-Schritt — markiert ihn **nicht** als abgeschlossen, er öffnet sich also beim nächsten Start automatisch erneut, bis entweder erfolgreich eine Maschine hinzugefügt oder der Assistent bis zum Ende durchlaufen wurde. Der Verbinden-Schritt bietet zusätzlich einen Link **„Ich habe noch keine Maschine, zeig mir Demo-Daten"**, der denselben unten beschriebenen Demo-Datensatz lädt und direkt zum Fertig-Schritt springt. Ein Button **„Setup-Tour erneut starten"** unter Einstellungen → Maschinen öffnet den Assistenten jederzeit erneut, ohne den Abschluss-Status zu beeinflussen.
+
+Dies ist unabhängig vom „Maschine nicht erreichbar"-Banner und dem Ersteinrichtungs-Panel weiter unten, die einen anderen Fall abdecken: eine Maschine, die konfiguriert *ist*, aber gerade nicht erreicht werden kann.
+
 ### Ersteinrichtung & Demo-Modus
 
-Ist die Gaggiuino-Maschine nicht erreichbar (falscher/nicht erreichbarer `machine_host`), zeigt GLP ein schließbares Banner am oberen Seitenrand mit dem konfigurierten Host und einem Link zum [Wiki](https://github.com/mxkissnr/gaggiuino-local-profiler/wiki) mit Einrichtungshilfe. Das Ausblenden gilt nur für die aktuelle Browser-Sitzung.
+Ist die Gaggiuino-Maschine nicht erreichbar (falscher/nicht erreichbarer Host, einstellbar unter Einstellungen → Maschinen), zeigt GLP ein schließbares Banner am oberen Seitenrand mit dem konfigurierten Host und einem Link zum [Wiki](https://github.com/mxkissnr/gaggiuino-local-profiler/wiki) mit Einrichtungshilfe. Das Ausblenden gilt nur für die aktuelle Browser-Sitzung.
 
-Wenn die Datenbank noch keine Shots enthält **und** die Maschine noch nie erreichbar war, zeigt die Shots-Ansicht statt des einfachen Leerzustands ein **Ersteinrichtungs-Panel**: drei Einrichtungsschritte (`machine_host` setzen, Gaggiuino-Erreichbarkeit im Netzwerk prüfen, Add-on neu starten) sowie einen Button **„Demo-Daten laden"**.
+Wenn die Datenbank noch keine Shots enthält **und** die Maschine noch nie erreichbar war, zeigt die Shots-Ansicht statt des einfachen Leerzustands ein **Ersteinrichtungs-Panel**: zwei Einrichtungsschritte (Maschinen-Host unter Einstellungen → Maschinen setzen, Gaggiuino-Erreichbarkeit im Netzwerk prüfen) sowie einen Button **„Demo-Daten laden"**.
 
 Das Laden von Demo-Daten befüllt die App mit einem statischen Beispieldatensatz — rund einem Dutzend Shots mit plausiblen Druck-/Fluss-/Temperaturkurven und Bewertungen, drei Beispiel-Bohnen (darunter eine Blend-Bohne mit dem Mehrfach-Origin-Feld `origins[]`) und einem Rezept — sodass Shots-, Analytics- (Weltkarte, Score-Trend, Bohnen-Statistik) und Aroma-Rad-Ansicht zur Bewertung gefüllt sind. Solange Demo-Daten vorhanden sind, zeigt die Sidebar ein Badge **„Demo-Modus"** mit einem Button **„Demo beenden"**; das Beenden löscht genau die zuvor angelegten Zeilen. Demo-Daten lassen sich nur in eine ansonsten leere Datenbank laden (keine bestehenden Shots/Bohnen/Rezepte).
 

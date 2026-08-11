@@ -47,7 +47,7 @@ describe('settings take effect: registry-backed machine config reaches every con
     beforeEach(() => {
         memDb = new Database(':memory:');
         realDb.initSchema(memDb);
-        require.cache[dbPath].exports = { getDb: () => memDb, initSchema: realDb.initSchema };
+        require.cache[dbPath].exports = { getDb: () => memDb, initSchema: realDb.initSchema, getInstallId: () => 'test-install-id' };
 
         tmpFile = path.join(os.tmpdir(), `glp-test-settings-take-effect-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
         fs.writeFileSync(tmpFile, JSON.stringify({ machine_host: STALE_HOST, switch_entity: STALE_ENTITY }));

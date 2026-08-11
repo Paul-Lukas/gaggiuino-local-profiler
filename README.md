@@ -81,9 +81,9 @@ More in [`docs/screenshots/`](gaggiuino-local-profiler/docs/screenshots/) (Dial-
 |---|---|---|
 | 🔀 | **Multi-Machine** | Manage more than one espresso machine from a single add-on instance — Gaggiuino (full support) or [GaggiMate](https://github.com/jniebuhr/gaggimate) (experimental: sync + live status, read-only profiles). Shot sync now runs for every registered machine, not just the default one; live view stays default-machine-only for now. Maintenance (descaling/backflush/group head/gaskets) is tracked per machine; shared equipment (water filter, grinder) stays global. Existing single-machine installs upgrade automatically, no manual steps. |
 | 📈 | **Shot Archive** | All shots with pressure, flow, weight and temperature curves |
-| 🔴 | **Live Mode** | Real-time display directly from the controller (`/api/system/status`) |
+| 🔴 | **Live Mode** | Real-time display directly from the controller (`/api/system/status`); the Live tab, preheat/ready badge and the sidebar's shot counter push updates instantly over a live connection, falling back automatically to polling if one can't be established |
 | 📡 | **MQTT Live-Data Transport** | Alternative to the WebSocket connection for live sensor/system data — subscribes to the Gaggiuino's own MQTT-published topics instead, toggled in Settings ("Live connection: WebSocket / MQTT"). Broker connection is auto-discovered via the HA Supervisor's MQTT service when available, with manual entry as a fallback, plus a one-click "Apply to machine" that points the machine's own MQTT client at the same broker. Feeds the exact same live-state cache the WebSocket transport does — `glp-integration` needs zero changes either way. Applies to the default machine only. |
-| 🔄 | **Auto-Sync** | New shots load automatically when `gaggiuino_latest_shot_id` rises |
+| 🔄 | **Auto-Sync** | New shots load automatically when `gaggiuino_latest_shot_id` rises; a backfill's progress now updates live with a reliable completion/failure notification, also falling back to polling automatically |
 | ⇄ | **Compare Mode** | Overlay two shots side by side |
 | 👻 | **Ghost Curve & Delta Chips** | When an earlier shot exists with the same profile on the same machine, the shot detail auto-compares: a score delta chip on the verdict header, signed delta chips on pressure/flow/temp, and the previous shot's curves overlaid on the chart as a dashed ghost — independent of the explicit Compare Mode above |
 | 🏆 | **Shot Score** | Automatic 0–100 score (pressure, stability, duration, ratio, channeling), shown as a verdict-header score ring with a plain-language dial-in headline atop the shot detail; temperature/ratio target the bean's own brew recommendation from the Library when set, flagged with a target-icon badge on the header when it applies |
@@ -123,6 +123,7 @@ More in [`docs/screenshots/`](gaggiuino-local-profiler/docs/screenshots/) (Dial-
 | 🎛️ | **Profile Selector** | Lovelace card shows a dropdown to switch the active brew profile via `select.gaggiuino_profiler_profile` (provided by GLP Integration v1.9.0+) |
 | 📋 | **Order Management** | Barista backend tab to manage espresso orders — queue, accept with ETA, complete or decline with reason; configurable menu (emoji + drink name); bean and milk variants offered only while actually in stock (milk is deducted automatically on order completion) and while manually enabled — a bean can be temporarily excluded from ordering without deleting it or touching its stock, with customer-facing bean descriptions (taste notes, origin, processing); companion Lovelace card for customers (`glp-order-card`) |
 | 🧭 | **First-Run Onboarding & Demo Mode** | Dismissible banner when the machine isn't reachable; first-run panel with setup steps plus a "Load demo data" button that seeds a sample dataset (shots, beans, a blend, a recipe) so the app can be evaluated before connecting hardware; "End demo" removes exactly the seeded rows |
+| 🧙 | **Guided Setup Wizard** | A first-time install with zero machines configured opens a 3-step modal automatically — welcome, connect your first machine (reusing the same add-machine/test-connect form as Settings), then done; "I don't have a machine yet" jumps straight to demo data; "Later" reopens it on the next launch until it's either completed or a machine exists; "Restart setup tour" in Settings → Machines reopens it anytime |
 | 📱 | **Installable App (PWA)** | Install GLP as a standalone app when accessed directly over HTTPS (own icon, no browser chrome, offline app shell); server-side gated so it's never offered inside the HA Companion App/Ingress panel, which keeps running as a normal embedded panel |
 | 🧭 | **Desktop Topbar Navigation** | Horizontal icon+label tab row (Shots/Live/Library/Analytics/Dial-in/Maintenance/Orders/Settings) in the content topbar next to the multi-machine switcher — no separate brand icon, since the app is already framed by the HA Ingress panel; replaces v2.6.0's collapsible left nav rail, removed again after real HA Ingress testing showed it stacking a second left-hand menu on top of Ingress's own sidebar |
 | 📱 | **Mobile Bottom Navigation & Burger Drawer** | Bottom nav (Shots/Live/Library/Analytics + a "More" sheet, all icon-based, no emoji); the Shots tab opens the shot detail directly (last-selected shot, falling back to newest) — the shot list itself lives exclusively in the left burger drawer, an overlay reachable from any view (swipe from the left edge to open, swipe-left or backdrop-tap to close), alongside the bottom nav; verdict header, recipe zone and full chart fit above the fold; touch targets sized 44×44px |
@@ -157,24 +158,18 @@ The [GLP HA Integration](https://github.com/mxkissnr/glp-integration) exposes al
 
 After installing, go to **Settings → Devices & Services → Add Integration** and search for **Gaggiuino Local Profiler**.
 
-### Step 3 — Configure the app
+### Step 3 — Open the dashboard
 
-In the app options set your controller URL:
+Click **Open Web UI** in the app page — or open it directly from your HA sidebar under **GLP**.
 
-```yaml
-machine_host: "192.168.1.42"           # IP or hostname of your Gaggiuino controller
-sync_interval: 5
-switch_entity: "switch.espresso_plug"  # optional
-```
+### Step 4 — Configure the app
+
+Set your controller's IP/hostname — and, optionally, an HA switch entity to power it on/off — under **Settings → Machines**.
 
 > **Verify connectivity** from the HA terminal:
 > ```bash
 > curl http://<gaggiuino-ip>/api/shots/latest
 > ```
-
-### Step 4 — Open the dashboard
-
-Click **Open Web UI** in the app page — or open it directly from your HA sidebar under **GLP**.
 
 ---
 
@@ -182,9 +177,9 @@ Click **Open Web UI** in the app page — or open it directly from your HA sideb
 
 | Option | Default | Description |
 |---|---|---|
-| `machine_host` | `gaggia.intern` | IP or hostname of the Gaggiuino controller |
 | `sync_interval` | `5` | Auto-sync interval in minutes (1–60) |
-| `switch_entity` | *(empty)* | HA switch entity to power the machine on/off |
+
+Machine host and switch entity are configured in-app under **Settings → Machines**, not here — see [DOCS.md](gaggiuino-local-profiler/DOCS.md#configuration-options) for details.
 
 Updates run through the Home Assistant Add-on Store — the app itself only checks and shows whether a newer version is available, it never triggers an install (no elevated Supervisor role required).
 

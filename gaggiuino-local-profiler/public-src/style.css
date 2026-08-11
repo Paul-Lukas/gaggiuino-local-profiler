@@ -1886,6 +1886,7 @@
             }
             .shot-wrapper      { padding-right: 18px; }
             #sidebar h2        { padding: 16px 18px; }
+            #syncProgressBar   { padding: 0 18px 10px; }
 
             /* Annotation panel — mobile improvements */
             .annotation-panel  { padding: 14px; margin-top: 16px; }
@@ -2350,4 +2351,29 @@
         @keyframes flapDown {
             from { transform: rotateX(0deg); }
             to   { transform: rotateX(-90deg); }
+        }
+
+        /* ── Shot-import progress bar (#729, own row under the sidebar
+           header — #730 review: was squeezed inline next to the flap-board
+           shot counter, moved out to its own line below) ── */
+        #syncProgressBar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 0 20px 12px;
+        }
+        #syncProgressLabel { font-size: .72rem; color: var(--gray-500); white-space: nowrap; }
+        .sync-progress-track {
+            width: 100px;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--gray-700);
+            overflow: hidden;
+        }
+        .sync-progress-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 2px;
+            background: linear-gradient(90deg, var(--accent-from), var(--accent-to));
+            transition: width .2s ease;
         }

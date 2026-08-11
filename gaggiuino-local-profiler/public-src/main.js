@@ -37,6 +37,7 @@ if ('serviceWorker' in navigator && document.querySelector('link[rel="manifest"]
 import { S } from './state.js';
 import { initToken, apiFetch } from './api.js';
 import { t, setLang, applyTranslations } from './i18n.js';
+import { connectEvents, onEvent, EVENTS } from './sse.js';
 import { generateBeanQR } from './glp-qr.js';
 import { openBackupExportModal, openBackupRestoreModal } from './components/backup-modal.js';
 
@@ -45,7 +46,8 @@ import { renderSidebar, updateSidebarHighlighting, filterShots, setSortMode, sor
          openShotDrawer, closeShotDrawer, handleDrawerTouchStart, handleDrawerTouchEnd,
          handleEdgeSwipeStart, handleEdgeSwipeEnd,
          toggleMonthGroup, setBeanFilter, clearBeanFilter } from './components/sidebar.js';
-import { updateStatus, updatePowerButton, toggleMachinePower, triggerSync } from './components/status.js';
+import { updateStatus, updatePowerButton, toggleMachinePower, triggerSync, exportDevDb, importDevDb,
+         handleSyncProgressEvent, handleSyncCompleteEvent } from './components/status.js';
 import { checkForUpdate } from './components/update-check.js';
 import { switchMode, goToShot } from './components/mode.js';
 import { renderBottomNav, renderBottomNavSettings, closeMoreSheet } from './components/bottom-nav.js';
@@ -63,7 +65,8 @@ import { getShotData, calcShotScore, loadData, loadTrashData, renderTrash, toggl
 
 import { initLiveChart, populateRefSelector, autoApplyRefShot, onRefShotChange, clearReferenceShot,
          connectLiveStream, disconnectLiveStream, setLiveBadge, handleLiveData,
-         fetchPreheatData, updatePreheatWidget, fetchLiveData } from './views/live.js';
+         fetchPreheatData, updatePreheatWidget, fetchLiveData,
+         handleLiveSnapshotEvent, handlePreheatUpdateEvent } from './views/live.js';
 
 import { initAnalytics, setTrendWindow, buildCalendar, buildTrendChart, buildBeanStats, buildProfileChart, _renderCalendar,
          setBeanRankSort, setDialinProgressionBean } from './views/analytics.js';
@@ -119,6 +122,9 @@ import { loadDemoData, endDemo } from './components/onboarding.js';
 
 import { loadMachines, openMachineForm, closeMachineForm, saveMachineForm, testMachineForm, switchActiveMachine, renderMachinesList,
          onThemeCustomColorAChange, onThemeCustomColorBChange, onThemeGradientToggleChange } from './components/machines-settings.js';
+
+import { openSetupWizard, closeSetupWizard, setupWizardGetStarted, setupWizardSkipToDemo,
+         shouldOpenSetupWizard } from './views/setup-wizard.js';
 
 import { loadMqttSettings, setMqttTransport, saveMqttSettings, applyMqttToMachine } from './components/mqtt-settings.js';
 
@@ -631,6 +637,22 @@ document.addEventListener('DOMContentLoaded', () => {
   attachAutocomplete(document.getElementById('annGrinder'), () => S.coffeeLibrary.grinders.map(g => g.name));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushAutoSave();
+    // #733: the 30s setInterval(updateStatus, ...) below gets throttled by
+    // the browser while the tab is backgrounded -- a shot import that both
+    // starts and finishes while the tab is hidden can end up with zero
+    // polls landing while it was still active, so status.js's per-machine
+    // _lastSyncProgress map never records it as "seen active" and the
+    // completion toast never fires. Forcing one immediate poll on refocus
+    // catches an import that's still running by then; one that already
+    // finished fully in the background is a case no client-side poll can
+    // retroactively catch (nothing else was watching either).
+    //
+    // #734 review: must pass S.activeMachineId through, same as
+    // applyActiveMachineChange() does (#464) -- an unscoped call hits the
+    // default machine's /api/status and overwrites #railMachineName/
+    // #railStatusDot even when a non-default machine is the active
+    // selection, undoing #464's fix via this new trigger.
+    if (document.visibilityState === 'visible') updateStatus(S.activeMachineId);
   });
   document.getElementById('openMaintLogBtn').addEventListener('click', openMaintLogForm);
   document.getElementById('submitMaintLogBtn').addEventListener('click', submitMaintLogEntry);
@@ -728,11 +750,20 @@ document.addEventListener('DOMContentLoaded', () => {
   // main.js, but this modal's actions depend on which flow opened it).
   document.getElementById('backupRestoreInput').addEventListener('change', e => openBackupRestoreModal(e.target));
   document.getElementById('backupDownloadBtn').addEventListener('click', openBackupExportModal);
+  document.getElementById('devExportDbBtn')?.addEventListener('click', exportDevDb);
+  document.getElementById('devImportDbInput')?.addEventListener('change', e => {
+    importDevDb(e.target.files[0]);
+    e.target.value = '';
+  });
   document.getElementById('apiTokenCopyBtn').addEventListener('click', copyApiToken);
   document.getElementById('addMachineBtn')?.addEventListener('click', () => openMachineForm(null));
   document.getElementById('machineFormCancelBtn')?.addEventListener('click', closeMachineForm);
   document.getElementById('machineFormSaveBtn')?.addEventListener('click', saveMachineForm);
   document.getElementById('machineFormTestBtn')?.addEventListener('click', testMachineForm);
+  document.getElementById('restartSetupWizardBtn')?.addEventListener('click', () => openSetupWizard());
+  document.getElementById('setupWizardModal')?.addEventListener('click', e => {
+    if (e.target.id === 'setupWizardModal') closeSetupWizard();
+  });
   document.getElementById('machineThemeCustomA')?.addEventListener('input', onThemeCustomColorAChange);
   document.getElementById('machineThemeCustomB')?.addEventListener('input', onThemeCustomColorBChange);
   document.getElementById('machineThemeGradientToggle')?.addEventListener('change', onThemeGradientToggleChange);
@@ -832,6 +863,9 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'profile-dialin-override':     profileDialinOverride(); break;
       case 'profile-dialin-end':          profileDialinEnd(); break;
       case 'profile-dialin-close':        profileDialinClose(); break;
+      case 'setup-wizard-close':          closeSetupWizard(); break;
+      case 'setup-wizard-get-started':    setupWizardGetStarted(); break;
+      case 'setup-wizard-skip-demo':      setupWizardSkipToDemo(); break;
     }
   });
 
@@ -857,6 +891,21 @@ document.addEventListener('DOMContentLoaded', () => {
   applyTranslations();
 
   initToken().then(async () => {
+    // #735: opened once at app bootstrap, not per view-switch -- sync
+    // progress must keep updating regardless of which view/tab is
+    // currently open, same reasoning as the 30s updateStatus() interval
+    // below. Needs S.glpToken to already be populated (for the ?token=
+    // fallback EventSource itself can't send as a header), hence after
+    // initToken() resolves. `onFallback` is a no-op here -- the PR 2
+    // follow-up (Live view over the same stream) extends it.
+    onEvent(EVENTS.SYNC_PROGRESS, handleSyncProgressEvent);
+    onEvent(EVENTS.SYNC_COMPLETE, handleSyncCompleteEvent);
+    // #736: Live view telemetry/preheat push -- same bootstrap-time wiring
+    // as the sync-progress events above.
+    onEvent(EVENTS.LIVE_SNAPSHOT, handleLiveSnapshotEvent);
+    onEvent(EVENTS.PREHEAT_UPDATE, handlePreheatUpdateEvent);
+    connectEvents(() => {});
+
     // #390 — loadMachines() calls the token-gated /api/machines; it used to
     // fire straight from this handler (before initToken() ever ran), so its
     // X-GLP-Token header was always empty and the request 401ed for any
@@ -865,7 +914,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // machine switcher stayed hidden and the restored S.activeMachineId had
     // nothing to display itself against. Now runs once the token is ready,
     // same as loadData()/loadLibrary() below.
-    loadMachines();
+    const machinesPromise = loadMachines();
     loadMqttSettings();
     loadNotifySettingsCard();
     loadDrinkMenu();
@@ -877,12 +926,34 @@ document.addEventListener('DOMContentLoaded', () => {
     // unawaited could let that first render see S.shotDefaults still null
     // with nothing to re-render it once the fetch actually completes.
     await loadShotDefaultsSettingsCard();
+    // #700: same class of bug as above — renderAnnotationPanel() also reads
+    // S.coffeeLibrary.baskets/puckScreens (via _renderBasketSelect/
+    // _renderPuckScreenSelect). Firing loadLibrary() unawaited let the first
+    // render of the initially-selected shot run against an empty library,
+    // so Basket/Puck Screen showed "No basket"/"No puck screen" until the
+    // user navigated to another shot and back (which re-runs the render
+    // after loadLibrary() had since resolved).
+    await loadLibrary();
     await loadData();
-    loadLibrary();
+    // #733: same class of bug as #700 above, one level removed — renderMachinesList()
+    // (inside loadMachines()) computes each machine's shot count from S.allShots, but
+    // loadMachines() was fired unawaited before loadData() populated S.allShots, so the
+    // very first render always saw an empty shot list and nothing ever re-rendered it
+    // once the real shots arrived. Re-render once both are guaranteed to be ready.
+    await machinesPromise;
+    renderMachinesList();
     loadMachineProfileList();
-    updateStatus();
+    // #750: awaited (was fire-and-forget) so the installId comparison inside
+    // updateStatus() -> syncInstallId() has a chance to clear a stale
+    // setup-wizard-completed flag before the shouldOpenSetupWizard() check
+    // below runs -- see setup-wizard.js's syncInstallId() comment.
+    await updateStatus();
     checkForUpdate();
     renderApiTokenCard();
+    // #744: first-run setup wizard — auto-opens once S.machines is actually
+    // known (after machinesPromise resolves), not before, so a returning
+    // multi-machine user never sees a false-positive flash of it.
+    if (shouldOpenSetupWizard(S.machines)) openSetupWizard();
   });
 
   setInterval(updateStatus, 30000);

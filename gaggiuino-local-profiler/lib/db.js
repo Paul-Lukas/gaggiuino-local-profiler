@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const fs       = require('fs');
 const path     = require('path');
+const { randomUUID } = require('crypto');
 const { DATA_DIR } = require('./constants');
 const { log }      = require('./helpers');
 
@@ -112,8 +113,29 @@ function getDb() {
     migrate(_db);
     migrateMachineColumns(_db);
     migrateMachineTheme(_db);
+    ensureInstallId(_db);
 
     return _db;
+}
+
+// #751: a random id, generated once per DB file and stored in `kv`, lets the
+// frontend tell "this is still the install I already onboarded" apart from
+// "this DB was just (re-)created" -- e.g. after an HA Supervisor-level
+// "uninstall + delete add-on data" wipe of /data, which happens entirely
+// outside the running app and leaves no live session to react to at the
+// time of the wipe. See public-src/main.js's installId comparison, which
+// uses this to clear the stale setup-wizard-completed flag in localStorage
+// on next load instead of leaving the wizard permanently suppressed.
+function ensureInstallId(db) {
+    const row = db.prepare("SELECT value FROM kv WHERE key='install_id'").get();
+    if (row) return JSON.parse(row.value);
+    const id = randomUUID();
+    db.prepare("INSERT OR REPLACE INTO kv (key, value) VALUES ('install_id', ?)").run(JSON.stringify(id));
+    return id;
+}
+
+function getInstallId() {
+    return ensureInstallId(getDb());
 }
 
 // Adds the machines.theme column (#594) for installs that created the
@@ -295,4 +317,4 @@ function migrate(db) {
     log(`DB: migration complete — ${shotCount} shots, ${Object.keys(annotations).length} annotations`);
 }
 
-module.exports = { getDb, initSchema, migrateMachineColumns, migrateMachineTheme };
+module.exports = { getDb, initSchema, migrateMachineColumns, migrateMachineTheme, ensureInstallId, getInstallId, DB_PATH };

@@ -5,6 +5,7 @@ const crypto   = require('crypto');
 
 const { GLP_VERSION, DEFAULT_PORT, DATA_DIR, TOKEN_FILE, HA_INGRESS_PATH } = require('./lib/constants');
 const { log, writeFileSafe, isSupervisorIp, formatUnhandledRejection } = require('./lib/helpers');
+const { loadOptions }                                = require('./lib/data');
 const state                                          = require('./lib/state');
 const { getDb }                                      = require('./lib/db');
 const shotService                                    = require('./lib/services/ShotService');
@@ -38,6 +39,12 @@ try {
     // can no longer pick up. See lib/machines/options-adoption.js.
     require('./lib/machines/options-adoption').adoptOptionChanges();
     log('Database ready');
+    // #706: keys only, never values (machine_host can be a private
+    // hostname/IP) -- lets a stale Supervisor-side config.yaml schema
+    // (add-on version bumped, but the repository's schema cache wasn't
+    // refreshed in lockstep) be confirmed or ruled out from the log tab
+    // alone, without shell access to the affected instance.
+    log(`options.json keys: ${Object.keys(loadOptions()).sort().join(', ') || '(none)'}`);
 } catch (err) {
     log(`Init error: ${err.message}`, true);
 }
@@ -120,6 +127,16 @@ function isIngressRequest(req) {
 // API token auth
 app.use((req, res, next) => {
     req.glpAuthenticated = isTokenValid(req.headers['x-glp-token']);
+    // #735: EventSource can't send custom headers, so /api/events -- and only
+    // that route -- also accepts the token as a query param. Same "reaching
+    // the port is the boundary, not the token" reasoning as GET /api/token
+    // above (routes/system.js): a token passed in a URL is visible in
+    // access logs, which is why this isn't done for every route, only the
+    // one that has no other way to authenticate a browser-native EventSource
+    // connection.
+    if (!req.glpAuthenticated && req.path === '/api/events') {
+        req.glpAuthenticated = isTokenValid(req.query.token);
+    }
     // Fail closed, not open: if the token couldn't be loaded/created (disk
     // error at startup), deny everything instead of letting every request
     // through unauthenticated.
@@ -147,6 +164,12 @@ app.use('/api/restore', express.json({ limit: '50mb' }));
 // size ceiling as the JSON path above (a zip is typically smaller than the
 // base64 JSON it replaces for the same content).
 app.use('/api/restore', express.raw({ type: 'application/zip', limit: '50mb' }));
+// #755: raw SQLite DB upload for routes/debug.js's dev-only import-db route
+// (counterpart to its existing export-db route) -- a DB with years of shot
+// history (no images, those live outside the DB, see BEAN_IMAGE_DIR) can
+// still run well past a typical JSON payload, same generous ceiling as the
+// zip restore body above.
+app.use('/api/debug/import-db', express.raw({ type: 'application/octet-stream', limit: '500mb' }));
 app.use(express.json({ limit: '16kb' }));
 
 // ── Routes ────────────────────────────────────────────────────────────────
@@ -160,6 +183,8 @@ app.use(require('./routes/machine-control'));
 app.use(require('./routes/mqtt'));
 app.use(require('./routes/backup'));
 app.use(require('./routes/import'));
+app.use(require('./routes/debug'));
+app.use(require('./routes/sse'));
 
 // ── Centralized error handling ────────────────────────────────────────────
 app.use(errorHandler);
@@ -203,10 +228,25 @@ loadPreheatState();
 
 const PORT = DEFAULT_PORT;
 const server = app.listen(PORT, () => {
-    const { loadOptions, getMachineUrl } = require('./lib/data');
+    const { loadOptions } = require('./lib/data');
     const opts = loadOptions();
-    log(`Gaggiuino Local Profiler v${GLP_VERSION} started on port ${PORT}`);
-    log(`Machine URL: ${getMachineUrl(opts)} | sync every ${opts.sync_interval || 5} min`);
+    // #711: GLP_VERSION is frozen at the last real release on the dev
+    // branch (see #704) -- without the dev build tag appended here, a raw
+    // downloaded log gives no way to tell a GLP DEV build apart from
+    // stable, short of cross-referencing the separate "UNSTABLE DEV BUILD"
+    // UI banner.
+    const devSuffix = process.env.GLP_DEV_BUILD ? ` (${process.env.GLP_DEV_BUILD})` : '';
+    log(`Gaggiuino Local Profiler v${GLP_VERSION}${devSuffix} started on port ${PORT}`);
+    // #712: registry.apiUrlFor() (the source of truth since #662, matching
+    // every real poll/sync request path), not raw getMachineUrl(opts) --
+    // opts.machine_host is permanently empty post-#662 (removed from the
+    // add-on's Configuration schema), so the raw call always bottomed out
+    // at getMachineUrl()'s hardcoded fallback host regardless of whatever
+    // was actually configured in Settings -> Machines.
+    const registry = require('./lib/machines/registry');
+    // #718: apiUrlFor() is null when no host is configured anywhere
+    log(`Machine URL: ${registry.apiUrlFor() || '(not configured)'} | sync every ${opts.sync_interval || 5} min`);
+    registry.logRegistrySnapshot(); // #714
     log(`HA integration: ${require('./lib/constants').HA_TOKEN ? 'active (auto-sync via latest_shot_id)' : 'unavailable (no SUPERVISOR_TOKEN)'}`);
     setInterval(() => { backgroundHaCheck().catch(e => log(`Background HA check failed: ${e.message}`, true)); }, 30000);
     startPreheatWatcher();

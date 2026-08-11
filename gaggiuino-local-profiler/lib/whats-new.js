@@ -18,6 +18,13 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.32.0', date: '2026-08-11', highlights: [
+        'Heads up if you manage the machine host/switch entity via the add-on\'s Configuration tab: those fields are removed there. Your existing value carries over automatically, but from now on the default machine is configured entirely under Settings → Machines instead.',
+        'Added a guided first-run setup wizard: a fresh install with no machines configured now gets a welcome -> connect machine -> done walkthrough, with a one-click demo-data option and a "Restart setup tour" control in Settings → Machines.',
+        'The Live tab and the sidebar\'s shot counter now update in real time instead of only polling every few seconds, falling back automatically if a live connection can\'t be established.',
+        'Settings → Machines: "Test connection" now saves the machine automatically first, you can change the default machine or delete any machine, and the host field can be left empty to save a machine as "not configured yet".',
+        'Fixed several shot-sync sticking points (a stuck backfill, an out-of-range shot id) and the Live tab\'s flow reading always showing 0.',
+    ] },
     { version: '2.31.0', date: '2026-08-07', highlights: [
         'Added optional per-install shot-logging defaults (Settings → "Shot logging defaults") that auto-prefill a new shot\'s annotation panel.',
         'Added Basket Stats and Puck Screen Stats groupings to Analytics, alongside the existing Grinder Stats.',
@@ -43,9 +50,6 @@ const WHATS_NEW_ENTRIES = [
     ] },
     { version: '2.27.2', date: '2026-08-04', highlights: [
         'Preheat-ready and low-stock notification toggles are now reachable in Settings even when Orders is disabled.',
-    ] },
-    { version: '2.27.1', date: '2026-08-03', highlights: [
-        'Added logging so the active live-data transport (WebSocket/MQTT) and its connection state are visible from the logs.',
     ] },
 ];
 

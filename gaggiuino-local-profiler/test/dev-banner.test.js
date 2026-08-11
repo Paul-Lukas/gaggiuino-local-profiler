@@ -63,4 +63,13 @@ describe('dev-build banner (#683)', () => {
   it('devBannerHeight() is 0 when no banner exists (real installs)', () => {
     expect(devBannerHeight()).toBe(0);
   });
+
+  // #704 follow-up: shows which dev build is actually running, so it's
+  // immediately visible from the banner alone (previously only in the
+  // small version-badge suffix).
+  it('appends the devBuild string to the banner text when given', () => {
+    showDevBuildBanner('dev-20260809_0800');
+    const banner = doc.getElementById('glpDevBanner');
+    expect(banner.textContent).toBe('⚠ UNSTABLE DEV BUILD (dev-20260809_0800)');
+  });
 });

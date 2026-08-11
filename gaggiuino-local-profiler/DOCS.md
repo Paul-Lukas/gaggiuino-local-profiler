@@ -106,13 +106,7 @@ A machine-readable OpenAPI 3.0.3 specification of all endpoints is served at `GE
 
 ## Quick start
 
-Set `machine_host` to your controller's IP or hostname and start the app.
-
-```yaml
-machine_host: "192.168.1.42"           # IP or hostname of your Gaggiuino controller
-sync_interval: 5
-switch_entity: "switch.espresso_plug"  # optional
-```
+Start the app, then set your Gaggiuino controller's IP/hostname (and, optionally, an HA switch entity to power it on/off) under **Settings → Machines** — the default machine (#1) is configured the same way as any additional machine, entirely in-app; there's no add-on option for this.
 
 Verify connectivity from the HA terminal:
 ```bash
@@ -146,13 +140,13 @@ On narrow viewports (phones, portrait tablets) the topbar tabs are hidden and a 
 
 | Option | Description | Default |
 |---|---|---|
-| `machine_host` | **Deprecated since v2.0.0** — IP or hostname of the Gaggiuino controller. Used only once, on first start, to seed the default machine in the new [multi-machine registry](#multi-machine-v200) below; edit machines afterward from the app's Settings UI, not this option. | `gaggiuino.local` |
 | `sync_interval` | Auto-sync interval in minutes (1–60) | `5` |
-| `switch_entity` | HA switch entity to power the machine on/off | *(empty)* |
 | `preheat_time` | Warmup time in minutes — how long after switch-on until the machine is ready to brew (1–120) | `20` |
 | `enable_orders` | Enable the order management system — barista backend tab + customer order card support; disabled by default | `false` |
 | `debug_logging` | Verbose diagnostic logging (e.g. every step of the bean import flow) in the add-on log — off by default so it never spams normal operation, switch on when actually diagnosing something | `false` |
 | `port` | Port the app server listens on (1024–65535) | `8099` |
+
+**Machine host and switch entity are configured in-app, not here.** They used to be add-on options (`machine_host`/`switch_entity`); as of this release they've been removed from the add-on's Configuration page entirely — set them under **Settings → Machines** instead, for the default machine (#1) exactly the same way as any additional machine. An upgrading install's previously-configured values are carried over automatically; nothing to redo.
 
 ## Multi-machine (v2.0.0)
 
@@ -171,9 +165,11 @@ GLP can manage more than one espresso machine from a single add-on instance — 
 | Profile create/update/delete | ✅ | 🚧 read-only in v2.0.0 |
 | Brew start from GLP | ❌ (machine has no start API either) | ❌ (no start API) |
 
-On upgrade from a pre-2.0.0 install, the existing `machine_host`/`switch_entity` add-on options are automatically migrated into machine #1 (named "Gaggiuino", marked as the **default machine**) — no manual steps, and every existing URL, shot id, image and annotation keeps working exactly as before. Add further machines from the app's **Settings** view (name, type, host, optional HA switch entity); each gets a "Test connection" button before saving. The default machine keeps its original REST API surface untouched.
+On upgrade from a pre-2.0.0 install, the existing `machine_host`/`switch_entity` add-on options were automatically migrated into machine #1 (named "Gaggiuino", marked as the **default machine**) — no manual steps, and every existing URL, shot id, image and annotation keeps working exactly as before. (Those two add-on options have since been removed from the Configuration page entirely — see [Configuration options](#configuration-options) above.) Add further machines from the app's **Settings** view (name, type, host, optional HA switch entity); the form's "Test connection" button saves the machine first (if it hasn't been already) and then tests it, showing the result inline while the form stays open — this implicit save never starts a shot import on its own (see below), only an explicit "Save" click does (and only "Save" closes the form). The default machine keeps its original REST API surface untouched.
 
-A machine switcher in the topbar (only shown once a second machine is registered) lets you pick "All machines" or one specific machine — Shots list and Analytics scope to that choice, and in "All machines" mode each shot in the list carries a small machine-name badge. **Shot sync now runs for every registered machine** (not just the default one) — since v2.2.0 the scheduled and manual sync loops poll every enabled machine's own adapter and ingest its shots. **Live view is currently only available for the default machine** — additional machines don't have a live-status polling loop yet, so switching to one while on the Live tab shows an explanatory message instead of stale/fake data.
+Any machine's row has a **"Set as default"** button, and every machine — including the current default — can now be **deleted**, both behind a confirmation. Deleting the current default while other machines still exist requires reassigning the default to another machine first (a deliberate two-step flow, not an automatic reassignment); deleting the very last remaining machine is always blocked, since at least one machine must exist at all times.
+
+A machine switcher in the topbar (only shown once a second machine is registered) lets you pick "All machines" or one specific machine — Shots list and Analytics scope to that choice, and in "All machines" mode each shot in the list carries a small machine-name badge. **Shot sync now runs for every registered machine** (not just the default one) — since v2.2.0 the scheduled and manual sync loops poll every enabled machine's own adapter and ingest its shots, and explicitly saving any machine (not just the default one's host) immediately triggers a catch-up sync for it, instead of waiting for the next scheduled tick. When a machine's initial backfill has more than a handful of shots to fetch, a small progress indicator (e.g. "Import 12/40") appears on its own row under the sidebar's shot counter until it finishes, followed by a brief toast confirming the import is done. This progress updates live over a push connection (`GET /api/events`, Server-Sent Events) instead of only refreshing every 30 seconds — if that connection can't be established (e.g. an unusual network path), the app automatically falls back to the previous 30s polling behavior, so the indicator and toast keep working either way. **Live view is currently only available for the default machine** — additional machines don't have a live-status polling loop yet, so switching to one while on the Live tab shows an explanatory message instead of stale/fake data.
 
 Each machine can be given its own **colour theme**, so machines in a multi-machine setup are easy to tell apart at a glance. Pick one of 8 curated presets (Amber Americano, Ruby Ristretto, Copper Cortado, Twilight Turkish, Marbled Macchiato, Ember Espresso, Mulberry Mocha, Frosty Flat White) or a custom flat colour or two-stop gradient from the machine form's swatch picker. The theme colours a new, detailed Gaggia-style machine icon shown in the machine list, the machine form's live preview, and the topbar machine switcher; a machine with no theme set keeps rendering in the app's own accent colour.
 
@@ -245,11 +241,19 @@ Each round: confirm the trial shot (never auto-matched, same reasoning as the gr
 
 This first version deliberately doesn't parse the phase data embedded on a shot record as a tuning signal — that field's exact shape hasn't been confirmed against real hardware — so the suggestion logic relies only on the shot's overall score and your own taste judgment, not an automated curve comparison.
 
+### Guided setup wizard (v2.32.0)
+
+A first-time install with **zero machines configured** opens a guided 3-step modal automatically, instead of landing directly on the empty Shots view: a **welcome** step explaining what GLP does ("Get started" / "Later"), a **connect your first machine** step that reuses the exact same add-machine form and test-connect logic as Settings → Machines (not a separate copy), and a **done** step pointing to Settings → Machines for adding more machines later.
+
+Clicking "Later" — or closing the wizard at any point before the done step — does **not** mark it complete, so it reopens automatically on the next launch until either a machine gets successfully added or the wizard is seen through to the end. The connect step also offers an **"I don't have a machine yet, show me demo data"** link that seeds the same demo dataset described below and skips straight to the done step. A **"Restart setup tour"** button in Settings → Machines reopens the wizard on demand at any time, without affecting the completion state.
+
+This is separate from the "machine unreachable" banner and first-run panel below, which cover a different situation: a machine that *is* configured but currently can't be reached.
+
 ### First-run onboarding & demo mode
 
-If the Gaggiuino controller can't be reached (wrong/unreachable `machine_host`), GLP shows a dismissible banner at the top of the page naming the configured host, with a link to the [wiki](https://github.com/mxkissnr/gaggiuino-local-profiler/wiki) for setup help. Dismissal is per browser session.
+If the Gaggiuino controller can't be reached (wrong/unreachable host, set under Settings → Machines), GLP shows a dismissible banner at the top of the page naming the configured host, with a link to the [wiki](https://github.com/mxkissnr/gaggiuino-local-profiler/wiki) for setup help. Dismissal is per browser session.
 
-When the database has no shots yet **and** the machine has never been reachable, the Shots view shows a **first-run onboarding panel** instead of the plain empty state: three setup steps (set `machine_host`, ensure the Gaggiuino is on the network, restart the add-on) plus a **"Load demo data"** button.
+When the database has no shots yet **and** the machine has never been reachable, the Shots view shows a **first-run onboarding panel** instead of the plain empty state: two setup steps (set the machine host under Settings → Machines, ensure the Gaggiuino is on the network) plus a **"Load demo data"** button.
 
 Loading demo data seeds a static sample dataset — about a dozen shots with plausible pressure/flow/temperature curves and ratings, three sample beans (including a blend using the multi-origin `origins[]` field), and one recipe — so the Shots, Analytics (world map, score trend, bean stats), and flavor wheel views are populated for evaluation. While demo data is present, a **"Demo mode"** badge with an **"End demo"** button is shown in the sidebar; ending demo mode deletes exactly the seeded rows. Demo data can only be loaded into an otherwise empty database (no existing shots/beans/recipes).
 

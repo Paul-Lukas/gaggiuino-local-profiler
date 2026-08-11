@@ -50,7 +50,63 @@ jobs:
       - id: version
         run: echo "version=dev-$(date -u +%Y%m%d_%H%M)" >> "$GITHUB_OUTPUT"
 
-  build:
+  # #705: split off from the armv7/aarch64 matrix below and NOT in
+  # publish-manifest's `needs` -- amd64 is the maintainer's own daily HAOS
+  # box (per this workflow's original single-arch design), so the update
+  # banner shouldn't wait on two QEMU-emulated architectures (armv7 alone
+  # ran 15-20+ min in the first #702 builds) that box never uses.
+  build-amd64:
+    name: Build amd64
+    needs: prep
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: ./gaggiuino-local-profiler
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            GLP_DEV_BUILD=${{ needs.prep.outputs.version }}
+          cache-from: type=gha,scope=dev-amd64
+          cache-to: type=gha,mode=max,scope=dev-amd64
+          tags: |
+            ghcr.io/mxkissnr/gaggiuino-local-profiler/amd64:${{ needs.prep.outputs.version }}
+            ghcr.io/mxkissnr/gaggiuino-local-profiler/amd64:dev
+          labels: |
+            org.opencontainers.image.title=GLP DEV — Gaggiuino Local Profiler (unstable)
+            org.opencontainers.image.description=Unstable dev build of GLP — maintainer testing only
+            org.opencontainers.image.source=https://github.com/mxkissnr/gaggiuino-local-profiler
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.prep.outputs.version }}
+            org.opencontainers.image.licenses=MIT
+            io.hass.version=${{ needs.prep.outputs.version }}
+            io.hass.type=addon
+            io.hass.arch=amd64
+            io.hass.name=GLP DEV — Gaggiuino Local Profiler (unstable)
+
+  # #705: runs in parallel with build-amd64 but does NOT gate
+  # publish-manifest -- these two architectures are occasional testing, not
+  # the primary box this channel exists for. Accepted trade-off: someone on
+  # armv7/aarch64 who updates in the window before their own arch's job here
+  # finishes gets a pull failure until it catches up.
+  build-other-archs:
     name: Build ${{ matrix.arch }}
     needs: prep
     runs-on: ubuntu-latest
@@ -58,18 +114,16 @@ jobs:
       contents: read
       packages: write
 
-    # amd64 only: the dev channel exists to test code on the maintainer's own
-    # HAOS box, which is amd64. The release build (build.yaml) still covers
-    # armv7/aarch64 for users -- arch-specific problems surface there. Kept as
-    # a matrix so adding an architecture back is a two-line change, and so the
-    # `arch:` list in glp-dev-app's config.yaml stays the only other place
-    # that has to agree.
+    # The `arch:` list in glp-dev-app's config.yaml must keep agreeing with
+    # this matrix plus build-amd64 above.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: amd64
-            platform: linux/amd64
+          - arch: armv7
+            platform: linux/arm/v7
+          - arch: aarch64
+            platform: linux/arm64
 
     steps:
       - name: Checkout
@@ -115,11 +169,14 @@ jobs:
             io.hass.arch=${{ matrix.arch }}
             io.hass.name=GLP DEV — Gaggiuino Local Profiler (unstable)
 
-  # Only after every architecture is published -- pointing the manifest at a
-  # tag that exists for just one arch would break the app on the others.
+  # #705: gated on build-amd64 only, not build-other-archs -- see that job's
+  # comment for why. Pointing the manifest at a version whose armv7/aarch64
+  # images aren't up yet is an accepted, bounded window (see #705's issue),
+  # not the "broken on every other arch" failure mode the original
+  # all-archs gate was guarding against when this channel was amd64-only.
   publish-manifest:
     name: Point dev manifest at the new build
-    needs: [prep, build]
+    needs: [prep, build-amd64]
     runs-on: ubuntu-latest
     steps:
       # Checked out under its own path (not $GITHUB_WORKSPACE root) since the

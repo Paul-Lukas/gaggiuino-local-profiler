@@ -10,7 +10,7 @@ const { log } = require('../helpers');
 // needs getMachineUrl()/getMachineBaseUrl() from there anyway for the
 // config facade below -- no cycle: lib/data.js's own require graph
 // (repositories/services) never reaches back into this module.
-const { loadOptions, getMachineUrl, getMachineBaseUrl } = require('../data');
+const { loadOptions, getMachineUrl, getMachineBaseUrl, debugLog } = require('../data');
 
 // theme is stored as a JSON string (see lib/db.js's machines table comment
 // for the exact contract); parse defensively so a hand-edited/corrupt row
@@ -62,16 +62,32 @@ function ensureDefaultMachine() {
     if (count > 0) return;
 
     const opts = loadOptions();
-    const host = (opts.machine_host || opts.machine_url || 'gaggia.intern').trim();
+    // #718: empty (not a hardcoded placeholder hostname) when no legacy
+    // machine_host/machine_url exists either -- a fresh install starts in
+    // an explicit "not configured" state instead of silently pointing at
+    // a fake-looking host.
+    const host = (opts.machine_host || opts.machine_url || '').trim();
     db.prepare(
         `INSERT INTO machines (id, name, type, host, switch_entity, is_default, enabled, created_at)
          VALUES (1, ?, 'gaggiuino', ?, ?, 1, 1, ?)`
     ).run('Gaggiuino', host, opts.switch_entity || null, Date.now());
-    log(`Machines: seeded default machine #1 "Gaggiuino" (${host})`);
+    log(`Machines: seeded default machine #1 "Gaggiuino" (${host || '(no host configured)'})`);
 }
 
 function listMachines() {
     return getDb().prepare('SELECT * FROM machines ORDER BY is_default DESC, id ASC').all().map(row);
+}
+
+// #714: a mismatch between a machine's registry id and which row is
+// actually flagged is_default (e.g. after repeated add/remove cycles bump
+// the AUTOINCREMENT id) is otherwise only reconstructible by reverse-
+// engineering a synthetic shot id -- this makes the whole registry visible
+// in the log at the moments it's most likely to matter (startup, any CRUD).
+function logRegistrySnapshot() {
+    const summary = listMachines()
+        .map(m => `#${m.id} "${m.name}" host=${m.host} default=${m.isDefault} enabled=${m.enabled}`)
+        .join(' | ');
+    debugLog(`Machines: ${summary || '(none)'}`);
 }
 
 function getMachine(id) {
@@ -116,10 +132,32 @@ function updateMachine(id, fields) {
     return getMachine(id);
 }
 
+// #753: flips is_default from whichever machine currently has it onto `id`,
+// transactionally -- exactly one machine has is_default afterward, same
+// invariant restoreMachines() enforces above. Deliberately does NOT touch
+// deleteMachine()'s "can't delete the default" guard below: a user who wants
+// to delete the current default must reassign it here first, then delete
+// the now-non-default machine as a separate step -- no auto-promotion.
+function setDefaultMachine(id) {
+    const existing = getMachine(id);
+    if (!existing) return null;
+    if (existing.isDefault) return existing;
+    getDb().transaction(() => {
+        getDb().prepare('UPDATE machines SET is_default = (id = ?)').run(id);
+    })();
+    log(`Machines: #${id} "${existing.name}" is now the default machine`);
+    return getMachine(id);
+}
+
 function deleteMachine(id) {
     const existing = getMachine(id);
     if (!existing) return false;
     if (existing.isDefault) throw new Error('cannot delete the default machine');
+    // #753: at least one machine must always exist -- ensureDefaultMachine()
+    // only re-seeds an empty table, it won't help if the table still has
+    // other (non-default) rows after this one is removed.
+    const count = getDb().prepare('SELECT COUNT(*) AS n FROM machines').get().n;
+    if (count <= 1) throw new Error('cannot delete the last remaining machine');
     getDb().prepare('DELETE FROM machines WHERE id = ?').run(id);
     evictLiveSession(existing.host);
     return true;
@@ -263,6 +301,7 @@ function hostFor(machineId = null) {
 
 module.exports = {
     ensureDefaultMachine, listMachines, getMachine, getDefaultMachine,
-    createMachine, updateMachine, deleteMachine, restoreMachines,
+    createMachine, updateMachine, deleteMachine, setDefaultMachine, restoreMachines,
     hostFor, switchEntityFor, baseUrlFor, apiUrlFor, resolveMachine,
+    logRegistrySnapshot,
 };

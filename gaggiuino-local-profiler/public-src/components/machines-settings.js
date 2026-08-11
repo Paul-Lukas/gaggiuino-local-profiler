@@ -247,10 +247,12 @@ export function renderMachinesList() {
       ${m.isDefault ? `<span class="machine-row-badge">${t('settings_machine_default')}</span>` : ''}
       <span class="machine-row-actions">
         <button type="button" class="machine-edit-btn">${t('settings_machine_edit')}</button>
-        ${!m.isDefault ? `<button type="button" class="machine-delete-btn">${t('settings_machine_delete')}</button>` : ''}
+        ${!m.isDefault ? `<button type="button" class="machine-set-default-btn">${t('settings_machine_set_default')}</button>` : ''}
+        <button type="button" class="machine-delete-btn">${t('settings_machine_delete')}</button>
       </span>`;
     row.querySelector('.machine-edit-btn').addEventListener('click', () => openMachineForm(m));
-    row.querySelector('.machine-delete-btn')?.addEventListener('click', () => deleteMachine(m.id));
+    row.querySelector('.machine-set-default-btn')?.addEventListener('click', () => setDefaultMachine(m.id));
+    row.querySelector('.machine-delete-btn')?.addEventListener('click', () => deleteMachine(m.id, m.isDefault));
     list.appendChild(row);
   });
 }
@@ -345,7 +347,22 @@ export function closeMachineForm() {
   if (card) card.style.display = 'none';
 }
 
-export async function saveMachineForm() {
+// #727: shared by saveMachineForm() and testMachineForm() so the
+// payload-building/fetch logic (and the SSRF-guard error surfacing from
+// #336) lives in exactly one place. Returns the saved machine's id on
+// success (the form field's existing value when editing, the server's
+// newly-assigned id when creating), or null on failure/validation no-op —
+// callers that need to distinguish "failed" from "nothing to save" can
+// inspect the DOM themselves, neither existing caller needs to.
+//
+// #731: triggerSync defaults to true (saveMachineForm()'s explicit "Speichern"
+// still fires the post-save shot sync) but testMachineForm() passes false —
+// "Verbindung testen" needs a saved machine id to test against, but that
+// implicit save must not itself start an import. Carried to the server as
+// a `?sync=0` query param rather than a body field: machineSchema/
+// machineSchema.partial() (lib/validation/schemas.js) validate the body
+// strictly, so an extra JSON field would be unclean at best.
+async function _saveMachine({ triggerSync = true } = {}) {
   const id = document.getElementById('machineFormId').value;
   const payload = {
     name: document.getElementById('machineFormName').value.trim(),
@@ -354,36 +371,119 @@ export async function saveMachineForm() {
     switchEntity: document.getElementById('machineFormSwitch').value.trim() || null,
     theme: _selectedTheme,
   };
-  if (!payload.name || !payload.host) return;
-  const url    = id ? `api/machines/${id}` : 'api/machines';
+  if (!payload.name || !payload.host) return null;
+  const base   = id ? `api/machines/${id}` : 'api/machines';
+  const url    = triggerSync ? base : `${base}?sync=0`;
   const method = id ? 'PUT' : 'POST';
   const resultEl = document.getElementById('machineFormTestResult');
   const r = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  if (r.ok) { closeMachineForm(); loadMachines(); return; }
+  if (r.ok) {
+    const data = await r.json().catch(() => ({}));
+    return id || data?.id || null;
+  }
   // #336: used to fail silently here (no visible error at all), which made
   // the SSRF-guard-blocks-LAN-hosts bug far harder to diagnose than it
   // needed to be — always surface the server's actual error now.
   const data = await r.json().catch(() => ({}));
   if (resultEl) resultEl.textContent = t('settings_machine_save_error', data.error || r.status);
+  return null;
 }
 
-export async function deleteMachine(id) {
-  if (!confirm(t('settings_machine_delete_confirm'))) return;
-  const r = await apiFetch(`api/machines/${id}`, { method: 'DELETE' });
-  if (r.ok) loadMachines();
-}
-
-export async function testMachineForm() {
-  const id = document.getElementById('machineFormId').value;
+// #727: shared by testMachineForm() — runs the connection test against a
+// known machine id and renders the result into #machineFormTestResult.
+//
+// #734 review: #733 removed testMachineForm()'s auto-close, so the form
+// (and the still-clickable machines list behind it) can now stay open long
+// enough for the user to switch to editing a *different* machine while this
+// test is still in flight — openMachineForm() overwrites #machineFormId
+// synchronously, so by the time this resolves the form may no longer be
+// showing the machine that was actually tested. Re-check #machineFormId
+// still matches before writing the result, so a stale in-flight test can't
+// land its result under the wrong machine's name/host.
+async function _testMachine(id) {
   const resultEl = document.getElementById('machineFormTestResult');
   if (!resultEl) return;
-  if (!id) { resultEl.textContent = t('settings_machine_test_save_first'); return; }
   resultEl.textContent = t('settings_machine_testing');
   try {
     const r = await apiFetch(`api/machines/${id}/test`, { method: 'POST' });
     const data = await r.json().catch(() => ({}));
+    if (String(document.getElementById('machineFormId').value) !== String(id)) return;
     resultEl.textContent = data.reachable ? t('settings_machine_test_ok') : t('settings_machine_test_fail');
   } catch {
+    if (String(document.getElementById('machineFormId').value) !== String(id)) return;
     resultEl.textContent = t('settings_machine_test_fail');
   }
+}
+
+export async function saveMachineForm() {
+  const id = await _saveMachine();
+  if (id !== null) {
+    closeMachineForm();
+    loadMachines();
+    // #748: dedicated signal for an *explicit* save, separate from the
+    // generic 'machines' state that testMachineForm()'s implicit
+    // save-before-test also triggers via loadMachines() — the setup wizard
+    // subscribes to this one so "Test connection" can't prematurely close it.
+    setState('machineExplicitSave', id);
+  }
+}
+
+// #753: reassigns the default machine, then reloads so both this list's
+// badge/actions and getDefaultMachineId() consumers (views/live.js,
+// applyDefaultMachineAccentTheme() below) pick up the change.
+export async function setDefaultMachine(id) {
+  const r = await apiFetch(`api/machines/${id}/default`, { method: 'POST' });
+  if (r.ok) loadMachines();
+}
+
+// #753: deleting the current default is more consequential (reassigns
+// activeMachineId/theme fallout for whoever was viewing it) than a regular
+// non-default machine, so it gets its own, more explicit confirmation text.
+// Both cases can still be rejected by the backend (still-default after a
+// stale read, or the last remaining machine) -- that error is surfaced via
+// showToast rather than silently doing nothing, same as the sync-failed
+// toast pattern in components/status.js.
+export async function deleteMachine(id, isDefault) {
+  const confirmKey = isDefault ? 'settings_machine_delete_default_confirm' : 'settings_machine_delete_confirm';
+  if (!confirm(t(confirmKey))) return;
+  const r = await apiFetch(`api/machines/${id}`, { method: 'DELETE' });
+  if (r.ok) { loadMachines(); return; }
+  const body = await r.json().catch(() => ({}));
+  if (window.showToast) window.showToast(body.error || t('settings_machine_delete_failed'));
+}
+
+// #729: saves first (create or update, same as saveMachineForm()) so a
+// not-yet-saved machine can be tested too, then runs the connection test
+// against the now-known id and shows the result inline.
+//
+// #733: unlike saveMachineForm(), this deliberately does NOT close the
+// form -- testing is meant to be an in-place check the user can react to
+// (e.g. fix a bad host and test again) without losing their place. #729
+// originally auto-closed it to mirror Save, but that turned out to be
+// confusing for a *test* action; only the explicit Save button closes now.
+//
+// #731: this save is only a means to get a testable id -- it must not start
+// a shot import the way an explicit "Speichern" does, so triggerSync:false
+// is passed through to _saveMachine() (server-side gate in routes/machines.js).
+//
+// #730 review: the form stays open (and clickable) while the request is in
+// flight -- a double-click used to re-enter _saveMachine() with
+// #machineFormId still empty (never written back after the first save),
+// turning a single "new machine" save into two POSTs. Fixed two ways: the
+// id is written back into the DOM the moment the first save succeeds (so
+// even a concurrent second call would PUT, not POST again), and the button
+// itself is disabled for the whole in-flight window so a second click can't
+// start a second call in the first place.
+export async function testMachineForm() {
+  const btn = document.getElementById('machineFormTestBtn');
+  if (btn) btn.disabled = true;
+  const id = await _saveMachine({ triggerSync: false });
+  if (id === null) {
+    if (btn) btn.disabled = false;
+    return;
+  }
+  document.getElementById('machineFormId').value = id;
+  await _testMachine(id);
+  loadMachines();
+  if (btn) btn.disabled = false;
 }

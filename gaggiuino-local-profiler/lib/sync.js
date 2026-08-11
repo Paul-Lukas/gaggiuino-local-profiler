@@ -1,13 +1,14 @@
 'use strict';
 const axios      = require('axios');
 const { log }    = require('./helpers');
-const { loadOptions, getSyncIntervalMs } = require('./data');
+const { loadOptions, getSyncIntervalMs, debugLog } = require('./data');
 const shotService = require('./services/ShotService');
 const state      = require('./state');
 const { getMachineRuntimeState } = require('./machine-runtime-state');
 const registry   = require('./machines/registry');
-const { getAdapter, toGlobalShotId, toNativeShotId } = require('./machines');
+const { getAdapter, toGlobalShotId, toNativeShotId, MACHINE_ID_OFFSET } = require('./machines');
 const { syncNativeMaintenance } = require('./maintenance-sync');
+const { bus, EVENTS } = require('./events');
 
 // #549: same single-default-machine assumption as lib/poll.js/lib/preheat.js.
 const defaultRuntime = getMachineRuntimeState();
@@ -22,8 +23,34 @@ const SYNC_RETRY_DELAYS = [30_000, 60_000, 120_000];
 // Gaggiuino native id, so an unscoped max-id reduce would make the default
 // machine's sync think it's already "caught up" and silently stop pulling
 // its own new shots. Must stay scoped to avoid that regression.
+//
+// #719: on top of the machineId scoping above, also ignore any id that's
+// still >= MACHINE_ID_OFFSET even though it's (wrongly) filed under machine
+// 1 -- a belt-and-suspenders guard against a corrupted/pre-existing row
+// surviving in an older DB. The default machine's own native ids are by
+// definition always below the offset (lib/machines/index.js's
+// toGlobalShotId), so anything at or above it can never be a legitimate
+// machine-1 shot and must not be allowed to poison this max.
+function maxDefaultMachineShotId() {
+    return shotService.getAll(1).reduce((m, s) => (s.id < MACHINE_ID_OFFSET && s.id > m) ? s.id : m, 0);
+}
+
+// #735: single choke point for bumping+broadcasting a machine's backfill
+// progress -- replaces the four scattered
+// `state.syncProgress.get(id).current++` call sites in syncShots()/
+// syncMachineShots() below, which used to update state without ever telling
+// the frontend (previously only visible via the next 30s /api/status poll).
+// A no-op if this machineId has no active entry (backfill too small to
+// track, see the `total > 5` gates below), same as the sites it replaces.
+function bumpSyncProgress(machineId) {
+    const entry = state.syncProgress.get(machineId);
+    if (!entry) return;
+    entry.current++;
+    bus.emit(EVENTS.SYNC_PROGRESS, { machineId, current: entry.current, total: entry.total });
+}
+
 async function syncAfterBrew() {
-    const prevMaxId = shotService.getAll(1).reduce((m, s) => s.id > m ? s.id : m, 0);
+    const prevMaxId = maxDefaultMachineShotId();
     await syncShots();
     const newShots = shotService.getAll(1).filter(s => s.id > prevMaxId);
     if (newShots.length) log(`New shot saved: #${newShots.map(s => s.id).join(', ')}`);
@@ -43,7 +70,17 @@ async function syncShots(runtime = defaultRuntime) {
     if (!runtime.machineOn && switchEntity) return true;
     try {
         const machineUrl = registry.apiUrlFor();
+        // #718: null means no host configured anywhere -- nothing to sync,
+        // don't request against a placeholder/fallback hostname.
+        if (!machineUrl) return true;
+        debugLog(`GET ${machineUrl}/latest`); // #714
         const latestResponse  = await axios.get(`${machineUrl}/latest`, { timeout: 10000 });
+        // #717: raw response, not just the extracted lastShotId -- lets a
+        // genuinely corrupted/absurd value reported by the machine's own
+        // firmware be told apart from something produced locally (e.g. a
+        // blocklist entry or a second machine's synthetic id ending up on
+        // the default machine's rows).
+        debugLog(`/latest raw response: ${JSON.stringify(latestResponse.data).slice(0, 500)}`);
         // eslint-disable-next-line require-atomic-updates -- syncShots() has no mutex guarding overlapping calls (pre-existing); a real fix is a synchronization change out of scope for this lint-only pass
         state.machineReachable   = true;
         // eslint-disable-next-line require-atomic-updates -- see above
@@ -57,7 +94,7 @@ async function syncShots(runtime = defaultRuntime) {
         }
 
         const blocklist    = shotService.getBlocklist();
-        const maxLocalId   = shotService.getAll(1).reduce((m, s) => s.id > m ? s.id : m, 0);
+        const maxLocalId   = maxDefaultMachineShotId();
         const maxBlockedId = blocklist.length ? Math.max(...blocklist.map(Number)) : 0;
         const effectiveMax = Math.max(maxLocalId, maxBlockedId);
 
@@ -72,19 +109,85 @@ async function syncShots(runtime = defaultRuntime) {
             return true;
         }
 
-        for (let i = effectiveMax + 1; i <= latestMachineId; i++) {
-            const r = await axios.get(`${machineUrl}/${i}`, { timeout: 10000 });
-            if (!r.data || typeof r.data.id === 'undefined' || !r.data.datapoints) {
-                log(`Shot ${i} has invalid data -- skipped`, true);
-                continue;
+        // #729/#730: only surface progress for a backfill big enough to
+        // actually take a noticeable amount of time (see syncMachineShots()
+        // for the same threshold). The try/finally sits inside this
+        // function's existing outer try/catch (not a second outer level) so
+        // a loop error is still caught below and this machine's
+        // syncProgress entry is always cleared before that catch runs.
+        // Keyed by machineId in a Map (not a single shared slot) so this
+        // backfill can't clobber -- or be clobbered by -- a concurrent
+        // syncMachineShots() backfill for a different machine.
+        const total = latestMachineId - effectiveMax;
+        const defaultMachineId = registry.getDefaultMachine()?.id;
+        // #735: only a tracked backfill (progress bar actually shown, see
+        // the `total > 5` gate) gets a SYNC_COMPLETE broadcast in the
+        // finally block below -- otherwise every routine few-shot sync tick
+        // would fire a spurious "Import complete" toast the UI never showed
+        // a progress bar for in the first place.
+        const tracked = total > 5 && defaultMachineId != null;
+        if (tracked) state.syncProgress.set(defaultMachineId, { current: 0, total });
+        // Tracks whether the loop below completed without throwing -- the
+        // single source of truth SYNC_COMPLETE reports to the frontend in
+        // the finally block, replacing the old "the entry vanished between
+        // two polls" heuristic (#731/#734) that could never distinguish a
+        // clean finish from an aborted one.
+        let loopOk = false;
+        try {
+            for (let i = effectiveMax + 1; i <= latestMachineId; i++) {
+                // #716: elapsed time per shot, not just the URL (#714) -- lets a
+                // large backfill's per-request latency be checked against shot
+                // id afterward, to confirm or rule out the machine's own
+                // embedded HTTP server slowing down as shot history grows.
+                const shotStartedAt = Date.now();
+                let r;
+                try {
+                    r = await axios.get(`${machineUrl}/${i}`, { timeout: 10000 });
+                    debugLog(`GET ${machineUrl}/${i} -> ${Date.now() - shotStartedAt}ms`);
+                } catch (err) {
+                    // #721: the machine's on-device shot storage rotates/caps
+                    // independently of the monotonically increasing lastShotId
+                    // it reports via /latest -- a genuine 404 here means shot i
+                    // is permanently gone, not a transient failure. Blocklisting
+                    // it (the same mechanism already used for user-deleted
+                    // shots, and already factored into effectiveMax above) lets
+                    // the backfill skip past it instead of restarting at this
+                    // exact id forever. Any other error (network/timeout/5xx)
+                    // is NOT skipped -- it's rethrown so the outer catch aborts
+                    // the whole call and the existing retry/backoff schedule
+                    // handles it, since a flaky connection is not the same
+                    // situation as a confirmed-missing shot.
+                    if (err.response?.status === 404) {
+                        log(`Shot ${i} not found on machine (404) -- marking as permanently missing, continuing backfill`, true);
+                        const bl = shotService.getBlocklist();
+                        if (!bl.includes(i)) shotService.saveBlocklist([...bl, i]);
+                        bumpSyncProgress(defaultMachineId);
+                        continue;
+                    }
+                    // #721: the outer catch's logging redacts the whole URL
+                    // (including the shot id path segment), making a failing
+                    // shot id invisible in logs -- log it explicitly here first.
+                    debugLog(`GET ${machineUrl}/${i} failed after ${Date.now() - shotStartedAt}ms: ${err.message}`);
+                    throw err;
+                }
+                if (!r.data || typeof r.data.id === 'undefined' || !r.data.datapoints) {
+                    log(`Shot ${i} has invalid data -- skipped`, true);
+                    bumpSyncProgress(defaultMachineId);
+                    continue;
+                }
+                if (!state.cachedMachineVersion) {
+                    const d   = r.data;
+                    const ver = d.softwareVersion || d.firmware || d.buildNumber || d.buildDate || d.version || null;
+                    if (ver) { state.cachedMachineVersion = String(ver); log(`Gaggiuino firmware (from shot): ${state.cachedMachineVersion}`); }
+                }
+                if (state.cachedMachineVersion) r.data.glpFirmwareVersion = state.cachedMachineVersion;
+                shotService.upsertShot(r.data);
+                bumpSyncProgress(defaultMachineId);
             }
-            if (!state.cachedMachineVersion) {
-                const d   = r.data;
-                const ver = d.softwareVersion || d.firmware || d.buildNumber || d.buildDate || d.version || null;
-                if (ver) { state.cachedMachineVersion = String(ver); log(`Gaggiuino firmware (from shot): ${state.cachedMachineVersion}`); }
-            }
-            if (state.cachedMachineVersion) r.data.glpFirmwareVersion = state.cachedMachineVersion;
-            shotService.upsertShot(r.data);
+            loopOk = true;
+        } finally {
+            state.syncProgress.delete(defaultMachineId);
+            if (tracked) bus.emit(EVENTS.SYNC_COMPLETE, { machineId: defaultMachineId, total, success: loopOk });
         }
 
         // eslint-disable-next-line require-atomic-updates -- syncShots() has no mutex guarding overlapping calls (pre-existing); a real fix is a synchronization change out of scope for this lint-only pass
@@ -101,6 +204,15 @@ async function syncShots(runtime = defaultRuntime) {
         state.machineReachable = false;
         state.lastMachineError = state.lastSyncError;
         log(`Sync error: ${err.message}`, true);
+        // #709: err.message alone (e.g. "Request failed with status code
+        // 404") doesn't say which endpoint/shot id 404'd or what the
+        // machine actually returned -- debug-gated since it echoes response
+        // bodies, which could be large/noisy for normal users.
+        if (err.response) {
+            const url  = (err.config?.url || '').replace(/https?:\/\/\S+/g, '[url]');
+            const body = JSON.stringify(err.response.data).slice(0, 500);
+            debugLog(`Sync error detail: ${err.response.status} on ${url} -- body: ${body}`);
+        }
         return false;
     }
 }
@@ -113,7 +225,9 @@ async function syncShots(runtime = defaultRuntime) {
 // native ids or another additional machine's shots in the shared `shots`
 // table.
 async function syncMachineShot(machine, nativeId, adapter) {
+    const shotStartedAt = Date.now(); // #716
     const shot = await adapter.getShot(machine, nativeId);
+    debugLog(`Sync (${machine.name}): fetched shot ${nativeId} from host=${machine.host} -> ${Date.now() - shotStartedAt}ms`);
     if (!shot || !shot.datapoints) {
         log(`Sync (${machine.name}): shot ${nativeId} has invalid data -- skipped`, true);
         return;
@@ -134,8 +248,27 @@ async function syncMachineShots(machine) {
 
         if (lastNativeId >= latestNativeId) return true;
 
-        for (let i = lastNativeId + 1; i <= latestNativeId; i++) {
-            await syncMachineShot(machine, i, adapter);
+        // #729/#730: only surface progress for a backfill big enough to
+        // actually take a noticeable amount of time -- a handful of shots
+        // finishes before the UI's next poll would ever see it. Keyed by
+        // machine.id in the shared Map so this machine's entry can't
+        // clobber -- or be clobbered by -- a concurrent syncShots()
+        // (default machine) or another machine's syncMachineShots() run.
+        const total = latestNativeId - lastNativeId;
+        // #735: same "only a tracked/shown backfill gets a completion
+        // broadcast" reasoning as syncShots() above.
+        const tracked = total > 5;
+        if (tracked) state.syncProgress.set(machine.id, { current: 0, total });
+        let loopOk = false;
+        try {
+            for (let i = lastNativeId + 1; i <= latestNativeId; i++) {
+                await syncMachineShot(machine, i, adapter);
+                bumpSyncProgress(machine.id);
+            }
+            loopOk = true;
+        } finally {
+            state.syncProgress.delete(machine.id);
+            if (tracked) bus.emit(EVENTS.SYNC_COMPLETE, { machineId: machine.id, total, success: loopOk });
         }
         log(`Sync (${machine.name}): up to shot ${latestNativeId}`);
         return true;
@@ -201,6 +334,7 @@ async function fetchMachineVersion() {
     // edited via Settings UI could make backgroundHaCheck() (30s interval)
     // mark a correctly-rehosted machine unreachable.
     const baseUrl   = registry.baseUrlFor();
+    if (!baseUrl) return; // #718: no host configured anywhere -- nothing to check
     const endpoints = ['/api/system/info', '/api/firmware', '/api/about'];
     let lastErr = null, anySuccess = false;
     for (const path of endpoints) {

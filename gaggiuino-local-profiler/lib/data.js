@@ -19,16 +19,29 @@ function loadOptions() {
     return {};
 }
 
+// #718: null means "genuinely nothing configured anywhere" -- callers must
+// treat that as "skip, don't request" rather than contacting a fallback
+// host. A malformed-but-non-empty value (bad scheme, unparseable) is a
+// different case -- that keeps its own explicit-default fallback below
+// (#699's tests cover it), since there the user typed *something* and a
+// clear signal beats a silent null.
 function getMachineUrl(opts) {
-    const raw = (opts.machine_host || opts.machine_url || process.env.MACHINE_URL || 'gaggia.intern').trim();
-    const normalised = /^https?:\/\//i.test(raw) ? raw : `http://${raw}/api/shots`;
+    const raw = (opts.machine_host || opts.machine_url || process.env.MACHINE_URL || '').trim();
+    if (!raw) return null;
+    // #699: normalise unconditionally instead of only appending /api/shots
+    // when no scheme is present -- a host entered *with* a scheme (e.g.
+    // "http://192.168.1.50/", the format the Machines "Add machine" dialog
+    // and the legacy machine_host option both accept) used to be returned
+    // as-is, silently dropping /api/shots and breaking shot sync while
+    // status/live polling (which only ever reduce to origin) kept working.
+    const withScheme = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
     try {
-        const u = new URL(normalised);
+        const u = new URL(withScheme);
         if (!ALLOWED_URL_SCHEMES.includes(u.protocol)) {
             log(`Invalid URL scheme: ${u.protocol} -- using default`, true);
             return 'http://gaggia.intern/api/shots';
         }
-        return normalised;
+        return `${u.protocol}//${u.host}/api/shots`;
     } catch {
         log('Invalid machine_host value -- using default', true);
         return 'http://gaggia.intern/api/shots';
@@ -36,10 +49,12 @@ function getMachineUrl(opts) {
 }
 
 function getMachineBaseUrl(opts) {
+    const url = getMachineUrl(opts);
+    if (!url) return null;
     try {
-        const u = new URL(getMachineUrl(opts));
+        const u = new URL(url);
         return `${u.protocol}//${u.host}`;
-    } catch { return 'http://gaggia.intern'; }
+    } catch { return null; }
 }
 
 function getSyncIntervalMs(opts) {

@@ -32,6 +32,7 @@
 <!-- ── Sidebar (shot list panel) ── -->
 <div id="sidebar">
     <h2>Shots <span id="shot-count"></span><div class="flap-board" id="flapDigits"></div><button id="collapseBtn" data-i18n-title="sidebar_collapse" title="Sidebar einklappen"><svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z"/></svg></button></h2>
+    <div id="syncProgressBar" style="display:none"><span id="syncProgressLabel"></span><div class="sync-progress-track"><div class="sync-progress-fill"></div></div></div>
     <div id="search-container">
         <input type="search" id="shotSearch" placeholder="Suche nach Profil, Kaffee, Mühle …">
         <div id="beanFilterIndicator" style="display:none"></div>
@@ -161,9 +162,8 @@
             <p data-i18n="empty_desc">Stelle sicher, dass die Gaggiuino-Maschine unter der konfigurierten URL erreichbar ist und nutze ↻ Sync.</p>
             <div id="onboarding-panel" style="display:none">
                 <ol id="onboarding-steps">
-                    <li data-i18n="onboarding_step1">machine_host in den Add-on-Optionen setzen</li>
+                    <li data-i18n="onboarding_step1">Maschinen-Host unter Einstellungen → Maschinen setzen</li>
                     <li data-i18n="onboarding_step2">Sicherstellen, dass die Gaggiuino-Maschine im Netzwerk erreichbar ist</li>
-                    <li data-i18n="onboarding_step3">Add-on neu starten</li>
                 </ol>
                 <button id="onboardingDemoBtn" class="lib-save-btn" data-i18n="onboarding_demo_btn">Demo-Daten laden</button>
             </div>
@@ -1199,6 +1199,17 @@
         </div>
     </div>
 
+    <!-- First-run setup wizard (#744) -->
+    <div id="setupWizardModal" class="guided-maint-overlay" style="display:none">
+        <div class="guided-maint-modal dialin-wizard-modal">
+            <div class="fw-header">
+                <h3 class="maint-section-title" data-i18n="setup_wizard_title" style="margin:0">Willkommen bei GLP</h3>
+                <button type="button" class="fw-close-x" data-action="setup-wizard-close" aria-label="Close">✕</button>
+            </div>
+            <div id="swBody" class="dw-body"></div>
+        </div>
+    </div>
+
     <!-- Settings view -->
     <div id="settings-view">
         <!-- "What's New" in-app changelog (#610) — always visible, newest
@@ -1333,6 +1344,7 @@
             <p class="settings-card-desc" data-i18n="settings_machines_desc">Verwalte die Espressomaschinen, die diese App überwacht.</p>
             <div id="machinesList" class="machines-list"></div>
             <button id="addMachineBtn" type="button" class="backup-btn" data-i18n="settings_machines_add">+ Maschine hinzufügen</button>
+            <button id="restartSetupWizardBtn" type="button" class="lib-btn-sm" data-i18n="settings_restart_setup_wizard">Setup-Tour neu starten</button>
         </div>
         <div class="settings-card" id="machineFormCard" style="display:none">
             <h3 class="settings-card-title" id="machineFormTitle" data-i18n="settings_machines_add">+ Maschine hinzufügen</h3>
@@ -1402,6 +1414,27 @@
                 <code id="apiTokenValue" class="api-token-value"></code>
                 <button id="apiTokenCopyBtn" type="button" class="backup-btn" data-i18n="settings_api_token_copy">Kopieren</button>
             </div>
+        </div>
+        <!-- #722: dev-channel-only diagnostic, hidden by default. Shown only
+             when /api/status reports devBuild (see components/status.js) --
+             same signal the version-badge suffix and "UNSTABLE DEV BUILD"
+             banner already use, never present on a real install. The route
+             itself (routes/debug.js) independently 404s for anyone who hits
+             it without GLP_DEV_BUILD set -- this hidden-by-default markup is
+             just UI hygiene, not the actual safety mechanism. -->
+        <div class="settings-card" id="devToolsCard" style="display:none">
+            <h3 class="settings-card-title" data-i18n="settings_devtools_title">Dev Tools</h3>
+            <p class="settings-card-desc" data-i18n="settings_devtools_desc">GLP DEV channel only — never available on a real install.</p>
+            <button id="devExportDbBtn" type="button" class="backup-btn" data-i18n="settings_devtools_export_db">Download raw database</button>
+            <!-- #755: counterpart to the export button above. Translation
+                 text must live in its own span, same reasoning as the
+                 Backup & Restore card's restore label (applyTranslations
+                 sets textContent on [data-i18n] nodes, which would wipe the
+                 file input). -->
+            <label class="backup-btn" style="cursor:pointer">
+                <span data-i18n="settings_devtools_import_db">Upload raw database …</span>
+                <input type="file" id="devImportDbInput" accept=".db" style="display:none">
+            </label>
         </div>
     </div>
 
