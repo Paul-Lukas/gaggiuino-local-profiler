@@ -111,7 +111,7 @@ Docs and code always in the same commit — never deliver CHANGELOG/DOCS/README 
 
 Every commit that ships a feature or fix needs:
 1. Code change
-2. `CHANGELOG.md` entry at the top
+2. `CHANGELOG.md` entry at the top — **keep it short: one bold lead-in sentence per bullet, optionally one short trailing clause, plus `Closes #N`.** No multi-sentence technical paragraphs, no file/function names, no "Review follow-up"/"Live-testing follow-up" sub-narratives. Home Assistant Supervisor renders this file verbatim in the add-on's own Update dialog (screenshot-verified 2026-08-11) — a long entry there is a real UX problem, not just a cosmetic one. The deep technical writeup (root cause, file paths, edge cases) belongs in the commit message and PR description, which stay the actual detailed record; don't duplicate it into `CHANGELOG.md`.
 3. `DOCS.md` **and** `DOCS.de.md` update if the feature is user-facing — both languages always in sync
 4. `README.md` features table update if it's a new feature
 5. `gaggiuino-local-profiler/lib/whats-new.js` gets a new entry (version, date, 1-3 short highlight bullets) whenever a release ships — the in-app "What's New" Settings card reads this hand-maintained file directly, it is not generated from `CHANGELOG.md`. Keep it capped at 8 entries (drop the oldest).
