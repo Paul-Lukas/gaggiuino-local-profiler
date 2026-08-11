@@ -25,6 +25,32 @@ const WHATS_NEW_ENTRIES = [
         'Settings → Machines: "Test connection" now saves the machine automatically first, you can change the default machine or delete any machine, and the host field can be left empty to save a machine as "not configured yet".',
         'Fixed several shot-sync sticking points (a stuck backfill, an out-of-range shot id) and the Live tab\'s flow reading always showing 0.',
     ] },
+    { version: '2.31.0', date: '2026-08-07', highlights: [
+        'Added optional per-install shot-logging defaults (Settings → "Shot logging defaults") that auto-prefill a new shot\'s annotation panel.',
+        'Added Basket Stats and Puck Screen Stats groupings to Analytics, alongside the existing Grinder Stats.',
+        'Added on-duration to the status footer, edge-swipe to open the mobile drawer, and a persistent dev-build warning banner.',
+    ] },
+    { version: '2.30.0', date: '2026-08-06', highlights: [
+        'Backup export now downloads as a real .zip with selectable sections, an optional encrypted API-token/MQTT-login section, and a dry-run preview before restoring.',
+        'Fixed the status dot/Live tab staying green for hours after the machine was switched off — and, on the same fix, staying red for minutes after it was switched back on.',
+        'Fixed barcode scanning during bean import being completely broken for every user, blocked by the app\'s own content-security policy.',
+    ] },
+    { version: '2.29.0', date: '2026-08-04', highlights: [
+        'Added Baskets and Puck Screens as new Coffee Library entity types, with photo upload and shot linkage like beans.',
+    ] },
+    { version: '2.28.0', date: '2026-08-04', highlights: [
+        'Added an in-app "What\'s New" changelog to Settings — this list.',
+    ] },
+    { version: '2.27.4', date: '2026-08-04', highlights: [
+        'Fixed a stale WebSocket session leak when a machine is removed or re-hosted.',
+        'Fixed component-test commands (pump/valve/LED) always timing out despite succeeding.',
+    ] },
+    { version: '2.27.3', date: '2026-08-04', highlights: [
+        'Live temperature/pressure/weight readings now actually update in real time over WebSocket/MQTT, instead of lagging on the 1s REST poll.',
+    ] },
+    { version: '2.27.2', date: '2026-08-04', highlights: [
+        'Preheat-ready and low-stock notification toggles are now reachable in Settings even when Orders is disabled.',
+    ] },
 ];
 
 const MAX_ENTRIES = 8;
