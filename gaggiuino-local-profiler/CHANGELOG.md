@@ -1,3 +1,8 @@
+## [2.33.3] – 2026-08-11
+
+### Changed
+- **Live view updates faster on a fresh sensor reading.** A WebSocket or MQTT sample now pushes to the Live tab the instant it arrives instead of waiting for the next 1-second poll tick. Closes #708
+
 ## [2.33.2] – 2026-08-11
 
 ### Changed

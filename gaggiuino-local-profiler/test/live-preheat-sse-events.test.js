@@ -189,4 +189,87 @@ describe('LIVE_SNAPSHOT/PREHEAT_UPDATE SSE emissions (#736)', () => {
 
         expect(events.length).toBeGreaterThanOrEqual(1);
     });
+
+    // #708: a fresh WS/MQTT sample previously just sat in liveTransport's
+    // cache until the next 1s tick of pollViaGaggiuinoStatus() read it --
+    // these cover the bridge from gaggiuino-live-client.js's shared `events`
+    // emitter (reused by gaggiuino-mqtt-client.js) straight into an
+    // immediate LIVE_SNAPSHOT, without waiting for that tick.
+    describe('#708: transport push-on-arrival bridged into LIVE_SNAPSHOT', () => {
+        it('a sensor-snap/sys-state event while polling is active emits an immediate LIVE_SNAPSHOT', () => {
+            const { startLivePolling, stopLivePolling, buildLiveDataResponse } = require('../lib/poll');
+            const { MachineRuntimeState } = require('../lib/machine-runtime-state');
+            const { bus, EVENTS } = require('../lib/events');
+            const { events: liveEvents } = require('../lib/gaggiuino-live-client');
+            const runtime = new MachineRuntimeState();
+
+            startLivePolling(runtime);
+            const events = [];
+            bus.on(EVENTS.LIVE_SNAPSHOT, p => events.push(p));
+
+            liveEvents.emit('sensor-snap', 'http://gaggiuino.local', {});
+
+            expect(events).toHaveLength(1);
+            expect(events[0]).toEqual(buildLiveDataResponse());
+
+            stopLivePolling(runtime);
+        });
+
+        it('a burst of transport events within the throttle window collapses into a single LIVE_SNAPSHOT', () => {
+            const { startLivePolling, stopLivePolling } = require('../lib/poll');
+            const { MachineRuntimeState } = require('../lib/machine-runtime-state');
+            const { bus, EVENTS } = require('../lib/events');
+            const { events: liveEvents } = require('../lib/gaggiuino-live-client');
+            const runtime = new MachineRuntimeState();
+
+            startLivePolling(runtime);
+            const events = [];
+            bus.on(EVENTS.LIVE_SNAPSHOT, p => events.push(p));
+
+            liveEvents.emit('sensor-snap', 'http://gaggiuino.local', {});
+            liveEvents.emit('sys-state', 'http://gaggiuino.local', {});
+            liveEvents.emit('sensor-snap', 'http://gaggiuino.local', {});
+
+            expect(events).toHaveLength(1);
+
+            stopLivePolling(runtime);
+        });
+
+        it('stopLivePolling() unsubscribes the bridge -- a later transport event emits nothing', () => {
+            const { startLivePolling, stopLivePolling } = require('../lib/poll');
+            const { MachineRuntimeState } = require('../lib/machine-runtime-state');
+            const { bus, EVENTS } = require('../lib/events');
+            const { events: liveEvents } = require('../lib/gaggiuino-live-client');
+            const runtime = new MachineRuntimeState();
+
+            startLivePolling(runtime);
+            stopLivePolling(runtime); // itself emits one LIVE_SNAPSHOT (existing #736 behavior, not asserted here)
+
+            const events = [];
+            bus.on(EVENTS.LIVE_SNAPSHOT, p => events.push(p));
+
+            liveEvents.emit('sensor-snap', 'http://gaggiuino.local', {});
+
+            expect(events).toHaveLength(0);
+        });
+
+        it('a transport event does not append to state.liveAccum.datapoints -- that stays tied to the REST tick only', () => {
+            const { startLivePolling, stopLivePolling } = require('../lib/poll');
+            const { MachineRuntimeState } = require('../lib/machine-runtime-state');
+            const { events: liveEvents } = require('../lib/gaggiuino-live-client');
+            const runtime = new MachineRuntimeState();
+
+            state.liveAccum = {
+                startTime: Date.now(), profileName: 'Test', prevWeight: 0,
+                datapoints: { timeInShot: [], pressure: [], temperature: [], shotWeight: [], weightFlow: [], pumpFlow: [], targetTemperature: [] },
+            };
+
+            startLivePolling(runtime);
+            liveEvents.emit('sensor-snap', 'http://gaggiuino.local', {});
+
+            expect(state.liveAccum.datapoints.timeInShot).toHaveLength(0);
+
+            stopLivePolling(runtime);
+        });
+    });
 });

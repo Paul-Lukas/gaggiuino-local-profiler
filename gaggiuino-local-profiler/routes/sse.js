@@ -11,6 +11,7 @@ const router  = express.Router();
 const state = require('../lib/state');
 const { bus, EVENTS } = require('../lib/events');
 const { buildPreheatResponse } = require('../lib/preheat');
+const { buildLiveDataResponse } = require('../lib/poll');
 
 const PING_INTERVAL_MS = 20_000;
 
@@ -53,10 +54,15 @@ router.get('/api/events', (req, res) => {
     }
 
     // #736: also prime with the current preheat snapshot -- without this the
-    // Ready badge would wait up to 30s for the watcher's first tick. No
-    // equivalent priming for LIVE_SNAPSHOT: its 1s cadence is fast enough
-    // that a new client just waits for the next regular tick.
+    // Ready badge would wait up to 30s for the watcher's first tick.
     send(EVENTS.PREHEAT_UPDATE, buildPreheatResponse());
+    // #708: same priming for LIVE_SNAPSHOT -- now that a fresh transport
+    // sample can push immediately instead of waiting for the next 1s tick
+    // (see lib/poll.js), a client connecting right after such a push would
+    // otherwise wait an unpredictable amount of time for the next trigger.
+    // buildLiveDataResponse() reads current state synchronously, same
+    // stateless-read pattern as buildPreheatResponse() above.
+    send(EVENTS.LIVE_SNAPSHOT, buildLiveDataResponse());
 
     const onProgress = payload => send(EVENTS.SYNC_PROGRESS, payload);
     const onComplete  = payload => send(EVENTS.SYNC_COMPLETE, payload);

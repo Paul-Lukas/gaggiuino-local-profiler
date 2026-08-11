@@ -18,6 +18,9 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.33.3', date: '2026-08-11', highlights: [
+        'Live view updates faster on a fresh sensor reading: a WebSocket or MQTT sample now pushes to the Live tab instantly instead of waiting for the next 1-second poll.',
+    ] },
     { version: '2.33.2', date: '2026-08-11', highlights: [
         'Sidebar shot counter cleaned up: removed the redundant "(N)" text next to the flap-board counter and moved the counter in front of the "Shots" label.',
     ] },
@@ -47,9 +50,6 @@ const WHATS_NEW_ENTRIES = [
     ] },
     { version: '2.29.0', date: '2026-08-04', highlights: [
         'Added Baskets and Puck Screens as new Coffee Library entity types, with photo upload and shot linkage like beans.',
-    ] },
-    { version: '2.28.0', date: '2026-08-04', highlights: [
-        'Added an in-app "What\'s New" changelog to Settings — this list.',
     ] },
 ];
 
