@@ -59,7 +59,7 @@
             <div style="display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden">
                 <span class="status-dot unknown" id="statusDot"></span>
                 <span id="syncTime" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">kein Sync</span>
-                <span id="glpVersionBadge" style="color:#52525b;font-size:.7rem;user-select:none;flex-shrink:0"></span>
+                <span id="glpVersionBadge" style="color:var(--gray-600);font-size:.7rem;user-select:none;flex-shrink:0"></span>
             </div>
             <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
                 <button id="powerBtn" style="display:none" title=""><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v8"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg></button>
@@ -170,7 +170,7 @@
             <div class="sprofiler-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
                 <div style="flex:1;min-width:0">
                     <h1 id="topTitle" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Profil-Name</h1>
-                    <p id="topSubtitle" style="margin:0"><span id="machineSubtitle">gaggiuino</span><span id="freshnessBadge" class="freshness-badge" style="display:none"></span><span id="firmwareVersionBadge" style="display:none;font-size:.7rem;color:#52525b;margin-left:6px"></span><img id="shotHeaderThumb" class="shot-header-thumb" alt="" style="display:none" data-i18n-title="shot_photo_title"></p>
+                    <p id="topSubtitle" style="margin:0"><span id="machineSubtitle">gaggiuino</span><span id="freshnessBadge" class="freshness-badge" style="display:none"></span><span id="firmwareVersionBadge" style="display:none;font-size:.7rem;color:var(--gray-600);margin-left:6px"></span><img id="shotHeaderThumb" class="shot-header-thumb" alt="" style="display:none" data-i18n-title="shot_photo_title"></p>
                 </div>
                 <div style="display:flex;gap:12px;align-items:flex-start;flex-shrink:0">
                     <button class="export-btn" id="exportAllCsvBtn" data-i18n-title="export_csv_title" title="Alle Shots als CSV exportieren">↓ CSV</button>
@@ -350,7 +350,7 @@
                         </div>
                     </div>
                     <div class="annotation-field">
-                        <label>TDS % <span id="annTdsOptional" style="color:#52525b;font-weight:normal" data-i18n="ann_tds_optional">(optional)</span></label>
+                        <label>TDS % <span id="annTdsOptional" style="color:var(--gray-600);font-weight:normal" data-i18n="ann_tds_optional">(optional)</span></label>
                         <input type="number" id="annTds" data-i18n-placeholder="ann_tds_ph" placeholder="z.B. 9.2" step="0.1" min="0" max="25">
                     </div>
                     <div class="annotation-field full-width">
@@ -1447,7 +1447,7 @@
         <div class="scan-overlay"><div class="scan-frame"></div></div>
     </div>
     <div id="scanStatus"></div>
-    <p style="color:#52525b;font-size:.7rem;text-align:center;margin:0">
+    <p style="color:var(--gray-600);font-size:.7rem;text-align:center;margin:0">
         <span data-i18n="scan_attribution">Produktdaten von</span> <a href="https://world.openfoodfacts.org" target="_blank" style="color:#71717a">Open Food Facts</a> (ODbL)
     </p>
     <button class="scan-close-btn" id="closeScanModalBtn" data-i18n="scan_close">Schließen</button>
