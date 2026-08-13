@@ -39,7 +39,11 @@ export const WARNING_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" a
 // button, chart time-tab, theme toggle, channeling warning and the shot
 // verdict/grind-advice icon fields.
 
-export const STAR_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>';
+// #811: carries `star-glyph` so the rating rows can fill the same path for
+// an earned star instead of swapping in a second shape. Without that class
+// the shared `.rail-icon { fill: none }` wins and every star renders empty —
+// which no test can see, since the markup is correct either way.
+export const STAR_ICON_SVG = '<svg class="rail-icon sm star-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>';
 
 export const LIGHTNING_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>';
 

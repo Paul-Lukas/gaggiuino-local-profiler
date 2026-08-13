@@ -74,10 +74,14 @@ export function countryName(code, lang) {
   catch { return code; }
 }
 
-export function flagEmoji(code) {
-  if (!_isCountryCode(code)) return '';
-  return String.fromCodePoint(...[...code].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
-}
+// #811: flagEmoji() removed. It assembled a regional-indicator flag from the
+// country code at render time, so no source-level emoji scan ever saw it — not
+// the one that scoped this issue, and not the one in either card repo, where
+// the same helper was removed for the same reasons. It rendered in the OS font
+// (a different visual language from every drawn icon beside it), degrades to a
+// bare two-letter box on Windows, and is politically loaded for several
+// coffee-growing regions in a way a plain country name is not. Every call site
+// rendered countryName() immediately after it, so nothing is lost.
 
 // #417 sweep: the `icon` emoji fields these entries used to carry were dead
 // data — no consumer ever read MAINT_META[task].icon, since maintenance.js's

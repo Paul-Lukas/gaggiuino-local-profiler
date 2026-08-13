@@ -13,7 +13,7 @@ function makeFakeDocument() {
   return {
     body,
     getElementById: id => registry.get(id),
-    createElement: () => ({ style: {}, textContent: '', offsetHeight: 34 }),
+    createElement: () => ({ style: {}, textContent: '', innerHTML: '', offsetHeight: 34 }),
   };
 }
 
@@ -29,7 +29,12 @@ describe('dev-build banner (#683)', () => {
     showDevBuildBanner();
     const banner = doc.getElementById('glpDevBanner');
     expect(banner).toBeDefined();
-    expect(banner.textContent).toBe('⚠ UNSTABLE DEV BUILD');
+    // #811: the ⚠ text glyph is now the drawn warning icon, so the banner
+    // is built with innerHTML. Assert on both parts rather than one string:
+    // an icon that silently stops rendering should fail this test.
+    expect(banner.innerHTML).toContain('UNSTABLE DEV BUILD');
+    expect(banner.innerHTML).toContain('<svg');
+    expect(banner.innerHTML).not.toContain('⚠');
   });
 
   it('uses a yellow background with black text', () => {
@@ -70,6 +75,7 @@ describe('dev-build banner (#683)', () => {
   it('appends the devBuild string to the banner text when given', () => {
     showDevBuildBanner('dev-20260809_0800');
     const banner = doc.getElementById('glpDevBanner');
-    expect(banner.textContent).toBe('⚠ UNSTABLE DEV BUILD (dev-20260809_0800)');
+    expect(banner.innerHTML).toContain('UNSTABLE DEV BUILD (dev-20260809_0800)');
+    expect(banner.innerHTML).toContain('<svg');
   });
 });

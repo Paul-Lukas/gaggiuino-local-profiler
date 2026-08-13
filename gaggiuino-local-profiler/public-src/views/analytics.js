@@ -1,11 +1,11 @@
 import Chart from 'chart.js/auto';
 import { S } from '../state.js';
 import { t } from '../i18n.js';
-import { localeFor, COFFEE_COUNTRIES, COUNTRY_CENTROIDS, countryName, flagEmoji } from '../constants.js';
+import { localeFor, COFFEE_COUNTRIES, COUNTRY_CENTROIDS, countryName } from '../constants.js';
 import { scoreClass } from '../utils.js';
 import { _parseGrindNum } from './shots/grind.js';
 import { _equipmentName } from './shots/index.js';
-import { TARGET_ICON_SVG } from '../icons.js';
+import { TARGET_ICON_SVG, WARNING_ICON_SVG } from '../icons.js';
 
 // ── Analytics entry point ─────────────────────────────────────────────────
 export function initAnalytics() {
@@ -100,7 +100,10 @@ export function buildSummaryKpis() {
       if (slope < -1.5) {
         const drop = Math.abs(slope).toFixed(1);
         warnEl.className = 'trend-warning';
-        warnEl.textContent = t('analytics_trend_warning', n, drop);
+        // #811: the ⚠ glyph came out of the translated string; the icon is
+        // rendered here instead so translators never carry markup. `n`/`drop`
+        // are numbers computed above, so there is no untrusted input here.
+        warnEl.innerHTML = `${WARNING_ICON_SVG} ${_esc(t('analytics_trend_warning', n, drop))}`;
         warnEl.style.display = '';
       } else {
         warnEl.style.display = 'none';
@@ -920,7 +923,7 @@ export async function buildWorldMap() {
         if (params.seriesType === 'map') {
           const stats = params.data?._stats;
           if (!stats) return null;
-          const name = `${flagEmoji(params.name)} ${countryName(params.name, S.currentLang)}`.trim();
+          const name = countryName(params.name, S.currentLang);
           // Annotate a bean's weighted contribution only when it's a blend
           // (non-integer share) — a single-origin bean's full count is
           // already implied by the total, no need to repeat it per-bean.

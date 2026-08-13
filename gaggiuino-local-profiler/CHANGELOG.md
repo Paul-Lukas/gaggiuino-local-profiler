@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Changed
+- **Country flags and star characters replaced by drawn icons.** The flags were built at render time from the country code, so no source scan ever saw them; they rendered in the OS font and degrade to a bare two-letter box on Windows. The resolved country name was always shown next to them, so nothing is lost. Star ratings now use the drawn star, filled or empty via the same path. #811
+
 ### Fixed
 - **Text sitting ON a semantic fill was unreadable in the dark theme.** The dial-in score chip and score pill put white text on `--ok`/`--warn`/`--err` used as a *background* — measured **2.37:1** to 3.16:1. The earlier audits only ever checked these tokens as text on a surface, never as a surface under text, so the case was invisible to them. New `--on-fill` is black in the dark theme and white in the light one — the reverse of the intuition, because the dark theme's semantic colours are the light, saturated ones. Same mechanism as the existing `--accent-text`.
 - **The compare-mode button's white label measured 3.15:1.** Its fill is deliberately a fixed blue that does not invert with the theme, and a comment asserted that this made it exempt; it does not. Darkened along the same hue to `#217cb9`, the first value carrying white text at 4.5:1.

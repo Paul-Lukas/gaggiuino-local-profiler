@@ -367,8 +367,14 @@
         }
         .shot-line3 .shot-grinder { overflow: hidden; text-overflow: ellipsis; }
         .shot-line3 .shot-time    { flex-shrink: 0; margin-left: auto; }
-        .stars { color: var(--accent-ink); letter-spacing: 1px; flex-shrink: 0; }
-        .stars .off { color: var(--gray-700); }
+        /* #811: drawn stars (STAR_ICON_SVG) replace the ★ text character.
+           Filled vs empty is a fill on the same path — the outline is the
+           same shape either way, so a half-filled row still reads as one
+           row of five rather than two different glyphs. */
+        .stars { color: var(--accent-ink); display: inline-flex; gap: 1px; flex-shrink: 0; }
+        .stars .star-glyph { fill: currentColor; }
+        .stars .off { color: var(--gray-700); display: inline-flex; gap: 1px; }
+        .stars .off .star-glyph { fill: none; }
 
         /* #412: day-separator group header, replaces the per-row timestamp
            and the old collapsible month-header (#399's approach) — plain,
@@ -971,8 +977,10 @@
         .annotation-title  { font-size: var(--fs-1); color: var(--gray-400); font-weight: 600; }
 
         .star-rating { display: flex; gap: var(--sp-1); }
-        .star { font-size: var(--fs-4); cursor: pointer; color: var(--gray-700); transition: color .12s; user-select: none; line-height: 1; }
+        .star { cursor: pointer; color: var(--gray-700); transition: color .12s; user-select: none; line-height: 0; }
+        .star .star-glyph { width: 22px; height: 22px; fill: none; }
         .star.active, .star:hover { color: var(--accent-ink); }
+        .star.active .star-glyph, .star:hover .star-glyph { fill: currentColor; }
         /* #403: touch-target audit — a bare glyph at any font-size falls
            short of the 44x44px minimum hit area on touch, regardless of
            viewport width, so this is gated on (hover: none) rather than a
@@ -1155,8 +1163,12 @@
         .lib-bean-thumb { width: 40px; height: 40px; border-radius:var(--radius); object-fit: cover; flex-shrink: 0; margin-right: var(--sp-3); background: var(--gray-800); cursor: pointer; }
         .lib-grinder-thumb, .lib-basket-thumb, .lib-puckscreen-thumb { width: 40px; height: 40px; border-radius:var(--radius); object-fit: cover; flex-shrink: 0; margin-right: var(--sp-3); background: var(--gray-800); cursor: pointer; }
         .lib-rating-row { display: flex; align-items: center; gap: 1px; margin-top: var(--sp-1); }
-        .lib-star { color: var(--gray-700); font-size: var(--fs-1); }
-        .lib-star.on { color: #eab308; }
+        .lib-star { color: var(--gray-700); line-height: 0; }
+        .lib-star .star-glyph { width: 13px; height: 13px; fill: none; }
+        /* #811: was a hardcoded #eab308 — the old dark-theme warn value, which
+           never inverted for the light theme. --warn is the audited token. */
+        .lib-star.on { color: var(--warn); }
+        .lib-star.on .star-glyph { fill: currentColor; }
         .lib-rating-num { color: var(--gray-500); font-size: var(--fs-1); margin-left: var(--sp-1); }
         .lib-best-combo-row { display: flex; align-items: center; gap: var(--sp-1); margin-top: var(--sp-1); font-size: var(--fs-1); flex-wrap: wrap; }
         .lib-best-combo-label { color: var(--gray-500); }
