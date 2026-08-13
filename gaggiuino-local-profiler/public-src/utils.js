@@ -342,3 +342,66 @@ export function formatDelta(value, decimals = 0, unit = '') {
   const sign = rounded > 0 ? '+' : rounded < 0 ? '−' : '±';
   return `${sign}${Math.abs(rounded).toFixed(decimals)}${unit}`;
 }
+
+// #814: Chart.js cannot read CSS custom properties — it needs resolved colour
+// values at construction time. Every chart in the app was therefore configured
+// with hardcoded dark-theme hexes (#e4e4e7 legend, #a1a1aa ticks, #27272a
+// grid), which meant charts kept dark chrome on a light page: the legend and
+// axis labels measured roughly 1.3:1 against the light background, i.e.
+// effectively invisible.
+//
+// Resolve them from the tokens instead. MUST be called at render time, not at
+// module load: the value is whatever the active theme resolves to right now,
+// and a value captured at import time would be frozen to whichever theme
+// happened to be active when the module first loaded.
+export function themeColor(varName, fallback = '') {
+  if (typeof getComputedStyle !== 'function' || typeof document === 'undefined') return fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(varName).trim() || fallback;
+}
+
+// The three roles every chart needs. Fallbacks are the old dark-theme values,
+// so a chart still renders sanely if this is somehow called before the
+// stylesheet has applied.
+export function chartColors() {
+  return {
+    text: themeColor('--gray-200', '#e4e4e7'),  // legend / dataset labels
+    tick: themeColor('--gray-500', '#a1a1aa'),  // axis tick labels
+    grid: themeColor('--gray-700', '#27272a'),  // grid lines
+  };
+}
+
+// #814: fired by _applyTheme() in main.js after the theme attribute changes.
+// A chart already on screen keeps the colours it was built with, so views
+// holding a live Chart instance listen for this and rebuild — without it,
+// switching theme in Settings leaves every open chart on the old palette
+// until something else happens to re-render it.
+export const THEME_CHANGE_EVENT = 'glp-theme-change';
+
+export function onThemeChange(handler) {
+  window.addEventListener(THEME_CHANGE_EVENT, handler);
+  return () => window.removeEventListener(THEME_CHANGE_EVENT, handler);
+}
+
+// #814: repaints a live Chart.js instance's CHROME (legend, ticks, grid) to the
+// current theme. Only touches the three chrome roles — dataset colours are the
+// Okabe-Ito series palette and are deliberately theme-independent, so a series
+// keeps meaning the same thing in both themes.
+//
+// Updating in place rather than rebuilding: a rebuild would lose zoom/pan
+// state and restart the intro animation on every theme switch, and there is
+// nothing about a colour change that requires new geometry.
+export function applyChartTheme(chart) {
+  if (!chart || !chart.options) return;
+  const C = chartColors();
+  const legend = chart.options.plugins?.legend?.labels;
+  if (legend) legend.color = C.text;
+  for (const axis of Object.values(chart.options.scales || {})) {
+    if (!axis) continue;
+    if (axis.ticks) axis.ticks.color = C.tick;
+    // Leave grid.color alone where the axis deliberately draws no grid
+    // (drawOnChartArea:false) — writing a colour there would be harmless but
+    // misleading to read later.
+    if (axis.grid && axis.grid.drawOnChartArea !== false) axis.grid.color = C.grid;
+  }
+  chart.update('none');   // 'none' = no animation; this is a repaint, not a transition
+}

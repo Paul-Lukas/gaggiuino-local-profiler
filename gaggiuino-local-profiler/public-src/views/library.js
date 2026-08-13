@@ -523,7 +523,13 @@ export function toggleBeanQR(id) {
   // an unhandled rejection: the canvas stayed silently blank, no error ever
   // reached the user.
   import('qrcode').then(({ default: QRCode }) =>
-    QRCode.toCanvas(canvas, generateBeanQR(bean), { width: 140, margin: 1, errorCorrectionLevel: 'L', color: { dark: '#e4e4e7', light: '#18181b' } })
+    // #814: this was drawn INVERTED — dark: '#e4e4e7' on light: '#18181b' means
+    // light modules on a dark ground, to match the dark theme. The QR spec
+    // assumes dark-on-light, and while many scanners cope with inversion,
+    // plenty of older and simpler ones do not: a code that fails to scan on
+    // someone's phone is a functional defect, not a theming preference.
+    // Fixed polarity in both themes, deliberately NOT theme-aware.
+    QRCode.toCanvas(canvas, generateBeanQR(bean), { width: 140, margin: 2, errorCorrectionLevel: 'L', color: { dark: '#000000', light: '#ffffff' } })
   ).then(() => {
     if (label) label.textContent = t('bean_qr_label');
   }).catch(() => {

@@ -2,7 +2,7 @@ import Chart from 'chart.js/auto';
 import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { localeFor, COFFEE_COUNTRIES, COUNTRY_CENTROIDS, countryName } from '../constants.js';
-import { scoreClass } from '../utils.js';
+import { scoreClass, chartColors } from '../utils.js';
 import { _parseGrindNum } from './shots/grind.js';
 import { _equipmentName } from './shots/index.js';
 import { TARGET_ICON_SVG, WARNING_ICON_SVG } from '../icons.js';
@@ -376,6 +376,9 @@ export function setTrendWindow(n) {
 }
 
 export function buildTrendChart() {
+  // #814: resolved per render, never at module load — the value has to be
+  // whatever the ACTIVE theme resolves to right now.
+  const C = chartColors();
   const all = S.shots.filter(s => {
     if (!window.calcShotScore || !window.getShotData) return false;
     return window.calcShotScore(s, window.getShotData(s)) !== null;
@@ -416,7 +419,7 @@ export function buildTrendChart() {
         if (elements.length > 0 && window.goToShot) window.goToShot(src[elements[0].index].id);
       },
       plugins: {
-        legend: { labels: { color: '#a1a1aa', font: { size: 11 } } },
+        legend: { labels: { color: C.tick, font: { size: 11 } } },
         tooltip: { callbacks: { footer: () => '↗ Shot anzeigen' } },
       },
       scales: {
@@ -969,6 +972,9 @@ export async function buildWorldMap() {
 }
 
 export function buildProfileChart() {
+  // #814: resolved per render, never at module load — the value has to be
+  // whatever the ACTIVE theme resolves to right now.
+  const C = chartColors();
   const byProfile = {};
   for (const s of S.shots) {
     const p = s.profile?.name || s.profileName || 'Unbekannt';
@@ -1015,7 +1021,7 @@ export function buildProfileChart() {
       },
       scales: {
         x: { min: 0, max: 100, ticks: { color: _mutedTickColor(), font: { size: 10 } }, grid: { color: 'rgba(63,63,70,.3)' } },
-        y: { ticks: { color: '#a1a1aa', font: { size: 11 } }, grid: { display: false } }
+        y: { ticks: { color: C.tick, font: { size: 11 } }, grid: { display: false } }
       }
     }
   });
@@ -1277,6 +1283,9 @@ export function setDialinProgressionBean(name) {
 }
 
 function _renderDialinProgressionChart(beanName) {
+  // #814: resolved per render, never at module load — the value has to be
+  // whatever the ACTIVE theme resolves to right now.
+  const C = chartColors();
   const ctx = document.getElementById('dialinProgressionChart');
   if (!ctx) return;
   if (S.dialinProgressionChart) { S.dialinProgressionChart.destroy(); S.dialinProgressionChart = null; }
@@ -1315,7 +1324,7 @@ function _renderDialinProgressionChart(beanName) {
       onClick: (_, elements) => {
         if (elements.length > 0 && window.goToShot) window.goToShot(shots[elements[0].index].id);
       },
-      plugins: { legend: { labels: { color: '#a1a1aa', font: { size: 11 } } } },
+      plugins: { legend: { labels: { color: C.tick, font: { size: 11 } } } },
       scales: {
         x:  { ticks: { color: _mutedTickColor(), font: { size: 10 } }, grid: { color: 'rgba(63,63,70,.3)' } },
         y:  { position: 'left',  ticks: { color: _mutedTickColor(), font: { size: 10 } }, grid: { color: 'rgba(63,63,70,.3)' } },

@@ -17,6 +17,7 @@ export default {
     recipe_dose_yield:'Dose → Resa', recipe_ratio:'Ratio', recipe_bean_grinder:'Caffè & Mulino', recipe_grinder_grind:(g,s)=>g?`${g} · macinatura ${s}`:`Macinatura ${s}`,
     process_pressure:'Pressione (med / max)', process_flow:'Flusso pompa (med)', process_temp:'Temperatura (med ±σ)',
     verdict_word_high:'ottimo', verdict_word_mid:'buono', verdict_word_low:'debole',
+    conn_error:'Errore di connessione',
     verdict_no_data:'Dati ancora insufficienti per un giudizio.',
     verdict_bean_target_hint:'Valutato in base al target di preparazione di questo caffè',
     tab_time:`${CLOCK_ICON_SVG} Tempo`, tab_pq:'Curva P·Q',

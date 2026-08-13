@@ -2,7 +2,7 @@ import Chart from 'chart.js/auto';
 import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { apiFetch, isApiPortBlocked } from '../api.js';
-import { mapToXY, formatTimeLabel } from '../utils.js';
+import { mapToXY, formatTimeLabel, chartColors } from '../utils.js';
 import { getDefaultMachineId } from '../components/machines-settings.js';
 import { localeFor } from '../constants.js';
 
@@ -21,6 +21,9 @@ function _isActiveMachineLiveCapable() {
 
 // ── Live chart init ───────────────────────────────────────────────────────
 export function initLiveChart() {
+  // #814: resolved per render, never at module load — the value has to be
+  // whatever the ACTIVE theme resolves to right now.
+  const C = chartColors();
   const ctx = document.getElementById('liveChart');
   const _existing = Chart.getChart(ctx);
   if (_existing) _existing.destroy();
@@ -47,13 +50,13 @@ export function initLiveChart() {
       animation: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: '#e4e4e7', font: { family: 'Figtree' } } },
+        legend: { labels: { color: C.text, font: { family: 'Figtree' } } },
         tooltip: { callbacks: { title: ctx => t('chart_time', formatTimeLabel(ctx[0].parsed.x)) } }
       },
       scales: {
-        x:  { type: 'linear', min: 0, max: 60, ticks: { color: '#a1a1aa', callback: v => formatTimeLabel(v), stepSize: 5 }, grid: { color: '#27272a' } },
-        y:  { type: 'linear', position: 'left',  min: 0, max: 12, ticks: { color: '#a1a1aa' }, grid: { color: '#27272a' } },
-        y1: { type: 'linear', position: 'right', min: 0, max: 100, ticks: { color: '#a1a1aa' }, grid: { drawOnChartArea: false } }
+        x:  { type: 'linear', min: 0, max: 60, ticks: { color: C.tick, callback: v => formatTimeLabel(v), stepSize: 5 }, grid: { color: C.grid } },
+        y:  { type: 'linear', position: 'left',  min: 0, max: 12, ticks: { color: C.tick }, grid: { color: C.grid } },
+        y1: { type: 'linear', position: 'right', min: 0, max: 100, ticks: { color: C.tick }, grid: { drawOnChartArea: false } }
       }
     }
   });
