@@ -2587,3 +2587,131 @@
             background: linear-gradient(90deg, var(--accent-from), var(--accent-to));
             transition: width .2s ease;
         }
+
+        /* ── Machine icon — live states (#811) ──────────────────────────
+           Animated "Instrument" icon (public-src/machine-icon.js's
+           machineIconAnimatedSvg()/setMachineIconMode()), ported from
+           redesign-2026-08/build-prototype.py's machine_anim() and its
+           prototype.src.html state rules. Every rule is scoped under
+           .machine-icon-live so these short class names (.is-hot, .hot,
+           .m-cup, ...) can't collide with an unrelated .is-something or
+           .hot elsewhere in the app — the same collision class this
+           redesign round already hit twice (.sec, .dot) elsewhere;
+           the SVG-id half of that same lesson is handled in
+           machine-icon.js (every id suffixed per instance). */
+        .machine-icon-live { display: block; width: 100%; height: 100%; }
+        .machine-icon-live .m-svg { width: 100%; height: 100%; display: block; stroke: none; }
+        .machine-icon-live text { font-family: inherit; }
+
+        /* Aufheizen/heating: the body fills from the bottom with the
+           accent colour (BODY ONLY — base and drip tray are structurally
+           dark). heat-base (everything below the display module) follows
+           on/off rather than heat progress, otherwise the side wall stays
+           tinted even in the off state. */
+        .machine-icon-live .heat-rect {
+            transform-origin: 50px 72px;
+            transform: scaleY(var(--heat, 0));
+            transition: transform 1.1s cubic-bezier(.4, 0, .2, 1);
+        }
+        .machine-icon-live .heat-base {
+            transform-origin: 50px 162px;
+            transform: scaleY(0);
+            transition: transform .5s ease;
+        }
+        .machine-icon-live.is-on .heat-base { transform: scaleY(1); }
+        /* A clip rect scaled to zero still leaves an antialiasing seam —
+           hide the hot layer outright when powered off instead. */
+        .machine-icon-live:not(.is-on) .hot { display: none; }
+
+        .machine-icon-live .m-steam,
+        .machine-icon-live .m-pour,
+        .machine-icon-live .m-cup,
+        .machine-icon-live .m-jug { opacity: 0; }
+
+        /* Gaggia Classic lamp logic, deliberately counter-intuitive: the
+           lamp on the BREW switch is a temperature-ready light — lit when
+           the heating element is OFF. Lamp on = at temperature, lamp
+           off = still heating; in standby it cycles with the bi-metal
+           thermostat. Do not "fix" this to the intuitive direction. */
+        .machine-icon-live .lamp { opacity: .12; }
+        .machine-icon-live.is-on .lamp-pwr,
+        .machine-icon-live.is-brewing .lamp-pwr { opacity: 1; }
+        .machine-icon-live.is-hot .lamp-tmp { opacity: 1; animation: mi-thermostat 9s ease-in-out infinite; }
+        .machine-icon-live.is-heating .lamp-tmp { opacity: .12; }
+        .machine-icon-live.is-steaming .lamp-stm { opacity: 1; }
+        @keyframes mi-thermostat { 0%, 62% { opacity: 1; } 70%, 92% { opacity: .14; } 100% { opacity: 1; } }
+
+        /* The on-machine display: temperature+bar while heating, last
+           shot's curve once ready, the live curve while brewing, steam
+           temperature while steaming. */
+        .machine-icon-live .m-disp > g { opacity: 0; }
+        .machine-icon-live.is-heating .d-heat { opacity: 1; }
+        .machine-icon-live.is-hot .d-ready { opacity: 1; }
+        .machine-icon-live.is-brewing .d-ready { opacity: 0; }
+        .machine-icon-live.is-brewing .d-brew { opacity: 1; }
+        .machine-icon-live.is-steaming .d-ready { opacity: 0; }
+        .machine-icon-live.is-steaming .d-steam { opacity: 1; }
+
+        /* Bezug/brewing: the brew scale's cup fills to one third, crema
+           settles on top last. Two steady streams from the basket,
+           converging into one — no dripping, that would depict
+           channeling, a defect rather than normal operation. */
+        .machine-icon-live.is-brewing .m-cup { opacity: 1; animation: mi-place .35s cubic-bezier(.34, 1.56, .64, 1); }
+        .machine-icon-live.is-brewing .cup-rect {
+            transform-origin: 50px 125px;
+            transform: scaleY(0);
+            animation: mi-cupfill 6s .5s linear forwards;
+        }
+        .machine-icon-live.is-brewing .crema { opacity: 0; animation: mi-fadein2 1s 4.4s ease forwards; }
+        .machine-icon-live.is-brewing .m-pour { opacity: 1; }
+        .machine-icon-live.is-brewing .m-pour path {
+            stroke-dasharray: 20;
+            stroke-dashoffset: 20;
+            animation: mi-pour .5s .45s ease-out forwards, mi-thin 6s .95s ease-in forwards;
+        }
+
+        /* Dampf/steaming: milk jug held tilted, wand offset to the side
+           just below the surface — the researched barista position that
+           creates the vortex. The submerged part of the wand (wand-low,
+           part of the shared body) hides while steaming. Milk level
+           rises, vortex rotates, seen from above. */
+        .machine-icon-live.is-steaming .m-jug { opacity: 1; animation: mi-place .35s cubic-bezier(.34, 1.56, .64, 1); }
+        .machine-icon-live .swirl-wrap { transform: translate(73.6px, 101.4px) scale(1, .265); }
+        .machine-icon-live .m-jug { transform-origin: 73.6px 129px; transform: rotate(11deg); }
+        .machine-icon-live.is-steaming .milk-top { animation: mi-milkrise 5s .4s ease-out forwards; }
+        .machine-icon-live.is-steaming .swirl { animation: mi-swirl 2.6s linear infinite; }
+        .machine-icon-live.is-steaming .m-steam { opacity: 1; }
+        .machine-icon-live.is-steaming .wand-low { opacity: 0; }
+        .machine-icon-live.is-steaming .m-steam path { animation: mi-steam 2.6s ease-out infinite; }
+
+        @keyframes mi-steam {
+            0% { transform: translateY(4px) scaleX(.85); opacity: 0; }
+            30% { opacity: .7; }
+            100% { transform: translateY(-9px) scaleX(1.15); opacity: 0; }
+        }
+        @keyframes mi-pour { to { stroke-dashoffset: 0; } }
+        @keyframes mi-thin { from { opacity: 1; } to { opacity: .72; } }
+        @keyframes mi-cupfill { from { transform: scaleY(0); } to { transform: scaleY(.36); } }
+        @keyframes mi-milkrise { from { ry: 1.7; } to { ry: 2.4; } }
+        @keyframes mi-swirl { to { transform: rotate(360deg); } }
+        @keyframes mi-place { from { transform: translateY(7px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes mi-fadein2 { to { opacity: 1; } }
+
+        /* Movement encodes state, it does not decorate — reduced motion
+           must show the correct *static* state, never a frozen
+           half-frame. No other reduced-motion block exists in the app
+           yet; this one is scoped to the icon it was written for. */
+        @media (prefers-reduced-motion: reduce) {
+            .machine-icon-live .heat-rect,
+            .machine-icon-live .heat-base { transition: none; }
+            .machine-icon-live .m-steam path,
+            .machine-icon-live .m-pour path,
+            .machine-icon-live .m-cup,
+            .machine-icon-live .m-jug,
+            .machine-icon-live .lamp { animation: none !important; }
+            .machine-icon-live.is-brewing .cup-rect { animation: none !important; transform: scaleY(.36); }
+            .machine-icon-live.is-brewing .crema { animation: none !important; opacity: 1; }
+            .machine-icon-live.is-brewing .m-pour path { animation: none !important; stroke-dashoffset: 0; }
+            .machine-icon-live.is-steaming .milk-top,
+            .machine-icon-live.is-steaming .swirl { animation: none !important; }
+        }

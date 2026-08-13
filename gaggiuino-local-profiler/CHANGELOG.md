@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Added
+- **An animated machine icon with live states.** Ported from the "Instrument" prototype: a Gaggiuino (rectangular display) and a GaggiMate (chrome puck) variant sharing one body, with heating/ready/brewing/steaming states — the body fills with the machine's accent colour as it heats, a brew scale gains a cup that fills as two converging streams (never a drip, which would depict channeling), and a milk jug appears with a rotating vortex while steaming. `prefers-reduced-motion` shows the correct static state rather than a frozen frame. Not yet wired into a live view — `machineIconAnimatedSvg()`/`setMachineIconMode()` in `public-src/machine-icon.js` are ready for that follow-up. #811
+
 ### Fixed
 - **Four buttons were unreadable in the light theme.** The export, share, compare, sync and power buttons filled themselves with a hardcoded `rgba(63,63,70,.5)`, which never inverts — on the light page it composited to a mid grey that left their label text at 3.03:1. They use the themed surface token now. #811
 
