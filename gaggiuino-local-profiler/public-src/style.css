@@ -397,7 +397,11 @@
                minimum touch target, not just the 34x34px desktop hover size. */
             .compare-btn { opacity: 1; width: 44px; height: 44px; font-size: var(--fs-4); }
         }
-        .compare-btn:hover { background: var(--gray-800); color: #fff; }
+        .compare-btn:hover { background: var(--gray-800); color: var(--gray-200); }
+        /* #811: #3498db is a fixed, non-theme-inverting fill (the "compare
+           mode" indicator, not one of the gray/accent tokens), so white text
+           on it stays legible in both themes -- not the surface-inversion
+           bug the other #fff sites in this file were. */
         .shot-wrapper.compare-active .compare-btn { background: #3498db; color: #fff; }
 
         #sidebar-footer {
@@ -431,7 +435,7 @@
             font-family: 'Figtree', sans-serif;
             transition: all .2s;
         }
-        #syncBtn:hover    { background: var(--gray-800); color: #fff; }
+        #syncBtn:hover    { background: var(--gray-800); color: var(--gray-200); }
         #syncBtn:disabled { opacity: .4; cursor: not-allowed; }
 
         #powerBtn {
@@ -448,7 +452,7 @@
             align-items: center;
             justify-content: center;
         }
-        #powerBtn:hover          { background: var(--gray-800); color: #fff; }
+        #powerBtn:hover          { background: var(--gray-800); color: var(--gray-200); }
         #powerBtn:disabled       { opacity: .4; cursor: not-allowed; }
         #powerBtn.machine-on     { color: var(--ok); border-color: rgba(34,197,94,.35); }
         #powerBtn.machine-off    { color: var(--gray-600); }
@@ -605,7 +609,7 @@
             font-size: var(--fs-1); font-family: 'Figtree', sans-serif; transition: all .15s;
         }
         .analytics-filter-btn:hover { color: var(--gray-200); border-color: var(--gray-600); }
-        .analytics-filter-btn.active { background: var(--gray-700); color: #fff; border-color: var(--gray-700); }
+        .analytics-filter-btn.active { background: var(--gray-700); color: var(--gray-200); border-color: var(--gray-700); }
 
         /* Calendar heatmap */
         .cal-wrapper { overflow-x: hidden; padding-bottom: 4px; }
@@ -669,7 +673,7 @@
         .bests-val   { font-size: var(--fs-2); color: var(--gray-200); font-weight: 600; text-align: right; }
         .bests-count { font-size: var(--fs-1); color: var(--gray-500); font-weight: 400; }
         .bests-link  { background: transparent; border: 1px solid var(--gray-700); color: var(--gray-400); border-radius:var(--radius); padding: 2px 7px; cursor: pointer; font-size: var(--fs-1); margin-left: 6px; transition: all .15s; }
-        .bests-link:hover { color: #fff; border-color: var(--gray-500); }
+        .bests-link:hover { color: var(--gray-200); border-color: var(--gray-500); }
 
         @media (max-width: 900px) {
             .kpi-grid { grid-template-columns: repeat(3, 1fr); }
@@ -704,7 +708,7 @@
         .settings-lang-group { display:flex; gap:8px; flex-wrap:wrap; }
         .lang-option-btn { background:var(--gray-800); border:1px solid var(--gray-700); color:var(--gray-400); padding:8px 18px; border-radius:var(--radius); cursor:pointer; font-size: var(--fs-2); font-family:'Figtree',sans-serif; font-weight:600; transition:all .15s; }
         .lang-option-btn:hover { background:var(--gray-700); color:var(--gray-200); }
-        .lang-option-btn.active { border-color:var(--err); color:#fff; }
+        .lang-option-btn.active { border-color:var(--err); color:var(--gray-200); }
         .backup-btn { background:var(--gray-800); border:1px solid var(--gray-700); color:var(--gray-200); padding:10px 14px; border-radius:var(--radius); cursor:pointer; font-size: var(--fs-2); font-family:'Figtree',sans-serif; text-align:left; transition:background .15s; text-decoration:none; display:block; }
         .backup-btn:hover { background:var(--gray-700); }
         .api-token-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -736,7 +740,7 @@
         .machine-row-name { font-weight:600; color:var(--gray-200); }
         .machine-row-type { font-size: var(--fs-1); color:var(--gray-500); background:var(--gray-900); border-radius:var(--radius); padding:2px 8px; }
         .machine-row-shot-count { font-size: var(--fs-1); color:var(--gray-500); }
-        .machine-row-badge { font-size: var(--fs-1); color:#fff; background:var(--err); border-radius:var(--radius); padding:2px 8px; }
+        .machine-row-badge { font-size: var(--fs-1); color:var(--err); background:rgba(239,68,68,.15); border-radius:var(--radius); padding:2px 8px; }
         .machine-row-badge-experimental { font-size: var(--fs-1); color:#f59e0b; background:rgba(245,158,11,.12); border:1px solid rgba(245,158,11,.35); border-radius:var(--radius); padding:2px 8px; display:inline-flex; align-items:center; gap:3px; }
         .machine-row-actions { margin-left:auto; display:flex; gap:8px; }
         .machine-row-actions button { background:none; border:none; color:var(--gray-400); cursor:pointer; font-size: var(--fs-1); font-family:'Figtree',sans-serif; padding:2px 4px; }
@@ -907,7 +911,7 @@
         }
         .recipe-card       { background: var(--gray-900); border-radius: var(--radius); padding: 14px 16px; }
         .recipe-card-label { display: block; font-size: var(--fs-1); color: var(--gray-500); margin-bottom: 6px; }
-        .recipe-card-value { display: block; font-size: var(--fs-3); font-weight: 700; color: #fff; }
+        .recipe-card-value { display: block; font-size: var(--fs-3); font-weight: 700; color: var(--gray-100); }
         .recipe-card-sub   { display: block; font-size: var(--fs-1); color: var(--gray-500); margin-top: 3px; }
 
         /* ── Process zone (#398): compact cards, the values the machine produced ── */
@@ -1001,7 +1005,7 @@
         .accent-swatches { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
         .accent-swatch { appearance: none; -webkit-appearance: none; -moz-appearance: none; width: 34px; height: 34px; border-radius: 50%; overflow: hidden; clip-path: circle(50%); -webkit-clip-path: circle(50%); border: 3px solid transparent; cursor: pointer; transition: transform .18s, border-color .18s; outline: none; background-repeat: no-repeat; background-position: center; background-size: 140% 140%; }
         .accent-swatch:hover { transform: scale(1.12); }
-        .accent-swatch.active { border-color: #fff; transform: scale(1.18); box-shadow: 0 0 0 2px rgba(0,0,0,.4); }
+        .accent-swatch.active { border-color: var(--gray-200); transform: scale(1.18); box-shadow: 0 0 0 2px rgba(0,0,0,.4); }
         /* #604: default machine's own theme is overriding the picker's
            output (see applyDefaultMachineAccentTheme() in
            components/machines-settings.js) — swatches stay clickable
@@ -1198,7 +1202,7 @@
             color: var(--gray-200); font-size: var(--fs-1);
             cursor: pointer;
         }
-        .autocomplete-item:hover, .autocomplete-item.active { background: var(--gray-800); color: #fff; }
+        .autocomplete-item:hover, .autocomplete-item.active { background: var(--gray-800); color: var(--gray-200); }
         .lib-form-actions { display: flex; gap: 6px; justify-content: flex-end; }
         .lib-save-btn { background: linear-gradient(135deg, var(--accent-from), var(--accent-to)); border: none; border-radius:var(--radius); color: var(--accent-text); font-size: var(--fs-1); font-weight: 600; padding: 6px 14px; cursor: pointer; transition: filter .15s; }
         .lib-save-btn:hover { filter: brightness(1.1); }
@@ -1282,7 +1286,7 @@
         #scanStatus.found { color:var(--ok); }
         #scanStatus.error { color:var(--err); }
         .scan-close-btn { background:var(--gray-800); border:1px solid var(--gray-700); border-radius:var(--radius); color:var(--gray-400); font-size: var(--fs-2); padding:8px 20px; cursor:pointer; }
-        .scan-close-btn:hover { background:var(--gray-700); color:#fff; }
+        .scan-close-btn:hover { background:var(--gray-700); color:var(--gray-200); }
 
         /* ── Backup export/restore modal ── */
         #backupModal { display:none; position:fixed; inset:0; z-index:1000; background:rgba(0,0,0,.85); align-items:center; justify-content:center; padding:20px; overflow-y:auto; }
@@ -1321,7 +1325,7 @@
             margin-bottom: 24px;
         }
 
-        #live-header h1 { font-size: var(--fs-5); font-weight: 600; color: #fff; margin: 0; }
+        #live-header h1 { font-size: var(--fs-5); font-weight: 600; color: var(--gray-200); margin: 0; }
 
         #live-status-badge {
             display: flex;
@@ -1371,7 +1375,7 @@
         .live-stat .stat-val {
             font-size: var(--fs-5);
             font-weight: 600;
-            color: #fff;
+            color: var(--gray-100);
             line-height: 1.1;
             margin-bottom: 4px;
         }
@@ -1539,7 +1543,7 @@
             gap: 3px;
         }
         .sort-btn:hover     { color: var(--gray-200); background: rgba(255,255,255,.08); }
-        .sort-btn.active    { background: var(--gray-800); color: #fff; }
+        .sort-btn.active    { background: var(--gray-800); color: var(--gray-200); }
 
         /* ── Freshness badge ── */
         .freshness-badge {
@@ -1609,7 +1613,7 @@
             display: inline-flex; align-items: center; gap: 5px;
         }
         .chart-tab:hover  { color: var(--gray-200); border-color: var(--gray-500); }
-        .chart-tab.active { background: var(--gray-800); color: #fff; border-color: var(--gray-500); }
+        .chart-tab.active { background: var(--gray-800); color: var(--gray-200); border-color: var(--gray-500); }
         #expandChartBtn {
             margin-left: auto; background: transparent; color: var(--gray-600);
             border: 1px solid var(--gray-700); border-radius:var(--radius);
@@ -1638,7 +1642,7 @@
             color: var(--gray-400); padding: 4px 10px; cursor: pointer; font-size: var(--fs-2);
             font-family: 'Figtree', sans-serif; transition: all .2s;
         }
-        #closeFullscreenBtn:hover { color: #fff; border-color: var(--gray-500); }
+        #closeFullscreenBtn:hover { color: var(--gray-200); border-color: var(--gray-500); }
         #chartFullscreen .fs-body { flex: 1; position: relative; min-height: 0; padding: 8px; }
 
         /* ── Export button ── */
@@ -1656,7 +1660,7 @@
             transition: all .2s;
             white-space: nowrap;
         }
-        .export-btn:hover { background: var(--gray-800); color: #fff; }
+        .export-btn:hover { background: var(--gray-800); color: var(--gray-200); }
 
         /* ── Share-card format picker ── */
         .card-fmt-wrap { position: relative; display: inline-flex; align-items: flex-start; }
@@ -1686,7 +1690,7 @@
             cursor: pointer;
             transition: background .15s;
         }
-        .card-fmt-opt:hover { background: var(--gray-800); color: #fff; }
+        .card-fmt-opt:hover { background: var(--gray-800); color: var(--gray-200); }
 
         /* ── Channeling warning ── */
         .channeling-warn {
@@ -1715,7 +1719,7 @@
             padding: 1px 7px;
             margin-right: 5px;
         }
-        .phase-tag span { color: #fff; font-weight: 600; }
+        .phase-tag span { color: var(--gray-200); font-weight: 600; }
 
         /* ── Temp stability / meta badge ── */
         .meta-badge { font-size: var(--fs-1); color: var(--gray-500); margin-left: 4px; font-weight: normal; }
@@ -2129,14 +2133,14 @@
             color:var(--gray-400); font-size: var(--fs-1); font-weight:600; padding:6px 14px; cursor:pointer;
             transition:background .2s,color .2s,border-color .2s; font-family:'Figtree',sans-serif;
         }
-        .maint-done-btn:hover { background:var(--gray-700); color:#fff; border-color:var(--gray-600); }
+        .maint-done-btn:hover { background:var(--gray-700); color:var(--gray-200); border-color:var(--gray-600); }
         .maint-done-btn:disabled { opacity:.4; cursor:not-allowed; }
         .maint-guide-btn {
             align-self:flex-start; background:transparent; border:1px solid var(--gray-700); border-radius:var(--radius);
             color:var(--gray-400); font-size: var(--fs-1); font-weight:600; padding:6px 12px; cursor:pointer;
             margin-top:6px; transition:all .15s; font-family:'Figtree',sans-serif;
         }
-        .maint-guide-btn:hover { color:#fff; border-color:var(--gray-500); }
+        .maint-guide-btn:hover { color:var(--gray-200); border-color:var(--gray-500); }
         /* Guided maintenance walkthrough */
         .guided-maint-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:1000; padding:16px; }
         .guided-maint-modal { background:var(--gray-900); border:1px solid var(--gray-700); border-radius:var(--radius); padding:18px; max-width:440px; width:100%; max-height:85vh; overflow-y:auto; display:flex; flex-direction:column; gap:12px; }
@@ -2190,6 +2194,14 @@
         .dw-candidate-title { font-size: var(--fs-1); font-weight:600; color:var(--gray-200); }
         .dw-candidate-actions { display:flex; gap:8px; flex-wrap:wrap; }
         .dw-score-row { display:flex; align-items:center; gap:10px; }
+        /* #811 found, not fixed: background is set inline per-instance from
+           scoreColor() (utils.js) to one of --ok/--warn/--err/--gray-600.
+           White text clears 4.5:1 against all four in the LIGHT theme but
+           fails all four in the DARK theme (worst: --ok at 2.40:1) -- none of
+           the semantic tokens were ever audited as a fill under white, only
+           as text on a surface. Needs its own audited on-fill token (like
+           --accent-text) rather than a guessed color here; tracked as a
+           follow-up, left as-is rather than silently miscalibrated. */
         .dw-score-chip { color:#fff; font-weight:700; font-size: var(--fs-3); padding:6px 12px; border-radius:var(--radius); flex-shrink:0; }
         .dw-score-meta { font-size: var(--fs-1); color:var(--gray-400); }
         .dw-suggestion { font-size: var(--fs-2); color:var(--gray-200); background:var(--gray-800); border-radius:var(--radius); padding:10px 12px; }
@@ -2210,12 +2222,12 @@
         .dialin-header-actions { display:flex; align-items:center; gap:8px; }
         .fw-header { display:flex; align-items:center; gap:10px; flex-shrink:0; }
         .fw-close-x { margin-left:auto; background:none; border:none; color:var(--gray-400); font-size: var(--fs-3); line-height:1; padding:6px; cursor:pointer; flex-shrink:0; }
-        .fw-close-x:hover, .fw-close-x:focus-visible { color:#fff; }
+        .fw-close-x:hover, .fw-close-x:focus-visible { color:var(--gray-200); }
         .fw-bean-image { width:44px; height:44px; border-radius:var(--radius); object-fit:cover; flex-shrink:0; }
         .fw-breadcrumb { display:flex; flex-wrap:wrap; align-items:center; gap:3px; font-size: var(--fs-1); flex-shrink:0; }
         .fw-crumb { background:none; border:none; color:var(--gray-400); cursor:pointer; padding:2px 4px; border-radius:var(--radius); font-size:inherit; font-weight:600; }
-        .fw-crumb:last-child { color:#fff; }
-        .fw-crumb:hover, .fw-crumb:focus-visible { background:var(--gray-800); color:#fff; }
+        .fw-crumb:last-child { color:var(--gray-200); }
+        .fw-crumb:hover, .fw-crumb:focus-visible { background:var(--gray-800); color:var(--gray-200); }
         .fw-crumb-sep { color:var(--gray-600); }
         /* flex:1 + min-height:0 lets the chart shrink to whatever space is left
            after the fixed-size header/breadcrumb/credit, instead of forcing
@@ -2243,7 +2255,7 @@
         .lightbox-overlay { position:fixed; inset:0; background:rgba(0,0,0,.85); display:flex; align-items:center; justify-content:center; z-index:1200; padding:16px; cursor:zoom-out; }
         .lightbox-img { max-width:100%; max-height:100%; object-fit:contain; border-radius:var(--radius); cursor:default; }
         .lightbox-close { position:fixed; top:16px; right:16px; width:40px; height:40px; border-radius:50%; border:1px solid var(--gray-700); background:var(--gray-900); color:var(--gray-200); font-size: var(--fs-3); line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
-        .lightbox-close:hover { background:var(--gray-800); color:#fff; }
+        .lightbox-close:hover { background:var(--gray-800); color:var(--gray-200); }
         .shot-photo-thumb[data-clickable] { cursor:pointer; }
         .fw-unmatched-label { font-size: var(--fs-1); color:var(--gray-500); margin-bottom:4px; }
         .fw-unmatched-chips { display:flex; flex-wrap:wrap; gap:4px; max-height:15vh; overflow-y:auto; flex-shrink:0; }
@@ -2253,7 +2265,7 @@
         .maint-log-section { margin-top:20px; display:flex; flex-direction:column; gap:12px; }
         .maint-log-header  { display:flex; justify-content:space-between; align-items:center; }
         .maint-log-add-btn { background:transparent; border:1px solid var(--gray-700); color:var(--gray-400); border-radius:var(--radius); padding:5px 12px; cursor:pointer; font-size: var(--fs-1); font-family:'Figtree',sans-serif; transition:all .15s; }
-        .maint-log-add-btn:hover { color:#fff; border-color:var(--gray-500); }
+        .maint-log-add-btn:hover { color:var(--gray-200); border-color:var(--gray-500); }
         .maint-log-form { background:var(--gray-900); border:1px solid var(--gray-700); border-radius:var(--radius); padding:14px; display:flex; flex-direction:column; gap:10px; }
         .maint-log-form-row { display:flex; gap:8px; flex-wrap:wrap; }
         .maint-log-select, .maint-log-date, .maint-log-notes-input {
@@ -2319,7 +2331,7 @@
         .order-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
         .order-eta-picker { display:flex; gap:4px; flex-wrap:wrap; align-items:center; }
         .order-eta-btn { background:var(--gray-800); border:1px solid var(--gray-700); border-radius:var(--radius); color:var(--gray-400); font-size: var(--fs-1); padding:4px 9px; cursor:pointer; transition:all .15s; font-family:'Figtree',sans-serif; }
-        .order-eta-btn:hover,.order-eta-btn.selected { background:var(--gray-700); color:#fff; border-color:var(--gray-600); }
+        .order-eta-btn:hover,.order-eta-btn.selected { background:var(--gray-700); color:var(--gray-200); border-color:var(--gray-600); }
         .order-eta-custom { width:52px; background:var(--gray-800); border:1px solid var(--gray-700); border-radius:var(--radius); color:var(--gray-200); font-size: var(--fs-1); padding:4px 6px; text-align:center; outline:none; font-family:'Figtree',sans-serif; }
         .order-eta-suggest { font-size: var(--fs-1); color:var(--gray-600); align-self:center; }
         .order-queue-hint { font-size: var(--fs-1); color:var(--gray-600); margin-left:6px; }
@@ -2352,6 +2364,9 @@
         .toggle-switch { position:relative; display:inline-block; width:42px; height:24px; flex-shrink:0; }
         .toggle-switch input { opacity:0; width:0; height:0; }
         .toggle-track { position:absolute; inset:0; background:var(--gray-700); border-radius:var(--radius); cursor:pointer; transition:background .2s; }
+        /* #811: the physical switch knob, not text on a surface -- a white
+           thumb over a colored track is the standard toggle affordance
+           (iOS/Android) and is expected to stay white regardless of theme. */
         .toggle-track:before { content:''; position:absolute; width:18px; height:18px; left:3px; top:3px; background:#fff; border-radius:50%; transition:transform .2s; }
         .toggle-switch input:checked + .toggle-track { background:var(--ok); }
         .toggle-switch input:checked + .toggle-track:before { transform:translateX(18px); }
@@ -2376,7 +2391,7 @@
         .orders-menu-variant-input { background:var(--gray-800); border:1px solid var(--gray-700); border-radius:var(--radius); color:var(--gray-200); font-size: var(--fs-1); padding:3px 7px; outline:none; font-family:'Figtree',sans-serif; width:100px; }
         .orders-menu-variant-input:focus { border-color:var(--gray-600); }
         .orders-menu-variant-btn { background:none; border:1px solid var(--gray-700); border-radius:var(--radius); color:var(--gray-400); font-size: var(--fs-1); padding:3px 8px; cursor:pointer; transition:all .15s; font-family:'Figtree',sans-serif; }
-        .orders-menu-variant-btn:hover { background:var(--gray-700); color:#fff; }
+        .orders-menu-variant-btn:hover { background:var(--gray-700); color:var(--gray-200); }
         .order-variant-badge { font-size: var(--fs-1); color:var(--gray-400); font-weight:400; }
         /* #416: were 🫘/🥛 emoji glyphs — inline stroke-SVG (.rail-icon), same treatment as #415. */
         .orders-menu-use-beans { background:none; border:1px solid var(--gray-700); border-radius:var(--radius); color:var(--gray-500); padding:2px 7px; cursor:pointer; transition:all .15s; font-family:'Figtree',sans-serif; display:inline-flex; align-items:center; }
@@ -2395,8 +2410,8 @@
         .orders-menu-input:focus { border-color:var(--gray-600); }
         .orders-menu-input.emoji { width:56px; text-align:center; }
         .orders-menu-save-btn { background:var(--gray-800); border:1px solid var(--gray-700); border-radius:var(--radius); color:var(--gray-400); font-size: var(--fs-1); font-weight:600; padding:6px 14px; cursor:pointer; transition:all .15s; font-family:'Figtree',sans-serif; }
-        .orders-menu-save-btn:hover { background:var(--gray-700); color:#fff; }
-        .orders-new-badge { font-size: var(--fs-1); font-weight:700; background:var(--err); color:#fff; border-radius:var(--radius); padding:1px 5px; margin-left:6px; vertical-align:middle; }
+        .orders-menu-save-btn:hover { background:var(--gray-700); color:var(--gray-200); }
+        .orders-new-badge { font-size: var(--fs-1); font-weight:700; background:rgba(239,68,68,.15); color:var(--err); border-radius:var(--radius); padding:1px 5px; margin-left:6px; vertical-align:middle; }
         .orders-notify-hint { font-size: var(--fs-1); color:var(--gray-500); margin:0 0 12px; }
         .orders-notify-list { display:flex; flex-direction:column; gap:8px; margin-bottom:14px; }
         .orders-notify-row { display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--gray-800); }
