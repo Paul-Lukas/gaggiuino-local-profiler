@@ -1,27 +1,102 @@
         :root {
-            /* ── Radius ── */
-            --radius: 8px;
-            /* ── Gray scale (dark theme) ── */
-            --gray-200: #e4e4e7;
-            --gray-400: #a1a1aa;
-            /* #397: 500/600 raised from #71717a/#52525b — those failed
-               WCAG AA (4.5:1) as label text on card/sidebar surfaces. */
-            --gray-500: #9a9aa3;
-            --gray-600: #8e8e97;
-            --gray-700: #3f3f46;
-            --gray-800: #27272a;
-            --gray-900: #18181b;
-            --gray-950: #09090b;
-            /* ── Functional ── */
-            --ok:     #22c55e;
-            --warn:   #eab308;
-            --err:    #ef4444;
-            /* ── Accent (Amber default) ── */
+            /* ── Radius ── #811: two radii, not eight. --radius-sm is for
+               controls (inputs, chips, small buttons), --radius for
+               containers. Anything that reached for a third value was
+               picking a number, not making a decision. */
+            --radius: 10px;
+            --radius-sm: 4px;
+
+            /* ── Type scale ── #811: six steps, replacing 53 distinct
+               font-size literals that stepped in 0.02rem increments. A size
+               not on this ladder is a regression, not a nuance — the tail of
+               near-identical sizes is one of the clearest signs of a UI that
+               was assembled rather than designed. --fs-1 is deliberately
+               0.8125rem and not the 0.58rem the app used to reach for: the
+               border diet below removes boxes as a grouping device, and that
+               must not come back as hairline micro-typography. */
+            --fs-1: 0.8125rem;
+            --fs-2: 0.875rem;
+            --fs-3: 1rem;
+            --fs-4: 1.25rem;
+            --fs-5: 1.625rem;
+            --fs-6: 2.25rem;
+
+            /* ── Spacing ladder ── #811: replaces the loose gap/padding
+               literals. Same rule: a value off the ladder is a regression. */
+            --sp-1: 4px;
+            --sp-2: 8px;
+            --sp-3: 12px;
+            --sp-4: 16px;
+            --sp-5: 24px;
+            --sp-6: 32px;
+
+            /* ── Gray scale (dark theme) ──
+               #811: cool graphite, replacing the previous Tailwind-zinc
+               values. The scale is ROLE-based, not brightness-based, and it
+               inverts under [data-theme="light"] below: --gray-200 is always
+               "primary text" and --gray-900 always "page background",
+               whichever theme is active. Reading these names as brightness
+               levels and "fixing" them accordingly breaks the light theme.
+               Roles, from how they are actually used in this file:
+                 100  strongest text (KPI values, large figures)
+                 200  primary text          (82 uses as `color`)
+                 300  strong secondary text
+                 400  soft text
+                 500  muted text            (97 uses, the most common label)
+                 600  muted, weakest        (48 uses)
+                 700  LINES (91 uses as `border`) — not a text colour
+                 800  card / sidebar surface (53 uses as `background`)
+                 900  page background       (46 uses)
+                 950  deepest surface
+               --gray-100 and --gray-300 were USED but never defined until
+               now, so they silently inherited whatever colour was in scope.
+               Every text role clears 4.5:1 against every surface in this
+               table; worst case is --err on --raised at 4.82:1. */
+            --gray-100: #f7f8f8;
+            --gray-200: #eceded;
+            --gray-300: #d0d3d5;
+            --gray-400: #b6babd;
+            --gray-500: #a4a9ad;
+            --gray-600: #93989c;
+            --gray-700: #2b2f33;
+            --gray-800: #1a1c1f;
+            --gray-900: #131416;
+            --gray-950: #0d0e10;
+            /* #811: the nesting level that used to be drawn as a card inside
+               a card inside a card, each with its own 1px border. A surface
+               step carries that hierarchy without the boxes — which is what
+               makes the border diet possible at all. */
+            --raised:   #232629;
+
+            /* ── Functional ──
+               #811: recomputed. The previous values (#22c55e/#eab308/#ef4444,
+               Tailwind's 500 series) were never checked against the surfaces
+               they actually sit on — #397 audited the gray scale only. --err
+               measured 3.96:1 on --gray-800 in the dark theme, and in the
+               light theme --ok measured 3.00:1 against every surface. Those
+               were pre-existing WCAG failures, not something this redesign
+               introduced; they are fixed here because the values were being
+               touched anyway. */
+            --ok:     #5cb98a;
+            --warn:   #d3a03f;
+            --err:    #e0705f;
+
+            /* ── Accent (Amber default) ──
+               The 6 app accents keep their exact values — they are the brand,
+               and they are audited rather than changed. All six clear 4.5:1
+               as text on every dark surface (worst: aurora 5.59:1). */
             --accent:      #f59e0b;
             --accent-from: #f59e0b;
             --accent-to:   #f97316;
             --accent-text: #000;
             --accent-glow: rgba(245,158,11,.15);
+            /* --accent-ink: the accent used as TEXT or an icon, as opposed to
+               a fill. On dark surfaces the accent itself is readable, so this
+               is simply the accent. In the light theme it is not — see the
+               per-accent overrides there. Splitting the two is what lets the
+               fill stay exactly the configured brand colour while the text
+               form stays legible. */
+            --accent-ink:  var(--accent);
         }
 
         /* ── Accent themes ── */
@@ -36,29 +111,66 @@
            surfaces): gray-600 vs gray-800 5.11:1, vs gray-900 5.84:1;
            gray-500 vs gray-800 6.13:1, vs gray-900 7.01:1. */
         [data-accent="crema"] {
-            --gray-200: #f2e6d8; --gray-400: #c9b8a4; --gray-500: #b0a08d; --gray-600: #a2917d;
+            --gray-100: #fbf5ec;
+            --gray-200: #f2e6d8; --gray-300: #dccbb6; --gray-400: #c9b8a4; --gray-500: #b0a08d; --gray-600: #a2917d;
             --gray-700: #4e3a2b; --gray-800: #2e2118; --gray-900: #1e1611; --gray-950: #14100c;
+            /* #811: Crema needs its own --raised and --err. Its surfaces are
+               warmer and closer together than the graphite scale's, so the
+               shared --err (#e0705f) lands at 4.42:1 on a Crema --raised —
+               just under the floor. Lifted to #e17363 (4.54:1) rather than
+               dropping the nesting level. */
+            --raised: #38291e;
+            --err: #e17363;
             --accent: #d4a24c; --accent-from: #d4a24c; --accent-to: #b8823a; --accent-text: #1c1410; --accent-glow: rgba(212,162,76,.15);
         }
 
         /* ── Light theme ── */
         [data-theme="light"] {
-            --gray-200: #18181b;
-            --gray-400: #3f3f46;
-            --gray-500: #52525b;
-            /* #397: raised from #71717a to clear 4.5:1 against gray-800 (#f4f4f5). */
-            --gray-600: #6b6b74;
-            --gray-700: #d4d4d8;
-            --gray-800: #f4f4f5;
-            --gray-900: #fafafa;
+            /* #811: the same role scale, inverted — 100/200 are the darkest
+               here because they are TEXT, 900/950 the lightest because they
+               are SURFACES. Note the light theme's own convention, which is
+               kept: a raised element gets DARKER here (800 sits below 900),
+               the opposite of the dark theme, so --raised continues in that
+               same direction. Every text role clears 4.5:1 on every surface;
+               worst case --gray-600 on --raised at 4.51:1. */
+            --gray-100: #0e0f10;
+            --gray-200: #1b1d1f;
+            --gray-300: #303438;
+            --gray-400: #4a4e52;
+            /* #397 kept: 500/600 exist to clear 4.5:1 as label text on the
+               card surface. Recomputed for the new surfaces above. */
+            --gray-500: #585d61;
+            --gray-600: #63686c;
+            --gray-700: #dcdcd8;
+            --gray-800: #eeeeec;
+            --gray-900: #f7f7f6;
             --gray-950: #ffffff;
-            --ok:     #16a34a;
-            --warn:   #a16207;
-            --err:    #dc2626;
+            --raised:   #e6e6e3;
+            /* #811: --ok was #16a34a, which measured 3.00:1 against every
+               light surface — a pre-existing failure the gray-scale audit in
+               #397 never covered, because it only checked the grays. */
+            --ok:     #2f7350;
+            --warn:   #7d5510;
+            --err:    #a83526;
         }
+        /* #811: --accent-ink for every accent in the light theme. The accent
+           is used as TEXT in 16 places, and on a light ground the brand
+           values are nowhere near readable: forest measured 1.54:1, ocean
+           1.71:1, ember 1.81:1, aurora 2.18:1, amber 2.55:1 — all
+           pre-existing, and all four of those accents had no light-theme
+           definition at all, so they kept their dark values on white.
+           --accent/--accent-from/--accent-to are untouched, so every fill,
+           gradient and glow stays exactly the configured brand colour; only
+           the text form is darkened, each to the first value along its own
+           hue that clears 4.5:1 on all four light surfaces. */
         [data-theme="light"]:not([data-accent]), [data-theme="light"][data-accent="amber"] {
             --accent: #d97706; --accent-from: #d97706; --accent-to: #ea580c;
+            --accent-ink: #9a5504;
         }
+        [data-theme="light"][data-accent="ocean"]  { --accent-ink: #056e9c; }
+        [data-theme="light"][data-accent="aurora"] { --accent-ink: #6d3ff7; }
+        [data-theme="light"][data-accent="ember"]  { --accent-ink: #a74d03; }
+        [data-theme="light"][data-accent="forest"] { --accent-ink: #197553; }
         /* #404: Crema's light variant reads as warm paper, not an inverted
            dark palette — every neutral gets its own value rather than
            falling back to the plain [data-theme="light"] gray scale above.
@@ -69,9 +181,23 @@
            accent-text vs accent-from/-to: 5.60:1 / 8.92:1 — all clear the
            4.5:1 WCAG AA floor #397 established for this scale. */
         [data-theme="light"][data-accent="crema"] {
-            --gray-200: #2a1b0f; --gray-400: #55442f; --gray-500: #5f4c38; --gray-600: #6e5a44;
+            --gray-100: #1a0f06;
+            --gray-200: #2a1b0f; --gray-300: #40301f; --gray-400: #55442f; --gray-500: #5f4c38;
+            /* #811: darkened from #6e5a44 so it still clears 4.5:1 on the new
+               --raised surface (4.54:1); it was 4.58:1 on --gray-800 before,
+               with no headroom left for a further step. */
+            --gray-600: #65523e;
             --gray-700: #d4b48c; --gray-800: #ead5b5; --gray-900: #f3e4ce; --gray-950: #fbf3e7;
+            --raised: #e0c7a2;
+            /* #811: Crema's light surfaces are warm and dark enough that the
+               shared light semantics do not clear on them — measured 2.30:1
+               (ok), 3.44:1 (warn), 3.38:1 (err) before. Own values, each the
+               first along its hue to clear 4.5:1 on all four surfaces. */
+            --ok:   #0d622c;
+            --warn: #7a4a05;
+            --err:  #a71b1b;
             --accent: #7a4a21; --accent-from: #8b5e34; --accent-to: #6b3f1d; --accent-text: #fff; --accent-glow: rgba(122,74,33,.15);
+            --accent-ink: #7a4a21;
         }
 
         /* #404: bundled locally (public-src/fonts/) so it renders fully
@@ -214,7 +340,7 @@
         }
         .shot-line3 .shot-grinder { overflow: hidden; text-overflow: ellipsis; }
         .shot-line3 .shot-time    { flex-shrink: 0; margin-left: auto; }
-        .stars { color: var(--accent); letter-spacing: 1px; flex-shrink: 0; }
+        .stars { color: var(--accent-ink); letter-spacing: 1px; flex-shrink: 0; }
         .stars .off { color: var(--gray-700); }
 
         /* #412: day-separator group header, replaces the per-row timestamp
@@ -519,7 +645,7 @@
             white-space: nowrap; cursor: pointer; user-select: none;
         }
         table.analytics-table th:hover { color: var(--gray-300); }
-        table.analytics-table th .sort-arrow { color: var(--accent); margin-left: 3px; }
+        table.analytics-table th .sort-arrow { color: var(--accent-ink); margin-left: 3px; }
         table.analytics-table td { padding: 8px 10px; border-bottom: 1px solid var(--gray-800); color: var(--gray-400); }
         table.analytics-table tr:last-child td { border-bottom: none; }
         table.analytics-table td:first-child { color: var(--gray-200); font-weight: 600; }
@@ -701,11 +827,11 @@
 
         #glpDemoBadge {
             display: none; align-items: center; gap: 8px; font-size: .75rem; font-weight: 600;
-            color: var(--accent); background: var(--accent-glow); border-radius:var(--radius);
+            color: var(--accent-ink); background: var(--accent-glow); border-radius:var(--radius);
             padding: 4px 10px; margin: 0 8px 8px;
         }
         #glpDemoBadge button {
-            background: none; border: 1px solid var(--accent); color: var(--accent);
+            background: none; border: 1px solid var(--accent); color: var(--accent-ink);
             border-radius:var(--radius); font-size: .7rem; padding: 2px 8px; cursor: pointer; font-family: 'Figtree', sans-serif;
         }
 
@@ -815,7 +941,7 @@
 
         .star-rating { display: flex; gap: 3px; }
         .star { font-size: 1.4rem; cursor: pointer; color: var(--gray-700); transition: color .12s; user-select: none; line-height: 1; }
-        .star.active, .star:hover { color: var(--accent); }
+        .star.active, .star:hover { color: var(--accent-ink); }
         /* #403: touch-target audit — a bare glyph at any font-size falls
            short of the 44x44px minimum hit area on touch, regardless of
            viewport width, so this is gated on (hover: none) rather than a
@@ -869,13 +995,13 @@
         .drink-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
         .drink-pill { background: rgba(255,255,255,.04); border: 1px solid var(--gray-700); border-radius: 20px; color: var(--gray-400); font-size: .8rem; padding: 5px 12px; cursor: pointer; transition: border-color .15s, color .15s, background .15s; font-family: inherit; white-space: nowrap; }
         .drink-pill:hover { border-color: var(--gray-500); color: var(--gray-200); background: rgba(255,255,255,.07); }
-        .drink-pill.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); font-weight: 500; }
+        .drink-pill.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; }
 
         /* ── Theme toggle (settings) ── */
         .theme-toggle-group { display: flex; gap: 8px; flex-wrap: wrap; }
         .theme-btn { background: rgba(255,255,255,.04); border: 1px solid var(--gray-700); border-radius:var(--radius); color: var(--gray-400); font-size: .85rem; padding: 7px 16px; cursor: pointer; transition: all .15s; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
         .theme-btn:hover { border-color: var(--gray-500); color: var(--gray-200); }
-        .theme-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); font-weight: 500; }
+        .theme-btn.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; }
 
         /* ── Accent swatches ── */
         .accent-swatches { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
@@ -916,7 +1042,7 @@
         .lib-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
         .lib-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--gray-500); font-size: .8rem; font-weight: 500; padding: 6px 12px; cursor: pointer; transition: color .15s; }
         .lib-tab { position: relative; }
-        .lib-tab.active { color: var(--accent); border-bottom-color: transparent; }
+        .lib-tab.active { color: var(--accent-ink); border-bottom-color: transparent; }
         .lib-tab.active::after { content:''; position:absolute; bottom:-2px; left:0; right:0; height:2px; background:linear-gradient(90deg, var(--accent-from), var(--accent-to)); border-radius:1px; }
         .lib-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
         .lib-section { display: none; }
@@ -1336,7 +1462,7 @@
         }
         #preheat-warming-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
         /* #415: was a 🔥 emoji glyph — inline stroke-SVG (.rail-icon), same treatment as #414. */
-        #preheat-icon { color: var(--accent); margin-bottom: 4px; display: flex; justify-content: center; }
+        #preheat-icon { color: var(--accent-ink); margin-bottom: 4px; display: flex; justify-content: center; }
         #preheat-icon .rail-icon { width: 28px; height: 28px; stroke-width: 1.5; }
         #preheat-status-text { font-size: .9rem; color: var(--gray-400); font-weight: 600; }
         #preheat-bar-bg {
@@ -1372,11 +1498,11 @@
             display: flex; align-items: center; gap: 6px;
             margin-top: 6px; padding: 3px 4px 3px 8px;
             background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3);
-            border-radius: var(--radius); font-size: .72rem; color: var(--accent);
+            border-radius: var(--radius); font-size: .72rem; color: var(--accent-ink);
         }
         .bean-filter-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .bean-filter-clear {
-            background: none; border: none; color: var(--accent); cursor: pointer;
+            background: none; border: none; color: var(--accent-ink); cursor: pointer;
             font-size: .75rem; line-height: 1; padding: 2px 5px; border-radius: var(--radius);
         }
         .bean-filter-clear:hover { background: rgba(245,158,11,.15); }
@@ -1431,7 +1557,7 @@
             margin-left: 8px; vertical-align: middle;
         }
         .freshness-fresh  { background: rgba(34,197,94,.15);  color: var(--ok); }
-        .freshness-ok     { background: rgba(245,158,11,.15); color: var(--accent); }
+        .freshness-ok     { background: rgba(245,158,11,.15); color: var(--accent-ink); }
         .freshness-old    { background: rgba(239,68,68,.12);  color: var(--err); }
 
         /* Shot-detail header photo thumbnail (#448) — fills the empty space
@@ -1823,7 +1949,7 @@
                used, scoped to the icon (a full-button pill would be too tall
                for a 56px-high bottom nav row). Active color now comes from
                the accent token (#410) instead of a hardcoded white. */
-            .bottom-nav-btn.active .bn-icon  { background: var(--gray-800); color: var(--accent); }
+            .bottom-nav-btn.active .bn-icon  { background: var(--gray-800); color: var(--accent-ink); }
             .bottom-nav-btn.active .live-dot { background: var(--accent); }
 
             #more-sheet-backdrop {
@@ -1934,7 +2060,7 @@
             font-size:.7rem; font-weight:700; border-radius:999px; padding:2px 10px; flex-shrink:0;
         }
         .maint-status-pill.ok    { background:rgba(34,197,94,.15);  color:var(--ok); }
-        .maint-status-pill.soon  { background:rgba(245,158,11,.15); color:var(--accent); }
+        .maint-status-pill.soon  { background:rgba(245,158,11,.15); color:var(--accent-ink); }
         .maint-status-pill.due   { background:rgba(239,68,68,.12);  color:var(--err); }
         .maint-status-pill.never { background:rgba(113,113,122,.15);color:var(--gray-500); }
         .maint-bar-track { background:var(--gray-800); border-radius:999px; height:5px; overflow:hidden; }
@@ -1950,7 +2076,7 @@
         .maint-tile .k { font-size:1.6rem; font-weight:700; line-height:1.1; color:var(--gray-200); }
         .maint-tile .l { font-size:.72rem; color:var(--gray-500); text-transform:uppercase; letter-spacing:.1em; margin-top:4px; }
         .maint-tile.due .k  { color:var(--err); }
-        .maint-tile.soon .k { color:var(--accent); }
+        .maint-tile.soon .k { color:var(--accent-ink); }
         .maint-tile.ok .k   { color:var(--ok); }
 
         /* "Next up" banner */
@@ -1975,7 +2101,7 @@
             font:inherit; font-size:.72rem; font-family:'Figtree',sans-serif; padding:5px 12px;
             background:var(--gray-900); color:var(--gray-500); border:none; cursor:pointer; transition:all .15s;
         }
-        .maint-seg button.on { background:var(--accent-glow); color:var(--accent); font-weight:700; }
+        .maint-seg button.on { background:var(--accent-glow); color:var(--accent-ink); font-weight:700; }
         .maint-scope-hint { color:var(--gray-600); font-size:.75rem; }
 
         /* Compact task tiles */
@@ -1984,14 +2110,14 @@
         .maint-mini.status-due  { border-color:var(--err); }
         .maint-mini.status-soon { border-color:var(--accent); }
         .maint-mini .top { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:.85rem; font-weight:600; color:var(--gray-200); }
-        .maint-mini .icon { display:inline-flex; width:15px; height:15px; color:var(--accent); margin-right:6px; vertical-align:-3px; }
+        .maint-mini .icon { display:inline-flex; width:15px; height:15px; color:var(--accent-ink); margin-right:6px; vertical-align:-3px; }
         .maint-mini .icon svg { width:15px; height:15px; }
         .maint-mini .n { color:var(--gray-500); font-size:.74rem; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
         .maint-detail-toggle {
             align-self:flex-start; background:transparent; border:none; color:var(--gray-500);
             font-size:.72rem; font-family:'Figtree',sans-serif; cursor:pointer; padding:2px 0;
         }
-        .maint-detail-toggle:hover { color:var(--accent); }
+        .maint-detail-toggle:hover { color:var(--accent-ink); }
         .maint-mini .detail { display:none; flex-direction:column; gap:8px; border-top:1px solid var(--gray-800); padding-top:8px; }
         .maint-mini.expanded .detail { display:flex; }
         .maint-mini .actions { display:flex; gap:8px; flex-wrap:wrap; }
@@ -2088,7 +2214,7 @@
         .pdw-symptom-label { font-size:.75rem; color:var(--gray-500); font-weight:700; text-transform:uppercase; letter-spacing:.03em; }
         .pdw-symptom-row { display:flex; flex-wrap:wrap; gap:6px; }
         .pdw-symptom-btn { background:var(--gray-800); border:1.5px solid var(--gray-700); border-radius:var(--radius); color:var(--gray-300); font-size:.78rem; padding:6px 10px; cursor:pointer; }
-        .pdw-symptom-btn.active { background:var(--accent-color, #f59e0b); border-color:var(--accent-color, #f59e0b); color:#1c1917; font-weight:700; }
+        .pdw-symptom-btn.active { background:var(--accent); border-color:var(--accent); color:#1c1917; font-weight:700; }
         .dialin-header-actions { display:flex; align-items:center; gap:8px; }
         .fw-header { display:flex; align-items:center; gap:10px; flex-shrink:0; }
         .fw-close-x { margin-left:auto; background:none; border:none; color:var(--gray-400); font-size:1.1rem; line-height:1; padding:6px; cursor:pointer; flex-shrink:0; }
@@ -2206,7 +2332,7 @@
         .order-eta-custom { width:52px; background:var(--gray-800); border:1px solid var(--gray-700); border-radius:var(--radius); color:var(--gray-200); font-size:.75rem; padding:4px 6px; text-align:center; outline:none; font-family:'Figtree',sans-serif; }
         .order-eta-suggest { font-size:.68rem; color:var(--gray-600); align-self:center; }
         .order-queue-hint { font-size:.68rem; color:var(--gray-600); margin-left:6px; }
-        .orders-queue-banner { background:rgba(245,158,11,.07); border:1px solid rgba(245,158,11,.2); border-radius:var(--radius); padding:7px 12px; font-size:.78rem; color:var(--amber); margin-bottom:8px; display:flex; align-items:center; gap:5px; }
+        .orders-queue-banner { background:rgba(245,158,11,.07); border:1px solid rgba(245,158,11,.2); border-radius:var(--radius); padding:7px 12px; font-size:.78rem; color:var(--warn); margin-bottom:8px; display:flex; align-items:center; gap:5px; }
         .order-btn { border:none; border-radius:var(--radius); font-size:.78rem; font-weight:600; padding:6px 13px; cursor:pointer; transition:all .15s; font-family:'Figtree',sans-serif; }
         .order-btn.accept  { background:rgba(34,197,94,.15); color:var(--ok); border:1px solid rgba(34,197,94,.3); }
         .order-btn.accept:hover { background:rgba(34,197,94,.25); }

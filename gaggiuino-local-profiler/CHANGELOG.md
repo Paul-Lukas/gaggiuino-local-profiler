@@ -1,3 +1,15 @@
+## [Unreleased]
+
+### Changed
+- **The design token layer moves to a cool graphite scale, with a six-step type scale, a spacing ladder and two radii.** Groundwork for the "Instrument" redesign (#811, alongside glp-order-card#90 and glp-lovelace-card#120). `--fs-1..6` replaces 53 distinct font-size literals that stepped in 0.02rem increments, `--sp-1..6` replaces the loose gap/padding values, and `--radius-sm`/`--radius` replace the eight ad-hoc corner values. New `--raised` is the surface step that carries nesting depth without a border, which is what makes the border diet possible at all. The gray scale stays role-based and still inverts under `[data-theme="light"]` — `--gray-200` is always primary text, `--gray-900` always the page background.
+- The 6 app accents and 8 machine themes keep their **exact** values. They are audited here, not changed: all six clear 4.5:1 as text on every dark surface (worst: aurora 5.59:1).
+
+### Fixed
+- **Semantic colours failed WCAG AA on the surfaces they actually sit on, in every theme.** The earlier audits (#397, #404) covered the gray scale only, so nothing ever checked green/amber/red against the card and page backgrounds. Measured before this change: `--ok` at **3.00:1** against every light surface, **2.30:1** in Crema light; `--err` at **3.96:1** on the dark card surface. All recomputed; every text role now clears 4.5:1 against every surface in all four theme variants, worst case 4.54:1. Crema gets its own `--err` (dark) and its own semantics (light), since its warmer, narrower surface range does not carry the shared values.
+- **The accent was unreadable as text in the light theme, and four of the six accents had no light-theme definition at all** — ocean, aurora, ember and forest kept their dark values on a white ground, measuring as low as **1.54:1** (forest), 1.71:1 (ocean), 1.81:1 (ember). New `--accent-ink` is the accent's text form, darkened per accent to the first value along its own hue that clears 4.5:1 on all four light surfaces; the 18 `color: var(--accent)` sites now resolve through it. **Fills, gradients and glows are untouched**, so the brand colour renders exactly as configured.
+- **Four CSS variables were used but never defined**, silently inheriting whatever colour happened to be in scope: `--gray-100` (5 uses, the KPI value colour) and `--gray-300` (19 uses) are now defined in all four theme variants; `--accent-color` (3 uses) and `--amber` (1 use) were typos for `--accent` and `--warn` and are fixed at the call sites rather than aliased.
+- `test/theme-contrast.test.js` computes every one of these ratios from the values declared in `style.css` itself, so the palette cannot drift back. Verified it rejects the old values as well as accepting the new ones.
+
 ## [2.33.3] – 2026-08-11
 
 ### Changed

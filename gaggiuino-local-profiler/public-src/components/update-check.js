@@ -18,7 +18,7 @@ function showUpdateBanner({ current, latest, release_url }) {
     banner.id = 'glpUpdateBanner';
     Object.assign(banner.style, {
         position: 'fixed', top: `${devBannerHeight()}px`, left: '0', right: '0', zIndex: '9998',
-        background: 'var(--accent-color, #f59e0b)', color: '#1c1917',
+        background: 'var(--accent)', color: 'var(--accent-text)',
         padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '12px',
         fontSize: '.875rem', fontWeight: '500', boxShadow: '0 2px 8px rgba(0,0,0,.35)',
     });
