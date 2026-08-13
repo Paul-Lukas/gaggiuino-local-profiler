@@ -409,7 +409,7 @@
            while invisible — opacity, not display/visibility) — except on
            touch, where there's no hover to reveal it, so it stays shown. */
         .compare-btn {
-            background: rgba(63,63,70,.5);
+            background: var(--gray-800);
             color: var(--gray-400);
             border: 1px solid transparent;
             border-radius:var(--radius);
@@ -460,7 +460,7 @@
         /* #397: buttons live on fill + hover instead of a persistent 1px
            border. */
         #syncBtn {
-            background: rgba(63,63,70,.5);
+            background: var(--gray-800);
             color: var(--gray-400);
             border: 1px solid transparent;
             border-radius:var(--radius);
@@ -473,7 +473,7 @@
         #syncBtn:disabled { opacity: .4; cursor: not-allowed; }
 
         #powerBtn {
-            background: rgba(63,63,70,.5);
+            background: var(--gray-800);
             color: var(--gray-400);
             border: 1px solid transparent;
             border-radius:var(--radius);
@@ -1709,9 +1709,14 @@
 
         /* ── Export button ── */
         /* #397: buttons live on fill + hover instead of a persistent 1px
-           border. */
+           border.
+           #811: that fill was a hardcoded rgba(63,63,70,.5) here and on
+           .compare-btn/#syncBtn/#powerBtn. Being a fixed neutral it never
+           inverted, so on the light page it composited to #9b9b9e and left
+           --gray-400 label text at 3.03:1. --gray-800 is the same "one step
+           off the page" surface in every theme. */
         .export-btn {
-            background: rgba(63,63,70,.5);
+            background: var(--gray-800);
             color: var(--gray-400);
             border: 1px solid transparent;
             border-radius:var(--radius);

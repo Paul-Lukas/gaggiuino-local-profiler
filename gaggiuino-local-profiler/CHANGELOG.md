@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Fixed
+- **Four buttons were unreadable in the light theme.** The export, share, compare, sync and power buttons filled themselves with a hardcoded `rgba(63,63,70,.5)`, which never inverts — on the light page it composited to a mid grey that left their label text at 3.03:1. They use the themed surface token now. #811
+
 ### Changed
 - **The shot view's metric tiles became guided lines, and the score ring became type.** Two grids of filled, rounded tiles sat directly above and below the chart; the score sat in a 58px coloured ring. Both are shapes this redesign removes, and the shot card dropped them in the same round. The metrics now read value-first with a hairline between entries, the process row deliberately quieter than the recipe row, and the score reads "99 stark" in the score colour. Thresholds unchanged. #813
 
