@@ -31,8 +31,17 @@ function tokensOf(selector) {
   if (i === -1) throw new Error(`selector not found: ${selector}`);
   const body = CSS.slice(i, CSS.indexOf('}', i));
   const out = {};
-  for (const m of body.matchAll(/(--[\w-]+):\s*(#[0-9a-fA-F]{6})/g)) out[m[1]] = m[2];
+  // Three-digit hex counts: --on-fill is declared as #000/#fff, and a
+  // six-digit-only pattern silently reported it as undefined.
+  for (const m of body.matchAll(/(--[\w-]+):\s*(#[0-9a-fA-F]{3,6})\b/g)) out[m[1]] = expand(m[2]);
   return out;
+}
+
+// #rgb -> #rrggbb so everything downstream can assume six digits.
+function expand(hex) {
+  return hex.length === 4
+    ? '#' + [...hex.slice(1)].map(c => c + c).join('')
+    : hex;
 }
 
 const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
@@ -91,6 +100,24 @@ describe('design token contrast (#811)', () => {
       });
     });
   }
+
+  // The other direction: a semantic colour used as a FILL with text on top
+  // (the dial-in score chip and score pill). #397/#404 only ever checked
+  // these tokens as text ON a surface, never as a surface UNDER text, and
+  // white-on-fill measured 2.37:1 in the dark theme before --on-fill existed.
+  describe('text on a semantic fill (--on-fill)', () => {
+    const FILL_ROLES = ['--ok', '--warn', '--err', '--gray-600'];
+    for (const [name, tokens] of Object.entries(VARIANTS)) {
+      it(`${name}: --on-fill is readable on every semantic fill`, () => {
+        expect(tokens['--on-fill'], `${name} has no --on-fill`).toBeDefined();
+        for (const fill of FILL_ROLES) {
+          const ratio = contrast(tokens['--on-fill'], tokens[fill]);
+          expect(ratio, `${name}: --on-fill (${tokens['--on-fill']}) on ${fill} (${tokens[fill]}) = ${ratio.toFixed(2)}:1`)
+            .toBeGreaterThanOrEqual(AA);
+        }
+      });
+    }
+  });
 
   // The accent is the brand and is audited, not adjusted — but its TEXT
   // form has to be readable, which on light grounds it is not.

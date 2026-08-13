@@ -90,6 +90,18 @@
             --accent-to:   #f97316;
             --accent-text: #000;
             --accent-glow: rgba(245,158,11,.15);
+            /* --on-fill: text/number sitting ON a full-strength semantic fill
+               (--ok/--warn/--err/--gray-600 used as a background rather than
+               as a text colour, e.g. the dial-in score chip).
+               It is BLACK in the dark theme and white in the light one, which
+               is the opposite of the intuition: the dark theme's semantic
+               colours are the light, saturated ones, so white on them
+               measures 2.37-3.16:1 while black measures 6.65-8.87:1. The
+               light theme's are the dark ones and it reverses. Same reasoning
+               as --accent-text above; these fills were simply never audited,
+               because #397/#404 only ever checked these tokens as TEXT ON a
+               surface, never as a surface UNDER text. */
+            --on-fill: #000;
             /* --accent-ink: the accent used as TEXT or an icon, as opposed to
                a fill. On dark surfaces the accent itself is readable, so this
                is simply the accent. In the light theme it is not — see the
@@ -152,6 +164,7 @@
             --ok:     #2f7350;
             --warn:   #7d5510;
             --err:    #a83526;
+            --on-fill: #fff;
         }
         /* #811: --accent-ink for every accent in the light theme. The accent
            is used as TEXT in 16 places, and on a light ground the brand
@@ -196,6 +209,7 @@
             --ok:   #0d622c;
             --warn: #7a4a05;
             --err:  #a71b1b;
+            --on-fill: #fff;
             --accent: #7a4a21; --accent-from: #8b5e34; --accent-to: #6b3f1d; --accent-text: #fff; --accent-glow: rgba(122,74,33,.15);
             --accent-ink: #7a4a21;
         }
@@ -411,11 +425,13 @@
             .compare-btn { opacity: 1; width: 44px; height: 44px; font-size: var(--fs-4); }
         }
         .compare-btn:hover { background: var(--gray-800); color: var(--gray-200); }
-        /* #811: #3498db is a fixed, non-theme-inverting fill (the "compare
-           mode" indicator, not one of the gray/accent tokens), so white text
-           on it stays legible in both themes -- not the surface-inversion
-           bug the other #fff sites in this file were. */
-        .shot-wrapper.compare-active .compare-btn { background: #3498db; color: #fff; }
+        /* #811: a fixed, deliberately non-theme-inverting fill — the "compare
+           mode" indicator is not one of the gray/accent tokens, so that it
+           reads the same whichever theme is active. It is NOT exempt from
+           contrast though: white on the original #3498db measured 3.15:1.
+           Darkened along the same hue to the first value that carries white
+           text at 4.5:1. */
+        .shot-wrapper.compare-active .compare-btn { background: #217cb9; color: #fff; }
 
         #sidebar-footer {
             padding: var(--sp-3) var(--sp-5);
@@ -2202,7 +2218,11 @@
            as text on a surface. Needs its own audited on-fill token (like
            --accent-text) rather than a guessed color here; tracked as a
            follow-up, left as-is rather than silently miscalibrated. */
-        .dw-score-chip { color:#fff; font-weight:700; font-size: var(--fs-3); padding: var(--sp-2) var(--sp-3); border-radius:var(--radius); flex-shrink:0; }
+        /* #811: same fill-under-text case as .dw-score-chip — the dial-in
+           list's inline-styled score pill. Background stays inline (computed
+           per score by scoreColor()); everything else lives here. */
+        .score-pill { color: var(--on-fill); font-size: var(--fs-1); font-weight: 700; padding: 1px var(--sp-2); border-radius: var(--radius); }
+        .dw-score-chip { color:var(--on-fill); font-weight:700; font-size: var(--fs-3); padding: var(--sp-2) var(--sp-3); border-radius:var(--radius); flex-shrink:0; }
         .dw-score-meta { font-size: var(--fs-1); color:var(--gray-400); }
         .dw-suggestion { font-size: var(--fs-2); color:var(--gray-200); background:var(--gray-800); border-radius:var(--radius); padding: var(--sp-3) var(--sp-3); }
         .dw-actions { display:flex; flex-direction:column; gap: var(--sp-2); }

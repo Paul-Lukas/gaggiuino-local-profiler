@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Fixed
+- **Text sitting ON a semantic fill was unreadable in the dark theme.** The dial-in score chip and score pill put white text on `--ok`/`--warn`/`--err` used as a *background* — measured **2.37:1** to 3.16:1. The earlier audits only ever checked these tokens as text on a surface, never as a surface under text, so the case was invisible to them. New `--on-fill` is black in the dark theme and white in the light one — the reverse of the intuition, because the dark theme's semantic colours are the light, saturated ones. Same mechanism as the existing `--accent-text`.
+- **The compare-mode button's white label measured 3.15:1.** Its fill is deliberately a fixed blue that does not invert with the theme, and a comment asserted that this made it exempt; it does not. Darkened along the same hue to `#217cb9`, the first value carrying white text at 4.5:1.
+- `test/theme-contrast.test.js` now covers the fill-under-text direction too, and reads three-digit hex — a six-digit-only pattern had silently reported `--on-fill` as undefined.
+
 ### Changed
 - **The design token layer moves to a cool graphite scale, with a six-step type scale, a spacing ladder and two radii.** Groundwork for the "Instrument" redesign (#811, alongside glp-order-card#90 and glp-lovelace-card#120). `--fs-1..6` replaces 53 distinct font-size literals that stepped in 0.02rem increments, `--sp-1..6` replaces the loose gap/padding values, and `--radius-sm`/`--radius` replace the eight ad-hoc corner values. New `--raised` is the surface step that carries nesting depth without a border, which is what makes the border diet possible at all. The gray scale stays role-based and still inverts under `[data-theme="light"]` — `--gray-200` is always primary text, `--gray-900` always the page background.
 - The 6 app accents and 8 machine themes keep their **exact** values. They are audited here, not changed: all six clear 4.5:1 as text on every dark surface (worst: aurora 5.59:1).
