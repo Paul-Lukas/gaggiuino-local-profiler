@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Changed
+- **The shot view's metric tiles became guided lines, and the score ring became type.** Two grids of filled, rounded tiles sat directly above and below the chart; the score sat in a 58px coloured ring. Both are shapes this redesign removes, and the shot card dropped them in the same round. The metrics now read value-first with a hairline between entries, the process row deliberately quieter than the recipe row, and the score reads "99 stark" in the score colour. Thresholds unchanged. #813
+
+### Changed
 - **Country flags and star characters replaced by drawn icons.** The flags were built at render time from the country code, so no source scan ever saw them; they rendered in the OS font and degrade to a bare two-letter box on Windows. The resolved country name was always shown next to them, so nothing is lost. Star ratings now use the drawn star, filled or empty via the same path. #811
 
 ### Fixed

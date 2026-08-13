@@ -404,11 +404,20 @@ export function updateView() {
   if (!shotB) {
     const advice = calcGrindAdvice(shotA, dA);
     const sc     = calcShotScore(shotA, dA);
-    const ring    = document.getElementById('verdictRing');
-    const ringVal = document.getElementById('verdictRingVal');
-    ring.style.setProperty('--ring-pct', sc ?? 0);
+    // #813: the score ring is now type. A 58px conic-gradient ring is a badge
+    // shape the redesign removes on both surfaces (the shot card did the same
+    // in glp-lovelace-card#120) — the number itself, at display size and in the
+    // score colour, carries the same information with none of the chrome, and
+    // gains a word so the figure does not have to be decoded.
+    const ring     = document.getElementById('verdictRing');
+    const ringVal  = document.getElementById('verdictRingVal');
+    const wordEl   = document.getElementById('verdictScoreWord');
     ring.style.setProperty('--ring-color', scoreColor(sc));
     ringVal.textContent = sc !== null ? sc : '–';
+    wordEl.textContent = sc === null ? ''
+      : sc >= 90 ? t('verdict_word_high')
+      : sc >= 70 ? t('verdict_word_mid')
+      : t('verdict_word_low');
 
     // Score delta chip (#402): same-profile auto-compare, unified score
     // scale (#397) for the coloring — omitted entirely when there's no

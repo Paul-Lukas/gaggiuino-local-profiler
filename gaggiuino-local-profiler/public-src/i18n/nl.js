@@ -16,6 +16,7 @@ export default {
     meta_duration:'Duur', meta_ratio:'Dosis → Opbrengst · Ratio', meta_ey:'Extractie-opbrengst (EY)',
     recipe_dose_yield:'Dosis → Opbrengst', recipe_ratio:'Ratio', recipe_bean_grinder:'Bonen & Molen', recipe_grinder_grind:(g,s)=>g?`${g} · maalgraad ${s}`:`Maalgraad ${s}`,
     process_pressure:'Druk (gem / max)', process_flow:'Pompstroom (gem)', process_temp:'Temperatuur (gem ±σ)',
+    verdict_word_high:'sterk', verdict_word_mid:'goed', verdict_word_low:'zwak',
     verdict_no_data:'Nog niet genoeg gegevens voor een oordeel.',
     verdict_bean_target_hint:'Beoordeeld op basis van het eigen zettarget van deze boon',
     tab_time:`${CLOCK_ICON_SVG} Tijd`, tab_pq:'P·Q Curve',

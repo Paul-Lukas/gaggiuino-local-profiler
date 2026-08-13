@@ -895,25 +895,21 @@
             border-radius: var(--radius);
             margin-bottom: var(--sp-5);
         }
-        .verdict-ring {
-            width: 58px; height: 58px; flex-shrink: 0;
-            border-radius: 50%;
-            /* --ring-color / --ring-pct set inline per shot (unified score scale, #397) */
-            background: conic-gradient(var(--ring-color, var(--gray-600)) calc(var(--ring-pct, 0) * 1%), var(--gray-800) 0);
-            display: flex; align-items: center; justify-content: center;
+        /* #813: the score ring became type. --ring-color is still set inline
+           per shot (unified score scale, #397) and now colours the number
+           itself; the surrounding ring, its inner disc and the 58px circle
+           are gone. Baseline-aligned with the headline beside it rather than
+           vertically centred as a badge was. */
+        .verdict-score {
+            flex-shrink: 0;
+            display: flex; align-items: baseline; gap: var(--sp-2);
+            color: var(--ring-color, var(--gray-600));
         }
-        /* #413: .verdict-ring-inner's background is themed (var(--gray-950),
-           near-black in dark / near-white in light+Crema) but its score
-           number was still a hardcoded #fff — same bug as the headline
-           below, found while fixing it (not itself in the original issue,
-           but the same component and the same root cause). */
-        .verdict-ring-inner {
-            width: 46px; height: 46px;
-            border-radius: 50%;
-            background: var(--gray-950);
-            display: flex; align-items: center; justify-content: center;
-            font-size: var(--fs-3); font-weight: 700; color: var(--gray-200);
+        .verdict-score-num {
+            font-size: var(--fs-5); font-weight: 700; line-height: 1;
+            font-variant-numeric: tabular-nums;
         }
+        .verdict-score-word { font-size: var(--fs-2); font-weight: 600; }
         .verdict-text      { min-width: 0; }
         .verdict-headline  { font-size: var(--fs-3); font-weight: 700; color: var(--gray-200); display: flex; align-items: center; gap: var(--sp-2); }
         .verdict-subline   { font-size: var(--fs-1); color: var(--gray-500); margin-top: var(--sp-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -942,27 +938,55 @@
         .process-card .delta-chip { display: block; width: fit-content; }
 
         /* ── Recipe zone (#398): large cards, the values the user sets ── */
+        /* #813: a guided line, not a tile wall. These four were a grid of
+           filled, rounded boxes — a row of near-identical tiles is the shape
+           this redesign removes, and the shot card collapsed its own two such
+           rows for the same reason (glp-lovelace-card#120).
+           The reading order does the grouping now: value first at display
+           size, label beneath it, and a single hairline between entries
+           instead of four separate surfaces. The row wraps rather than
+           reflowing into a grid, so a narrow screen gets a shorter line
+           rather than a two-by-two block that reads as tiles again. */
         .recipe-zone {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: var(--sp-3);
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--sp-3) var(--sp-5);
             margin-bottom: var(--sp-5);
         }
-        .recipe-card       { background: var(--gray-900); border-radius: var(--radius); padding: var(--sp-4) var(--sp-4); }
-        .recipe-card-label { display: block; font-size: var(--fs-1); color: var(--gray-500); margin-bottom: var(--sp-2); }
-        .recipe-card-value { display: block; font-size: var(--fs-3); font-weight: 700; color: var(--gray-100); }
-        .recipe-card-sub   { display: block; font-size: var(--fs-1); color: var(--gray-500); margin-top: var(--sp-1); }
+        /* A column flex box, so `order` below can put the VALUE first while the
+           markup keeps label-then-value (the label carries the data-i18n hook
+           and several call sites address these by id — reordering the HTML
+           would churn far more than the CSS does). */
+        .recipe-card       { position: relative; padding: 0; min-width: 0; display: flex; flex-direction: column; }
+        .recipe-card + .recipe-card::before {
+            content: ''; position: absolute; left: calc(var(--sp-5) / -2); top: 2px; bottom: 2px;
+            border-left: 1px solid var(--gray-700);
+        }
+        .recipe-card-label { display: block; font-size: var(--fs-1); color: var(--gray-500); order: 2; margin-top: var(--sp-1); }
+        .recipe-card-value { display: block; font-size: var(--fs-4); font-weight: 700; color: var(--gray-100); line-height: 1.15; order: 1; }
+        .recipe-card-sub   { display: block; font-size: var(--fs-1); color: var(--gray-500); order: 3; margin-top: 2px; }
 
         /* ── Process zone (#398): compact cards, the values the machine produced ── */
+        /* #813: same treatment as .recipe-zone above — the process metrics were
+           a second grid of filled tiles directly below the first, which is the
+           doubled tile wall the redesign set out to remove.
+           Deliberately quieter than the recipe line: these are what the machine
+           did, not what the user chose, so the value sits one step down the
+           scale and the row reads as a footnote to the chart above it rather
+           than competing with the recipe for the eye. */
         .process-zone {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: var(--sp-3);
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--sp-2) var(--sp-5);
             margin-top: var(--sp-5);
         }
-        .process-card       { background: var(--gray-900); border-radius: var(--radius); padding: var(--sp-3) var(--sp-3); }
-        .process-card-label { display: block; font-size: var(--fs-1); color: var(--gray-500); margin-bottom: var(--sp-1); }
-        .process-card-value { font-size: var(--fs-2); font-weight: 600; color: var(--gray-200); }
+        .process-card       { position: relative; padding: 0; min-width: 0; display: flex; flex-direction: column; }
+        .process-card + .process-card::before {
+            content: ''; position: absolute; left: calc(var(--sp-5) / -2); top: 2px; bottom: 2px;
+            border-left: 1px solid var(--gray-700);
+        }
+        .process-card-label { display: block; font-size: var(--fs-1); color: var(--gray-500); order: 2; margin-top: 2px; }
+        .process-card-value { font-size: var(--fs-3); font-weight: 700; color: var(--gray-200); order: 1; line-height: 1.15; }
 
         .chart-container { position: relative; height: clamp(320px, 55vh, 480px); width: 100%; }
 

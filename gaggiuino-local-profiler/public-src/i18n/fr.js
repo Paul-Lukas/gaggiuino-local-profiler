@@ -16,6 +16,7 @@ export default {
     meta_duration:'Durée', meta_ratio:'Dose → Rendement · Ratio', meta_ey:"Taux d'extraction (EY)",
     recipe_dose_yield:'Dose → Rendement', recipe_ratio:'Ratio', recipe_bean_grinder:'Café & Moulin', recipe_grinder_grind:(g,s)=>g?`${g} · mouture ${s}`:`Mouture ${s}`,
     process_pressure:'Pression (moy / max)', process_flow:'Débit pompe (moy)', process_temp:'Température (moy ±σ)',
+    verdict_word_high:'excellent', verdict_word_mid:'bon', verdict_word_low:'faible',
     verdict_no_data:"Pas encore assez de données pour un verdict.",
     verdict_bean_target_hint:"Noté selon l'objectif de préparation propre à ce café",
     tab_time:`${CLOCK_ICON_SVG} Temps`, tab_pq:'Courbe P·Q',
