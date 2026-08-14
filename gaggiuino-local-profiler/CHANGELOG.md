@@ -1,6 +1,10 @@
 ## [Unreleased]
 
 ### Added
+- **Achievement copy in all six languages, and the tests the feature was missing.** The 48 open badges now have a name and description in de/en/it/fr/es/nl; the 6 secret ones stay encoded server-side so reading the JS bundle cannot spoil them. #812
+
+
+### Added
 - **The animated machine icon now actually appears** — in the Live view's idle panel, driven by the same poll that feeds the preheat widget. It shows off, heating (filling from the bottom as the machine warms), ready, and brewing with the real weight, time and pressure on its little display. #811
 
 
