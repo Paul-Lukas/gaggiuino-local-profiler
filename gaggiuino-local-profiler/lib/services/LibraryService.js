@@ -3,6 +3,7 @@ const shotRepo = require('../repositories/ShotRepository');
 const orderRepo = require('../repositories/OrderRepository');
 const { log } = require('../helpers');
 const { LOW_STOCK_THRESHOLD_G, isGlobalMaintenanceTask } = require('../constants');
+const { bus, EVENTS } = require('../events');
 
 class LibraryService {
     getLibrary()         { return repo.getLibrary(); }
@@ -18,7 +19,11 @@ class LibraryService {
         const shotCount = isGlobalMaintenanceTask(task)
             ? shotRepo.findAll().length
             : shotRepo.findAll(machineId).length;
-        return repo.addMaintenanceLogEntry(task, notes, machine, shotCount, machineId);
+        const entry = repo.addMaintenanceLogEntry(task, notes, machine, shotCount, machineId);
+        // #812: single choke point both routes/maintenance.js POST endpoints
+        // ("mark done" and "manual log entry") funnel through.
+        bus.emit(EVENTS.MAINTENANCE_ACKNOWLEDGED, { task, machineId });
+        return entry;
     }
 
     // Remaining grams for a stock-tracked bean — mirrors the library view's math

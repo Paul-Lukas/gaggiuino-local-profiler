@@ -2,6 +2,7 @@ const express = require('express');
 
 const { loadLibrary, saveLibrary } = require('../../lib/data');
 const libraryService = require('../../lib/services/LibraryService');
+const shotRepo = require('../../lib/repositories/ShotRepository');
 const { imagePath, CONTENT_TYPE_EXT, deleteBeanImage, saveUploadedImage } = require('../../lib/services/ImageService');
 const { BEAN_IMAGE_MAX_BYTES } = require('../../lib/constants');
 const { rateLimit } = require('../../lib/helpers');
@@ -10,6 +11,7 @@ const {
     sanitizeAltitude, sanitizePrice, sanitizeBrewTemp, sanitizeBrewTime, sanitizeEnabled, safeUrl,
     sanitizeFrozenPortions,
 } = require('../../lib/sanitize-bean');
+const { bus, EVENTS } = require('../../lib/events');
 
 // Registers bean routes onto a shared router (not its own express.Router())
 // — a nested Router-in-Router mount forces an extra async (setImmediate)
@@ -70,6 +72,7 @@ router.post('/api/library/bean', (req, res) => {
     // fire-and-forget: resolve region to map coordinates, download the image
     if (bean.region) libraryService.geocodeBean(bean.id).catch(() => {});
     if (typeof imageUrl === 'string' && imageUrl) libraryService.setBeanImage(bean.id, imageUrl).catch(() => {});
+    bus.emit(EVENTS.BEAN_CHANGED, { reason: 'create', beanId: bean.id });
     res.json(bean);
 });
 
@@ -129,6 +132,7 @@ router.put('/api/library/bean/:id', (req, res) => {
     }
     saveLibrary(lib);
     if (regionChanged && lib.beans[idx].region) libraryService.geocodeBean(id).catch(() => {});
+    bus.emit(EVENTS.BEAN_CHANGED, { reason: 'update', beanId: id });
     res.json(lib.beans[idx]);
 });
 
@@ -141,12 +145,26 @@ router.post('/api/library/bean/:id/new-bag', (req, res) => {
     const roastDate   = s(req.body?.roastDate, 10);
     const stock_g     = parseFloat(req.body?.stock_g) || null;
     const batchNumber = s(req.body?.batchNumber, 50);
+    // #812 "restock" badge: was the bean actually out of stock right before
+    // this new bag landed? Computed against the doses/beans as they stood
+    // pre-push, matching computeBeanRemaining's own "remaining <= 0" notion
+    // of empty. Best-effort -- a throw here must never block the real bag
+    // add, so the achievement predicate is evaluated after the fact isn't
+    // possible (there'd be nothing left to compare against), hence the try
+    // happens on the pre-mutation snapshot.
+    let wasEmpty = false;
+    try {
+        const bean = lib.beans[idx];
+        const remaining = libraryService.computeBeanRemaining(bean, shotRepo.getAnnotatedDoses(), lib.beans);
+        wasEmpty = remaining !== null && remaining <= 0;
+    } catch { /* best-effort */ }
     const bag = { id: Date.now(), roastDate, stock_g, openedAt: Date.now(), batchNumber };
     if (!Array.isArray(lib.beans[idx].bags)) lib.beans[idx].bags = [];
     lib.beans[idx].bags.push(bag);
     lib.beans[idx].roastDate = roastDate;
     lib.beans[idx].stock_g   = stock_g;
     saveLibrary(lib);
+    bus.emit(EVENTS.BEAN_CHANGED, { reason: 'restock', beanId: id, wasEmpty });
     res.json(lib.beans[idx]);
 });
 

@@ -99,6 +99,20 @@ function initSchema(db) {
             key         TEXT PRIMARY KEY,
             value       TEXT NOT NULL DEFAULT '{}'
         );
+
+        -- #812: achievements stamp card. One row per badge id (see
+        -- lib/achievements/registry.js), written once on unlock and never
+        -- updated again except progress (e.g. "7 of 10") while still locked.
+        -- No machine_id column, deliberately: the collection is per-install,
+        -- shared across every machine registered in this app -- see the
+        -- registry file's header comment for why that's the right scope.
+        -- unlocked_at is Unix SECONDS (NULL while locked), matching
+        -- shots.timestamp's convention elsewhere in this file.
+        CREATE TABLE IF NOT EXISTS achievements (
+            id          TEXT PRIMARY KEY,
+            unlocked_at INTEGER,
+            progress    INTEGER
+        );
     `);
 }
 

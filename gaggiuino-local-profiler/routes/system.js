@@ -19,6 +19,8 @@ function getOpenApiSpec() {
 }
 
 const { GLP_VERSION, HA_TOKEN, PROFILES_CACHE_FILE } = require('../lib/constants');
+const versionCheck = require('../lib/version-check');
+const { bus, EVENTS } = require('../lib/events');
 const shotRepo = require('../lib/repositories/ShotRepository');
 const { loadOptions, isOrdersEnabled, loadMenu, isApiPortExposed } = require('../lib/data');
 const { getSwitchState, callHaService } = require('../lib/ha');
@@ -418,6 +420,7 @@ router.post('/api/machine/profile', async (req, res) => {
     try {
         const created = await adapter.createProfile(machine, profile);
         log(`Created machine profile "${created.name}" (id ${created.id}) on machine #${machine.id}`);
+        bus.emit(EVENTS.PROFILE_SAVED, { action: 'create' });
         res.json(created);
     } catch (e) {
         log(`Machine profile create failed: ${e.message}`, true);
@@ -436,6 +439,7 @@ router.put('/api/machine/profile/:id', async (req, res) => {
     try {
         const updated = await adapter.updateProfile(machine, profile);
         log(`Updated machine profile "${updated.name}" (id ${updated.id}) on machine #${machine.id}`);
+        bus.emit(EVENTS.PROFILE_SAVED, { action: 'update' });
         res.json(updated);
     } catch (e) {
         log(`Machine profile update failed: ${e.message}`, true);
@@ -507,42 +511,17 @@ router.get('/api/openapi.json', (req, res) => {
 });
 
 // ── Version / update check ────────────────────────────────────────────────
-
-let _versionCache = null;
-let _versionCacheAt = 0;
-const VERSION_CACHE_MS = 60 * 60 * 1000;
+// Caching/fetch logic lives in lib/version-check.js (#812) so
+// lib/achievements/context.js can read the last-known result (getCached())
+// for the up_to_date badge without ever triggering a fetch of its own.
 
 router.get('/api/version', async (req, res) => {
-    const now = Date.now();
-    if (!_versionCache || now - _versionCacheAt > VERSION_CACHE_MS) {
-        try {
-            const r = await fetch(
-                'https://api.github.com/repos/mxkissnr/gaggiuino-local-profiler/releases/latest',
-                { headers: { 'User-Agent': 'GLP-Server' }, signal: AbortSignal.timeout(8000) }
-            );
-            if (r.ok) {
-                const data = await r.json();
-                // eslint-disable-next-line require-atomic-updates -- benign cache-fill race: concurrent requests before this resolves would all compute the same value from the same GitHub release
-                _versionCache = data.tag_name?.replace(/^v/, '') || null;
-                // eslint-disable-next-line require-atomic-updates -- see above
-                _versionCacheAt = now;
-            }
-        } catch { /* ignore */ }
-    }
-    const latest = _versionCache;
-    // #704: GLP_VERSION only moves at an actual release, so a dev build is
-    // permanently "behind" the last stable tag by design -- comparing
-    // against it here would tell dev-channel users to update via the
-    // stable Add-on Store, which is wrong (there's no store listing for
-    // GLP DEV, and it would just take them back to stable). Same
-    // dev-build-aware guard as the "UNSTABLE DEV BUILD" banner (#683) and
-    // /api/status's devBuild field.
-    const updateAvailable = !process.env.GLP_DEV_BUILD && !!(latest && latest !== GLP_VERSION);
+    const { current, latest, updateAvailable, releaseUrl } = await versionCheck.checkForUpdate();
     res.json({
-        current:          GLP_VERSION,
-        latest:           latest || null,
+        current,
+        latest,
         update_available: updateAvailable,
-        release_url:      'https://github.com/mxkissnr/gaggiuino-local-profiler/releases/latest',
+        release_url:      releaseUrl,
     });
 });
 
