@@ -497,7 +497,13 @@ export function machineIconAnimatedSvg(theme, kind = 'gaggiuino') {
 export function setMachineIconMode(rootEl, mode, heatFraction = 0) {
     const classes = MACHINE_ICON_MODES[mode];
     if (!classes) throw new Error(`machine-icon: unknown mode "${mode}"`);
-    rootEl.className = [MACHINE_ICON_LIVE_CLASS, ...classes].join(' ');
+    // Only touch the classes this function owns. Assigning className wholesale
+    // silently dropped whatever the caller had put there for layout — the Live
+    // view's own `idle-icon` positioning class disappeared on the first state
+    // change, which is invisible until you notice the icon has moved.
+    rootEl.classList.add(MACHINE_ICON_LIVE_CLASS);
+    for (const list of Object.values(MACHINE_ICON_MODES)) rootEl.classList.remove(...list);
+    if (classes.length) rootEl.classList.add(...classes);
     const svg = rootEl.querySelector('.m-svg');
     if (!svg) return;
     const heat = mode === 'off' ? 0 : mode === 'heating' ? Math.max(0, Math.min(1, heatFraction)) : 1;

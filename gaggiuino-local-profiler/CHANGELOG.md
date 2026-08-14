@@ -1,6 +1,10 @@
 ## [Unreleased]
 
 ### Added
+- **The animated machine icon now actually appears** — in the Live view's idle panel, driven by the same poll that feeds the preheat widget. It shows off, heating (filling from the bottom as the machine warms), ready, and brewing with the real weight, time and pressure on its little display. #811
+
+
+### Added
 - **An animated machine icon with live states.** Ported from the "Instrument" prototype: a Gaggiuino (rectangular display) and a GaggiMate (chrome puck) variant sharing one body, with heating/ready/brewing/steaming states — the body fills with the machine's accent colour as it heats, a brew scale gains a cup that fills as two converging streams (never a drip, which would depict channeling), and a milk jug appears with a rotating vortex while steaming. `prefers-reduced-motion` shows the correct static state rather than a frozen frame. Not yet wired into a live view — `machineIconAnimatedSvg()`/`setMachineIconMode()` in `public-src/machine-icon.js` are ready for that follow-up. #811
 
 ### Fixed

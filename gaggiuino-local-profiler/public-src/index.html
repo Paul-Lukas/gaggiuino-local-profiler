@@ -1034,7 +1034,12 @@
                     <div id="preheat-countdown">–</div>
                 </div>
             </div>
-            <div class="idle-icon"><svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 8h1a3 3 0 0 1 0 6h-1M4 8h13v7a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8z"/><path d="M8 2v2M12 2v2"/></svg></div>
+            <!-- #811: the animated machine icon replaces the static cup mark
+                 here. This is the one place in the app that shows machine
+                 STATE rather than shot data, which is exactly what the icon's
+                 states depict — views/live.js drives it from the same poll
+                 that feeds the preheat widget above. -->
+            <div class="idle-icon" id="liveMachineIcon"></div>
             <h2 id="liveIdleTitle" data-i18n="machine_ready">Maschine bereit</h2>
             <p id="liveIdleText" data-i18n="live_idle_text">Sobald ein Bezug startet, erscheinen hier die Echtzeit-Daten.</p>
         </div>
