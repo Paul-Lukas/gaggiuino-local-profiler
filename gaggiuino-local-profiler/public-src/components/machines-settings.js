@@ -9,7 +9,7 @@ import { S, setState, filterShotsByMachine } from '../state.js';
 import { apiFetch } from '../api.js';
 import { t } from '../i18n.js';
 import { loadMachineProfileList } from '../views/library-profile-editor.js';
-import { WARNING_ICON_SVG } from '../icons.js';
+import { WARNING_ICON_SVG, CHECK_ICON_SVG, CLOSE_ICON_SVG } from '../icons.js';
 import { updateStatus } from './status.js';
 import { THEME_PRESETS, resolveTheme } from '../../lib/machines/theme-presets.js';
 import { machineIconSvg, machineIconMiniSvg } from '../machine-icon.js';
@@ -409,10 +409,12 @@ async function _testMachine(id) {
     const r = await apiFetch(`api/machines/${id}/test`, { method: 'POST' });
     const data = await r.json().catch(() => ({}));
     if (String(document.getElementById('machineFormId').value) !== String(id)) return;
-    resultEl.textContent = data.reachable ? t('settings_machine_test_ok') : t('settings_machine_test_fail');
+    resultEl.innerHTML = data.reachable
+      ? `${CHECK_ICON_SVG} ${t('settings_machine_test_ok')}`
+      : `${CLOSE_ICON_SVG} ${t('settings_machine_test_fail')}`;
   } catch {
     if (String(document.getElementById('machineFormId').value) !== String(id)) return;
-    resultEl.textContent = t('settings_machine_test_fail');
+    resultEl.innerHTML = `${CLOSE_ICON_SVG} ${t('settings_machine_test_fail')}`;
   }
 }
 

@@ -4,6 +4,7 @@ import { t } from '../i18n.js';
 import { apiFetch } from '../api.js';
 import { devBannerHeight } from './dev-banner.js';
 import { themeColor } from '../utils.js';
+import { CLOSE_ICON_SVG } from '../icons.js';
 
 const DISMISS_KEY = 'glp_onboarding_banner_dismissed';
 
@@ -53,7 +54,7 @@ export function updateMachineBanner(status = null) {
   Object.assign(wikiLink.style, { color: themeColor('--gray-200', '#e4e4e7'), fontSize: '.8rem', textDecoration: 'underline', whiteSpace: 'nowrap' });
 
   const closeBtn = document.createElement('button');
-  closeBtn.textContent = '✕';
+  closeBtn.innerHTML = CLOSE_ICON_SVG;
   Object.assign(closeBtn.style, { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: themeColor('--gray-200', '#e4e4e7'), padding: '0 2px' });
   closeBtn.addEventListener('click', () => {
     sessionStorage.setItem(DISMISS_KEY, '1');
@@ -107,7 +108,7 @@ export function updateLegacyMachineOptionsBanner(status = null) {
   msg.textContent = t('legacy_machine_options_banner_msg');
 
   const closeBtn = document.createElement('button');
-  closeBtn.textContent = '✕';
+  closeBtn.innerHTML = CLOSE_ICON_SVG;
   Object.assign(closeBtn.style, { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: themeColor('--gray-200', '#e4e4e7'), padding: '0 2px' });
   closeBtn.addEventListener('click', () => {
     sessionStorage.setItem(LEGACY_DISMISS_KEY, '1');

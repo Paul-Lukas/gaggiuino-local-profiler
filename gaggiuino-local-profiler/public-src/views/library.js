@@ -14,7 +14,7 @@ import { generateBeanQR, parseGlpQrParams } from '../glp-qr.js';
 import { calcBestGrindCombosForBean } from './shots/grind.js';
 import { renderShotDefaultsSettingsCard } from '../components/shot-defaults-settings.js';
 import { sumConsumedDoses, computeBeanRemaining } from '../bean-math.js';
-import { TARGET_ICON_SVG, SLIDERS_ICON_SVG, FLAVOR_WHEEL_ICON_SVG, COFFEE_ICON_SVG, WATER_DROP_ICON_SVG, ICE_CUBE_ICON_SVG, LINK_ICON_SVG, WRENCH_ICON_SVG, STAR_ICON_SVG, WARNING_ICON_SVG } from '../icons.js';
+import { TARGET_ICON_SVG, SLIDERS_ICON_SVG, FLAVOR_WHEEL_ICON_SVG, COFFEE_ICON_SVG, WATER_DROP_ICON_SVG, ICE_CUBE_ICON_SVG, LINK_ICON_SVG, WRENCH_ICON_SVG, STAR_ICON_SVG, WARNING_ICON_SVG, CLOSE_ICON_SVG, EDIT_ICON_SVG } from '../icons.js';
 
 const ICON_PENCIL = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"/></svg>`;
 const ICON_TRASH  = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H10V19H8V9M14,9H16V19H14V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z"/></svg>`;
@@ -169,7 +169,7 @@ export function renderBeanList() {
             <span>${bg.roastDate ? esc(bg.roastDate) : '–'}</span>
             <span>${bg.stock_g ? bg.stock_g + ' g' : '–'}</span>
             <span>${bg.batchNumber ? esc(bg.batchNumber) : '–'}</span>
-            <button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">✕</button>
+            <button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">${CLOSE_ICON_SVG}</button>
           </div>`).join('')}
       </div>
       <button class="lib-btn-sm lib-bag-history-btn" data-action="toggle-bag-history" data-id="${b.id}" id="bagHistoryBtn${b.id}">▸ ${t('lib_bag_history')}</button>` : '';
@@ -215,11 +215,11 @@ export function renderBeanList() {
       if (fp.thawedAt) {
         const thawedStr = new Date(fp.thawedAt).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' });
         return `<span class="lib-frozen-badge thawed" title="${esc(fpTitle)}">${t('bag_frozen_thawed_badge', thawedStr)}
-          <button class="lib-frozen-edit-btn" data-action="open-edit-frozen-form" data-portion-id="${fp.id}" title="${t('bag_frozen_edit_btn')}">✎</button></span>${editForm}`;
+          <button class="lib-frozen-edit-btn" data-action="open-edit-frozen-form" data-portion-id="${fp.id}" title="${t('bag_frozen_edit_btn')}">${EDIT_ICON_SVG}</button></span>${editForm}`;
       }
       return `<span class="lib-frozen-badge" title="${esc(fpTitle)}">${ICE_CUBE_ICON_SVG} ${remaining}/${fp.portionCount} ${t('bag_frozen_badge', frozenStr)}
         <button class="lib-frozen-thaw-btn" data-action="thaw-portion" data-bean-id="${b.id}" data-portion-id="${fp.id}" title="${t('bag_thaw_btn')}">${t('bag_thaw_btn')}</button>
-        <button class="lib-frozen-edit-btn" data-action="open-edit-frozen-form" data-portion-id="${fp.id}" title="${t('bag_frozen_edit_btn')}">✎</button></span>${editForm}`;
+        <button class="lib-frozen-edit-btn" data-action="open-edit-frozen-form" data-portion-id="${fp.id}" title="${t('bag_frozen_edit_btn')}">${EDIT_ICON_SVG}</button></span>${editForm}`;
     }).join('')}</div>` : '';
 
     const rating = calcBeanRating(b.name, S.shots);
@@ -609,7 +609,7 @@ function renderFlavorChips() {
   for (const [i, f] of _formFlavors.entries()) {
     const chip = document.createElement('span');
     chip.className = 'flavor-chip';
-    chip.innerHTML = `${esc(f)} <button type="button" class="flavor-chip-x" data-flavor-idx="${i}">✕</button>`;
+    chip.innerHTML = `${esc(f)} <button type="button" class="flavor-chip-x" data-flavor-idx="${i}">${CLOSE_ICON_SVG}</button>`;
     wrap.insertBefore(chip, input);
   }
 }
@@ -676,7 +676,7 @@ function renderOriginChips() {
   wrap.innerHTML = _formOrigins.map((o, i) => `
     <span class="flavor-chip origin-chip">${esc(countryName(o.code, S.currentLang))}
       <input type="number" class="origin-chip-percent" data-origin-idx="${i}" min="0" max="100" step="1" placeholder="%" value="${o.percent ?? ''}">
-      <button type="button" class="flavor-chip-x" data-origin-idx-remove="${i}">✕</button>
+      <button type="button" class="flavor-chip-x" data-origin-idx-remove="${i}">${CLOSE_ICON_SVG}</button>
     </span>`).join('');
 }
 
@@ -1520,7 +1520,7 @@ export function renderMilkList() {
       <div class="lib-milk-top">
         <span style="font-size:1.3rem">${esc(m.emoji || '🥛')}</span>
         <span class="lib-milk-name">${esc(m.name)}</span>
-        <button class="lib-milk-del" data-action="delete-milk" data-id="${m.id}" title="${t('lib_milk_delete')}">✕</button>
+        <button class="lib-milk-del" data-action="delete-milk" data-id="${m.id}" title="${t('lib_milk_delete')}">${CLOSE_ICON_SVG}</button>
       </div>
       <div class="lib-milk-stock-bar-wrap">
         <div class="lib-milk-stock-bar ${cls}" style="width:${pct}%"></div>

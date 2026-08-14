@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Changed
+- **The last text-glyph buttons (✕/✎) and glyph-prefixed status text (✓/✗) become drawn icons**, matching the rest of the redesign's single visual language for close/delete/edit/success/failure affordances instead of mixing in Unicode symbols. #811
+
 ### Fixed
 - **The share card's score badge told a different story than the app that generated it.** The live UI colours a score green from 90, yellow from 70, red below (`--ok`/`--warn`/`--err`). The share-card renderer had its own, older 80/60 thresholds using the accent colour instead — found while pulling `lib/card.js` onto the redesign's tokens, not introduced by it. Both now agree; the frozen pre-#811 snapshot used by old cached card links is deliberately left on its original logic. #811
 

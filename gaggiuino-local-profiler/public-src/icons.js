@@ -57,3 +57,8 @@ export const SUN_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-
 
 // #430: annotation auto-save status "Gespeichert" check mark.
 export const CHECK_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5 9.5 18 20 6"/></svg>';
+
+// #811 phase 5: close/delete (✕) and edit (✎) glyph replacements.
+export const CLOSE_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+
+export const EDIT_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 4.5 19.5 8.5 8 20H4v-4z"/><path d="M13.5 6.5l4 4"/></svg>';

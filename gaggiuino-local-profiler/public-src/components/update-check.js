@@ -1,6 +1,7 @@
 import { apiFetch } from '../api.js';
 import { t } from '../i18n.js';
 import { devBannerHeight } from './dev-banner.js';
+import { CLOSE_ICON_SVG } from '../icons.js';
 
 export async function checkForUpdate() {
     try {
@@ -37,7 +38,7 @@ function showUpdateBanner({ current, latest, release_url }) {
     });
 
     const closeBtn = document.createElement('button');
-    closeBtn.textContent = '✕';
+    closeBtn.innerHTML = CLOSE_ICON_SVG;
     Object.assign(closeBtn.style, {
         background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: '#1c1917', padding: '0 2px',
     });
