@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Added
+- **The share card now always carries a short install code** (e.g. `A7K2-M94X`), derived deterministically from the install's existing ID so a shared card can always be traced back to the install it came from — no new identifier, no opt-out. #811
+
+### Changed
+- **The share card now draws from the same graphite tokens as the rest of the app**, instead of a colour table that had drifted since the redesign started, and its labels are sentence case rather than shouting caps. A legend-chip outline that was stroking in the exact colour of its own fill (invisible in every theme) is fixed along with the rest of the card's line contrast, which measured well under the 3:1 floor for non-text lines. #811
+
 ### Fixed
 - **A comment broke the stylesheet.** An explanatory comment in `style.css` named the token pattern `--gray-*/--err`; the `*/` inside it closed the comment early, so the remaining prose was parsed as CSS and `npm run build` failed. Nothing caught it beforehand -- the test suite never loaded the file and ESLint does not read CSS -- so a test now parses `style.css` and points at the exact line of any comment that closes itself early. #812
 
