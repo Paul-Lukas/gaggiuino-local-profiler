@@ -7,6 +7,7 @@
 // MQTT can't take effect with a still-blank host mid-edit.
 import { apiFetch } from '../api.js';
 import { t } from '../i18n.js';
+import { CHECK_ICON_SVG } from '../icons.js';
 
 let _selectedTransport = 'websocket';
 let _discovery = null;
@@ -29,7 +30,7 @@ export async function loadMqttSettings() {
     document.getElementById('mqttPrefix').value    = settings.prefix || 'gaggiuino';
 
     const hint = document.getElementById('mqttDiscoveryHint');
-    if (hint) hint.textContent = _discovery.available ? t('settings_mqtt_discovered') : t('settings_mqtt_not_discovered');
+    if (hint) hint.innerHTML = _discovery.available ? `${CHECK_ICON_SVG} ${t('settings_mqtt_discovered')}` : t('settings_mqtt_not_discovered');
 
     renderMqttSettingsCard();
   } catch { /* offline/first-run — card just stays at its default state */ }
@@ -66,7 +67,7 @@ export async function saveMqttSettings() {
     const r = await apiFetch('api/mqtt/settings', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
     });
-    if (r.ok) { if (resultEl) resultEl.textContent = t('settings_mqtt_saved'); return; }
+    if (r.ok) { if (resultEl) resultEl.innerHTML = `${CHECK_ICON_SVG} ${t('settings_mqtt_saved')}`; return; }
     const data = await r.json().catch(() => ({}));
     if (resultEl) resultEl.textContent = t('settings_mqtt_save_error', data.error || r.status);
   } catch {
@@ -79,7 +80,7 @@ export async function applyMqttToMachine() {
   if (resultEl) resultEl.textContent = t('settings_mqtt_applying');
   try {
     const r = await apiFetch('api/mqtt/apply-to-machine', { method: 'POST' });
-    if (r.ok) { if (resultEl) resultEl.textContent = t('settings_mqtt_applied'); return; }
+    if (r.ok) { if (resultEl) resultEl.innerHTML = `${CHECK_ICON_SVG} ${t('settings_mqtt_applied')}`; return; }
     const data = await r.json().catch(() => ({}));
     if (resultEl) resultEl.textContent = t('settings_mqtt_apply_error', data.error || r.status);
   } catch {

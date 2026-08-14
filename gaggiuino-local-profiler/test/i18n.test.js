@@ -148,3 +148,27 @@ describe('setLang() re-renders the open shot view', () => {
         expect(src).toMatch(/currentMode === 'shots'.*window\.updateView/);
     });
 });
+
+// #811 Phase 5 removed the app's second visual language: text glyphs baked
+// into translated status strings (e.g. "✓ Gespeichert") instead of the
+// app's own drawn icon set (public-src/icons.js). One sibling key
+// (orders_types_saved) was missed by the original sweep and only found by a
+// manual recount -- no test caught it, because the existing key-set-
+// equality test above only checks keys exist, not what their values
+// contain. This guards the whole class going forward: no translated value
+// in any of the 6 languages may carry a checkmark/cross/pencil glyph, full
+// stop, so a future call site can never reintroduce this pattern silently.
+describe('i18n values carry no leftover text-glyph icons (#811)', () => {
+    const GLYPHS = ['\u2713', '\u2717', '\u2715', '\u270E']; // ✓ ✗ ✕ ✎
+
+    it('no key in any language ships a checkmark/cross/pencil glyph', () => {
+        for (const [name, dict] of Object.entries(LANGS)) {
+            for (const [key, value] of Object.entries(dict)) {
+                if (typeof value !== 'string') continue;
+                for (const glyph of GLYPHS) {
+                    expect(value.includes(glyph), `${name}:${key} still contains "${glyph}": ${JSON.stringify(value)}`).toBe(false);
+                }
+            }
+        }
+    });
+});

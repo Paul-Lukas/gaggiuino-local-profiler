@@ -2,7 +2,7 @@ import Chart from 'chart.js/auto';
 import { S }                                              from '../../state.js';
 import { t }                                              from '../../i18n.js';
 import { corsairPlugin, clearChartOnTouchEnd } from '../../constants.js';
-import { formatTimeLabel }                                from '../../utils.js';
+import { formatTimeLabel, chartColors }                   from '../../utils.js';
 import { getShotData }                                    from './utils.js';
 
 // ── Chart tab switching ───────────────────────────────────────────────────
@@ -33,6 +33,9 @@ function getPQData(shot) {
 }
 
 export function updatePQChart() {
+  // #814: resolved per render, never at module load — the value has to be
+  // whatever the ACTIVE theme resolves to right now.
+  const C = chartColors();
   const shotA = S.shots.find(s => s.id === S.primaryShotId);
   if (!shotA) return;
 
@@ -65,16 +68,16 @@ export function updatePQChart() {
     options: {
       responsive: true, maintainAspectRatio: false, animation: false,
       plugins: {
-        legend: { labels: { color: '#e4e4e7', font: { family: 'Figtree' } } },
+        legend: { labels: { color: C.text, font: { family: 'Figtree' } } },
         tooltip: { callbacks: { label: c => `${c.parsed.y.toFixed(1)} bar @ ${c.parsed.x.toFixed(1)} ml/s` } }
       },
       scales: {
         x: { type: 'linear', min: 0, max: xMax,
              title: { display: true, text: t('chart_flow_unit'), color: '#71717a', font: { family: 'Figtree' } },
-             ticks: { color: '#a1a1aa' }, grid: { color: '#27272a' } },
+             ticks: { color: C.tick }, grid: { color: C.grid } },
         y: { type: 'linear', min: 0, max: 12,
              title: { display: true, text: t('chart_pressure_unit'), color: '#71717a', font: { family: 'Figtree' } },
-             ticks: { color: '#a1a1aa' }, grid: { color: '#27272a' } }
+             ticks: { color: C.tick }, grid: { color: C.grid } }
       }
     }
   });
@@ -107,6 +110,9 @@ export function switchFsTab(tab) {
 }
 
 function renderFsChart() {
+  // #814: resolved per render, never at module load — the value has to be
+  // whatever the ACTIVE theme resolves to right now.
+  const C = chartColors();
   const shotA = S.shots.find(s => s.id === S.primaryShotId);
   if (!shotA) return;
   const existing = Chart.getChart('espressoShotChartFs');
@@ -129,16 +135,16 @@ function renderFsChart() {
       options: {
         responsive: true, maintainAspectRatio: false, animation: false,
         plugins: {
-          legend: { labels: { color: '#e4e4e7', font: { family: 'Figtree' } } },
+          legend: { labels: { color: C.text, font: { family: 'Figtree' } } },
           tooltip: { callbacks: { label: c => `${c.parsed.y.toFixed(1)} bar @ ${c.parsed.x.toFixed(1)} ml/s` } }
         },
         scales: {
           x: { type: 'linear', min: 0, max: xMax,
                title: { display: true, text: t('chart_flow_unit'), color: '#71717a', font: { family: 'Figtree' } },
-               ticks: { color: '#a1a1aa' }, grid: { color: '#27272a' } },
+               ticks: { color: C.tick }, grid: { color: C.grid } },
           y: { type: 'linear', min: 0, max: 12,
                title: { display: true, text: t('chart_pressure_unit'), color: '#71717a', font: { family: 'Figtree' } },
-               ticks: { color: '#a1a1aa' }, grid: { color: '#27272a' } }
+               ticks: { color: C.tick }, grid: { color: C.grid } }
         }
       }
     });
@@ -162,15 +168,15 @@ function renderFsChart() {
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: true, position: 'bottom',
-          labels: { color: '#e4e4e7', font: { family: 'Figtree', size: 11 }, boxWidth: 12, padding: 8 } },
+          labels: { color: C.text, font: { family: 'Figtree', size: 11 }, boxWidth: 12, padding: 8 } },
         tooltip: { callbacks: { title: c => 'Zeit: ' + formatTimeLabel(c[0].parsed.x) } }
       },
       scales: {
         x:  { type:'linear', min:0, max:maxTime, clip:false,
-              ticks:{ color:'#a1a1aa', font:{family:'Figtree'}, stepSize:5, callback:v=>formatTimeLabel(v) },
-              grid:{ color:'#27272a' } },
-        y:  { type:'linear', position:'left',  min:0, max:12, ticks:{color:'#a1a1aa'}, grid:{color:'#27272a'} },
-        y1: { type:'linear', position:'right', min:0, max:tms, ticks:{color:'#a1a1aa'}, grid:{drawOnChartArea:false} }
+              ticks:{ color:C.tick, font:{family:'Figtree'}, stepSize:5, callback:v=>formatTimeLabel(v) },
+              grid:{ color:C.grid } },
+        y:  { type:'linear', position:'left',  min:0, max:12, ticks:{color:C.tick}, grid:{color:C.grid} },
+        y1: { type:'linear', position:'right', min:0, max:tms, ticks:{color:C.tick}, grid:{drawOnChartArea:false} }
       }
     }
   });

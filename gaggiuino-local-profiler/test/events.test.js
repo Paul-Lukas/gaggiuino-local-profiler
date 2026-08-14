@@ -14,11 +14,21 @@ const require = createRequire(import.meta.url);
 describe('lib/events.js', () => {
     it('exposes the expected event-name constants', () => {
         const { EVENTS } = require('../lib/events');
+        // #812 added the six domain events the achievement evaluation hangs
+        // off. Kept as an exact match rather than a subset check: this list is
+        // a contract other modules subscribe to by name, and a typo'd or
+        // silently renamed event would otherwise just stop firing.
         expect(EVENTS).toEqual({
             SYNC_PROGRESS: 'sync-progress',
             SYNC_COMPLETE: 'sync-complete',
             LIVE_SNAPSHOT: 'live-snapshot',
             PREHEAT_UPDATE: 'preheat-update',
+            SHOT_SAVED: 'shot-saved',
+            BEAN_CHANGED: 'bean-changed',
+            MAINTENANCE_ACKNOWLEDGED: 'maintenance-acknowledged',
+            ORDER_COMPLETED: 'order-completed',
+            PROFILE_SAVED: 'profile-saved',
+            BACKUP_EXPORTED: 'backup-exported',
         });
     });
 

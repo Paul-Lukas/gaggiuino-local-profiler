@@ -27,7 +27,7 @@ class FakeList {
   querySelectorAll() { return this._boxes; }
 }
 class FakeButton {
-  constructor() { this.textContent = ''; }
+  constructor() { this.textContent = ''; this.innerHTML = ''; }
 }
 
 let list, btn;
@@ -98,9 +98,11 @@ describe('saveNotifySettings', () => {
     expect(postBody).toEqual({ enabled: false, notify_preheat_ready: false, notify_low_stock: false });
   });
 
-  it('shows the saved confirmation text on the button after a successful save', async () => {
+  it('shows the saved confirmation as a drawn icon plus text, not a baked-in glyph (#811)', async () => {
     fetchSpy.mockResolvedValue({ json: async () => ({ enabled: true }) });
     await saveNotifySettings();
-    expect(btn.textContent).toBe('✓ Saved');
+    expect(btn.innerHTML).toContain('Saved');
+    expect(btn.innerHTML).toContain('<svg');
+    expect(btn.innerHTML).not.toContain('✓'); // no leftover '✓' glyph
   });
 });

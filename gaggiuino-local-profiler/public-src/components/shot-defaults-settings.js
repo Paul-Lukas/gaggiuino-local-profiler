@@ -11,6 +11,7 @@ import { t } from '../i18n.js';
 import { esc } from '../utils.js';
 import { loadShotDefaults, loadDrinkMenu } from '../views/shots/annotation.js';
 import { attachAutocomplete } from './autocomplete.js';
+import { CHECK_ICON_SVG } from '../icons.js';
 
 export function renderShotDefaultsSettingsCard() {
   const d = S.shotDefaults || {};
@@ -95,7 +96,7 @@ export async function saveShotDefaultsSettings() {
 
   const btn = document.getElementById('shotDefaultsSaveBtn');
   if (btn) {
-    btn.textContent = t('sd_saved');
+    btn.innerHTML = `${CHECK_ICON_SVG} ${t('sd_saved')}`;
     setTimeout(() => { btn.textContent = t('sd_save'); }, 2000);
   }
 }

@@ -74,10 +74,14 @@ export function countryName(code, lang) {
   catch { return code; }
 }
 
-export function flagEmoji(code) {
-  if (!_isCountryCode(code)) return '';
-  return String.fromCodePoint(...[...code].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
-}
+// #811: flagEmoji() removed. It assembled a regional-indicator flag from the
+// country code at render time, so no source-level emoji scan ever saw it — not
+// the one that scoped this issue, and not the one in either card repo, where
+// the same helper was removed for the same reasons. It rendered in the OS font
+// (a different visual language from every drawn icon beside it), degrades to a
+// bare two-letter box on Windows, and is politically loaded for several
+// coffee-growing regions in a way a plain country name is not. Every call site
+// rendered countryName() immediately after it, so nothing is lost.
 
 // #417 sweep: the `icon` emoji fields these entries used to carry were dead
 // data — no consumer ever read MAINT_META[task].icon, since maintenance.js's
@@ -99,11 +103,24 @@ export const GUIDED_MAINT_STEPS = {
 };
 
 // ── Phase background plugin ───────────────────────────────────────────────
+// #814: the phase shading draws straight onto the canvas, so it cannot inherit
+// anything from CSS. Its label text and divider were fixed light-on-dark values
+// (rgba(147,197,253,.9) / rgba(251,191,36,.9) text, rgba(255,255,255,.35)
+// divider) which disappeared against a light chart area. The translucent fills
+// are fine either way — a 10-13% tint reads as a tint on any ground — so only
+// the text and the divider switch.
+const PHASE_INK = {
+  dark:  { pre: 'rgba(147,197,253,0.9)',  ext: 'rgba(251,191,36,0.9)',  divider: 'rgba(255,255,255,0.35)' },
+  light: { pre: 'rgba(21,79,138,0.95)',   ext: 'rgba(124,72,4,0.95)',   divider: 'rgba(0,0,0,0.35)' },
+};
+
 export const phasePlugin = {
   id: 'phases',
   beforeDatasetsDraw(chart, _args, opts) {
     if (!opts?.preinfusion) return;
     const { ctx, chartArea: { top, bottom, left, right }, scales: { x } } = chart;
+    // Both light variants (plain and Crema) carry data-theme="light".
+    const ink = PHASE_INK[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
     const preEnd   = Math.min(Math.max(x.getPixelForValue(opts.preinfusion), left), right);
     const totalEnd = Math.min(Math.max(x.getPixelForValue(opts.preinfusion + opts.extraction), left), right);
 
@@ -119,7 +136,7 @@ export const phasePlugin = {
     }
 
     ctx.beginPath();
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.strokeStyle = ink.divider;
     ctx.setLineDash([5, 4]);
     ctx.lineWidth = 1.5;
     ctx.moveTo(preEnd, top);
@@ -134,7 +151,7 @@ export const phasePlugin = {
       const w   = ctx.measureText(lbl).width;
       ctx.fillStyle = 'rgba(52,152,219,0.22)';
       ctx.beginPath(); ctx.roundRect(left + 6, labelY - 12, w + 12, 16, 4); ctx.fill();
-      ctx.fillStyle = 'rgba(147,197,253,0.9)';
+      ctx.fillStyle = ink.pre;
       ctx.textAlign = 'left'; ctx.fillText(lbl, left + 12, labelY);
     }
     if (totalEnd - preEnd > 60) {
@@ -142,7 +159,7 @@ export const phasePlugin = {
       const w   = ctx.measureText(lbl).width;
       ctx.fillStyle = 'rgba(243,156,18,0.22)';
       ctx.beginPath(); ctx.roundRect(preEnd + 6, labelY - 12, w + 12, 16, 4); ctx.fill();
-      ctx.fillStyle = 'rgba(251,191,36,0.9)';
+      ctx.fillStyle = ink.ext;
       ctx.textAlign = 'left'; ctx.fillText(lbl, preEnd + 12, labelY);
     }
 

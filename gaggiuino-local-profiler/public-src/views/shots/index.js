@@ -5,7 +5,8 @@ import { apiFetch, isApiPortBlocked }                         from '../../api.js
 import { localeFor, phasePlugin, corsairPlugin, clearChartOnTouchEnd } from '../../constants.js';
 import {
   esc, avg, avgActive, max, fmt, formatTimeLabel, formatDelta,
-  stddev, detectPhases, detectChanneling, scoreClass, scoreColor, shareOrDownloadBlob
+  stddev, detectPhases, detectChanneling, scoreClass, scoreColor, shareOrDownloadBlob,
+  chartColors
 } from '../../utils.js';
 import { renderSidebar }                                      from '../../components/sidebar.js';
 import { apiPortClosedHtml }                                  from '../../components/api-port-notice.js';
@@ -65,10 +66,13 @@ export async function loadData() {
   } catch {
     if (token !== _loadDataReqToken) return;
     shotsEl.innerHTML =
-      `<div class="loading-state" style="color:#ef4444">Verbindungsfehler<br>` +
-      `<button data-action="reload-data" style="margin-top:10px;padding:4px 12px;cursor:pointer;` +
-      `background:rgba(63,63,70,.5);color:#a1a1aa;border:1px solid #3f3f46;border-radius:6px;` +
-      `font-family:Figtree,sans-serif;font-size:.8rem">${t('btn_reload')}</button></div>`;
+      // #814: was a hardcoded #ef4444 (the pre-redesign err value) and an
+      // untranslated German string in an otherwise six-language app.
+      `<div class="loading-state" style="color:var(--err)">${t('conn_error')}<br>` +
+      // #814: was inline dark-theme neutrals (rgba(63,63,70,.5) fill, #a1a1aa
+      // text, #3f3f46 border) that never inverted. .export-btn is the same
+      // "fill, no persistent border" button this was hand-rolling.
+      `<button data-action="reload-data" class="export-btn" style="margin-top:var(--sp-3)">${t('btn_reload')}</button></div>`;
     return;
   }
 
@@ -215,6 +219,9 @@ function _setDeltaChip(id, delta, decimals = 0, unit = '', colorClass = null, ti
 }
 
 export function updateView() {
+  // #814: resolved per render, never at module load — the value has to be
+  // whatever the ACTIVE theme resolves to right now.
+  const C = chartColors();
   const shotA = S.shots.find(s => s.id === S.primaryShotId);
   const shotB = S.compareShotId ? S.shots.find(s => s.id === S.compareShotId) : null;
   if (!shotA) return;
@@ -404,11 +411,20 @@ export function updateView() {
   if (!shotB) {
     const advice = calcGrindAdvice(shotA, dA);
     const sc     = calcShotScore(shotA, dA);
-    const ring    = document.getElementById('verdictRing');
-    const ringVal = document.getElementById('verdictRingVal');
-    ring.style.setProperty('--ring-pct', sc ?? 0);
+    // #813: the score ring is now type. A 58px conic-gradient ring is a badge
+    // shape the redesign removes on both surfaces (the shot card did the same
+    // in glp-lovelace-card#120) — the number itself, at display size and in the
+    // score colour, carries the same information with none of the chrome, and
+    // gains a word so the figure does not have to be decoded.
+    const ring     = document.getElementById('verdictRing');
+    const ringVal  = document.getElementById('verdictRingVal');
+    const wordEl   = document.getElementById('verdictScoreWord');
     ring.style.setProperty('--ring-color', scoreColor(sc));
     ringVal.textContent = sc !== null ? sc : '–';
+    wordEl.textContent = sc === null ? ''
+      : sc >= 90 ? t('verdict_word_high')
+      : sc >= 70 ? t('verdict_word_mid')
+      : t('verdict_word_low');
 
     // Score delta chip (#402): same-profile auto-compare, unified score
     // scale (#397) for the coloring — omitted entirely when there's no
@@ -575,16 +591,16 @@ export function updateView() {
           legend:  {
             display: true,
             position: 'bottom',
-            labels: { color: '#e4e4e7', font: { family: 'Figtree', size: window.innerWidth <= 600 ? 9 : 11 }, boxWidth: window.innerWidth <= 600 ? 8 : 12, padding: window.innerWidth <= 600 ? 4 : 8 }
+            labels: { color: C.text, font: { family: 'Figtree', size: window.innerWidth <= 600 ? 9 : 11 }, boxWidth: window.innerWidth <= 600 ? 8 : 12, padding: window.innerWidth <= 600 ? 4 : 8 }
           },
           tooltip: { callbacks: { title: ctx => t('chart_time', formatTimeLabel(ctx[0].parsed.x)) } }
         },
         scales: {
           x:  { type:'linear', min:0, max:Math.max(maxTimeA, maxTimeB, maxTimePrev), clip:false,
-                ticks:{ color:'#a1a1aa', font:{family:'Figtree'}, stepSize:5, callback:v=>formatTimeLabel(v), maxTicksLimit: window.innerWidth <= 600 ? 6 : 12 },
-                grid:{ color:'#27272a' } },
-          y:  { type:'linear', position:'left',  min:0, max:12, ticks:{color:'#a1a1aa', maxTicksLimit:6}, grid:{color:'#27272a'} },
-          y1: { type:'linear', position:'right', min:0, max:Number(tempMaxScale), ticks:{color:'#a1a1aa', maxTicksLimit:6}, grid:{drawOnChartArea:false} }
+                ticks:{ color:C.tick, font:{family:'Figtree'}, stepSize:5, callback:v=>formatTimeLabel(v), maxTicksLimit: window.innerWidth <= 600 ? 6 : 12 },
+                grid:{ color:C.grid } },
+          y:  { type:'linear', position:'left',  min:0, max:12, ticks:{color:C.tick, maxTicksLimit:6}, grid:{color:C.grid} },
+          y1: { type:'linear', position:'right', min:0, max:Number(tempMaxScale), ticks:{color:C.tick, maxTicksLimit:6}, grid:{drawOnChartArea:false} }
         }
       }
     });

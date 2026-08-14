@@ -2,7 +2,9 @@ import Chart from 'chart.js/auto';
 import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { apiFetch, isApiPortBlocked } from '../api.js';
-import { mapToXY, formatTimeLabel } from '../utils.js';
+import { mapToXY, formatTimeLabel, chartColors } from '../utils.js';
+import { machineIconAnimatedSvg, setMachineIconMode, updateMachineIconBrewReadout,
+         MACHINE_ICON_LIVE_CLASS } from '../machine-icon.js';
 import { getDefaultMachineId } from '../components/machines-settings.js';
 import { localeFor } from '../constants.js';
 
@@ -21,6 +23,9 @@ function _isActiveMachineLiveCapable() {
 
 // ── Live chart init ───────────────────────────────────────────────────────
 export function initLiveChart() {
+  // #814: resolved per render, never at module load — the value has to be
+  // whatever the ACTIVE theme resolves to right now.
+  const C = chartColors();
   const ctx = document.getElementById('liveChart');
   const _existing = Chart.getChart(ctx);
   if (_existing) _existing.destroy();
@@ -47,13 +52,13 @@ export function initLiveChart() {
       animation: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: '#e4e4e7', font: { family: 'Figtree' } } },
+        legend: { labels: { color: C.text, font: { family: 'Figtree' } } },
         tooltip: { callbacks: { title: ctx => t('chart_time', formatTimeLabel(ctx[0].parsed.x)) } }
       },
       scales: {
-        x:  { type: 'linear', min: 0, max: 60, ticks: { color: '#a1a1aa', callback: v => formatTimeLabel(v), stepSize: 5 }, grid: { color: '#27272a' } },
-        y:  { type: 'linear', position: 'left',  min: 0, max: 12, ticks: { color: '#a1a1aa' }, grid: { color: '#27272a' } },
-        y1: { type: 'linear', position: 'right', min: 0, max: 100, ticks: { color: '#a1a1aa' }, grid: { drawOnChartArea: false } }
+        x:  { type: 'linear', min: 0, max: 60, ticks: { color: C.tick, callback: v => formatTimeLabel(v), stepSize: 5 }, grid: { color: C.grid } },
+        y:  { type: 'linear', position: 'left',  min: 0, max: 12, ticks: { color: C.tick }, grid: { color: C.grid } },
+        y1: { type: 'linear', position: 'right', min: 0, max: 100, ticks: { color: C.tick }, grid: { drawOnChartArea: false } }
       }
     }
   });
@@ -174,12 +179,63 @@ export async function fetchPreheatData() {
   } catch { /* ignore */ }
 }
 
+// #811: the animated machine icon in the Live view's idle panel. Built once
+// and then only switched between states — rebuilding the SVG on every poll
+// tick (once a second) would restart every animation mid-cycle, so the
+// element is only re-created when the machine itself changes.
+let _machineIconFor = null;   // machine id the current SVG was built for
+
+function machineIconEl() {
+  const host = document.getElementById('liveMachineIcon');
+  if (!host) return null;
+  const machine = (S.machines || []).find(m => m.id === S.activeMachineId)
+               || (S.machines || []).find(m => m.isDefault)
+               || (S.machines || [])[0];
+  const id = machine?.id ?? null;
+  if (_machineIconFor !== id || !host.firstChild) {
+    host.className = `idle-icon ${MACHINE_ICON_LIVE_CLASS}`;
+    host.innerHTML = machineIconAnimatedSvg(machine?.theme, machine?.type);
+    _machineIconFor = id;
+  }
+  return host;
+}
+
+// Maps what the backend actually reports onto the icon's states.
+// NOTE ON STEAM: there is deliberately no 'steaming' case. Nothing in the
+// poll payload distinguishes steaming from heating — lib/machine-state.js
+// derives isBrewing from brewSwitchState and carries no steam-switch
+// equivalent — and showing a steam state on a guess would be worse than not
+// showing it, since it would be wrong exactly when the user is watching.
+// The icon supports the state; wiring it needs a signal that does not exist
+// yet.
+function machineIconState(msg, preheat) {
+  if (msg?.machineReachable === false) return { mode: 'off', heat: 0 };
+  if (msg?.isLive)                     return { mode: 'brewing', heat: 1 };
+  if (preheat && !preheat.ready && preheat.remaining > 0) {
+    return { mode: 'heating', heat: Math.max(0, Math.min(1, preheat.pct || 0)) };
+  }
+  return { mode: 'hot', heat: 1 };
+}
+
+let _lastPreheat = null;
+
+export function syncMachineIcon(msg) {
+  const el = machineIconEl();
+  if (!el) return;
+  const { mode, heat } = machineIconState(msg, _lastPreheat);
+  setMachineIconMode(el, mode, heat);
+}
+
 export function updatePreheatWidget(d) {
   const readyBadge  = document.getElementById('preheat-ready-badge');
   const warmingWrap = document.getElementById('preheat-warming-wrap');
   const barFill     = document.getElementById('preheat-bar-fill');
   const countdown   = document.getElementById('preheat-countdown');
   if (!readyBadge) return;
+  // #811: remembered so the icon can show heat progress on poll ticks that
+  // carry live data but no preheat payload.
+  _lastPreheat = d;
+  syncMachineIcon(null);
 
   if (d.ready) {
     readyBadge.style.display  = '';
@@ -295,6 +351,8 @@ export function handleLiveData(msg) {
   // machine renders identically to an idle-but-reachable one (state.liveAccum
   // is null in both cases) and the live tab keeps showing "Ready to brew"
   // indefinitely, which was the reported bug.
+  syncMachineIcon(msg);   // #811
+
   if (msg.machineReachable === false) {
     setLiveBadge('unreachable');
     metaEl.textContent = '–';
@@ -306,7 +364,14 @@ export function handleLiveData(msg) {
     return;
   }
   idleEl.classList.remove('unreachable');
-  if (idleTitleEl) idleTitleEl.textContent = t('machine_ready');
+  // #811: "machine_ready" means REACHABLE, but it reads as "ready to brew" —
+  // and while preheating it sat directly under a widget counting down "heating
+  // ... 20 min", flatly contradicting it. The animated icon made that obvious
+  // by showing the heating state right between the two. Reuses the existing
+  // preheat_warming key rather than adding a seventh translation of the same
+  // idea.
+  const stillWarming = _lastPreheat && !_lastPreheat.ready && _lastPreheat.remaining > 0;
+  if (idleTitleEl) idleTitleEl.textContent = stillWarming ? t('preheat_warming') : t('machine_ready');
   if (idleTextEl)  idleTextEl.textContent  = t('live_idle_text');
 
   if (!msg.isLive && times.length === 0) {
@@ -337,6 +402,11 @@ export function handleLiveData(msg) {
     const temp     = dp.temperature?.[lastIdx]  != null ? dp.temperature[lastIdx] / 10 : null;
 
     if (msg.isLive) {
+      // #811: the icon's on-device readout mirrors the real shot.
+      const iconEl = document.getElementById('liveMachineIcon');
+      if (iconEl) updateMachineIconBrewReadout(iconEl, {
+        weightG: weight ?? 0, elapsedSec: elapsed ?? 0, pressureBar: pressure,
+      });
       // Re-sync wall clock so timer stays accurate
       S.liveBrewStartWall = Date.now() - elapsed * 1000;
       if (!S.liveTimerTick) {

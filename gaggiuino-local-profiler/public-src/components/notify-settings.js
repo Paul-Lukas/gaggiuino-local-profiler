@@ -11,6 +11,7 @@
 // so it doesn't depend on views/orders.js's code ever having run.
 import { apiFetch } from '../api.js';
 import { t } from '../i18n.js';
+import { CHECK_ICON_SVG } from '../icons.js';
 
 const KEYS = ['notify_preheat_ready', 'notify_low_stock'];
 
@@ -39,7 +40,7 @@ export async function saveNotifySettings() {
   });
   const btn = document.getElementById('notifySettingsSaveBtn');
   if (btn) {
-    btn.textContent = t('orders_types_saved');
+    btn.innerHTML = `${CHECK_ICON_SVG} ${t('orders_types_saved')}`;
     setTimeout(() => { btn.textContent = t('orders_types_save'); }, 2000);
   }
 }

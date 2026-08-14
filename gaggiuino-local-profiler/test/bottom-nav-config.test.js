@@ -212,7 +212,7 @@ describe('renderBottomNav — renders exactly the configured set (#443)', () => 
 
     const sheet = doc.getElementById('moreSheet');
     const sheetIds = sheet._children.map(c => c.id);
-    expect(sheetIds).toEqual(['bnLive', 'bnLibrary', 'bnAnalytics', 'bnDialin']);
+    expect(sheetIds).toEqual(['bnLive', 'bnLibrary', 'bnAnalytics', 'bnDialin', 'bnAchievements']);
   });
 
   it('the default (untouched) config still produces today\'s exact bar/sheet split', () => {
@@ -220,7 +220,7 @@ describe('renderBottomNav — renders exactly the configured set (#443)', () => 
     const barIds = doc.getElementById('bottom-nav')._children.map(c => c.id);
     const sheetIds = doc.getElementById('moreSheet')._children.map(c => c.id);
     expect(barIds).toEqual(['bnShots', 'bnLive', 'bnLibrary', 'bnAnalytics', 'bnMore']);
-    expect(sheetIds).toEqual(['bnDialin', 'bnMaintenance', 'bnOrders', 'bnSettings']);
+    expect(sheetIds).toEqual(['bnDialin', 'bnMaintenance', 'bnAchievements', 'bnOrders', 'bnSettings']);
   });
 });
 

@@ -12,6 +12,8 @@
 // dev builds apart at a glance (did my latest push actually land?) was
 // otherwise only possible by digging into the version badge or the
 // container tag.
+import { WARNING_ICON_SVG } from '../icons.js';
+
 export function showDevBuildBanner(devBuild) {
   if (document.getElementById('glpDevBanner')) return;
 
@@ -24,7 +26,10 @@ export function showDevBuildBanner(devBuild) {
     fontSize: '.8rem', fontWeight: '700', letterSpacing: '.02em',
     boxShadow: '0 2px 8px rgba(0,0,0,.35)',
   });
-  banner.textContent = '⚠ UNSTABLE DEV BUILD' + (devBuild ? ` (${devBuild})` : '');
+  // #811: the ⚠ glyph becomes the drawn warning icon. innerHTML is safe here
+  // -- devBuild comes from the build metadata, and is escaped anyway.
+  banner.innerHTML = `${WARNING_ICON_SVG} UNSTABLE DEV BUILD` +
+    (devBuild ? ` (${String(devBuild).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))})` : '');
   document.body.insertAdjacentElement('afterbegin', banner);
   // #683 follow-up: body is `height: 100vh; overflow: hidden` with global
   // `box-sizing: border-box` (style.css), so padding-top here shrinks the

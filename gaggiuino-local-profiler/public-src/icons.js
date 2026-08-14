@@ -39,7 +39,11 @@ export const WARNING_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" a
 // button, chart time-tab, theme toggle, channeling warning and the shot
 // verdict/grind-advice icon fields.
 
-export const STAR_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>';
+// #811: carries `star-glyph` so the rating rows can fill the same path for
+// an earned star instead of swapping in a second shape. Without that class
+// the shared `.rail-icon { fill: none }` wins and every star renders empty —
+// which no test can see, since the markup is correct either way.
+export const STAR_ICON_SVG = '<svg class="rail-icon sm star-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>';
 
 export const LIGHTNING_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>';
 
@@ -53,3 +57,8 @@ export const SUN_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-
 
 // #430: annotation auto-save status "Gespeichert" check mark.
 export const CHECK_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5 9.5 18 20 6"/></svg>';
+
+// #811 phase 5: close/delete (✕) and edit (✎) glyph replacements.
+export const CLOSE_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+
+export const EDIT_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 4.5 19.5 8.5 8 20H4v-4z"/><path d="M13.5 6.5l4 4"/></svg>';

@@ -44,7 +44,11 @@ export function renderDialin() {
     const date   = new Date(s.timestamp * 1000).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' });
     const profile = s.profile?.name || s.profileName || '–';
     const scorePill = score !== null
-      ? `<span style="background:${scoreColor(score)};color:#fff;font-size:.7rem;font-weight:700;padding:1px 7px;border-radius:10px">${score}</span>`
+      // #811: colour/size/radius moved to .score-pill in style.css so this
+      // resolves through --on-fill and the type scale. The hardcoded #fff
+      // measured 2.37-3.16:1 on the dark theme's semantic fills; only the
+      // background stays inline, since it is computed per score.
+      ? `<span class="score-pill" style="background:${scoreColor(score)}">${score}</span>`
       : '';
 
     const metrics = [

@@ -59,7 +59,7 @@
             <div style="display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden">
                 <span class="status-dot unknown" id="statusDot"></span>
                 <span id="syncTime" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">kein Sync</span>
-                <span id="glpVersionBadge" style="color:#52525b;font-size:.7rem;user-select:none;flex-shrink:0"></span>
+                <span id="glpVersionBadge" style="color:var(--gray-600);font-size:.7rem;user-select:none;flex-shrink:0"></span>
             </div>
             <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
                 <button id="powerBtn" style="display:none" title=""><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v8"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg></button>
@@ -129,6 +129,10 @@
                     <span class="rail-label" data-i18n="nav_maintenance">Wartung</span>
                     <span id="maintBadge" class="maint-badge" style="display:none"></span>
                 </button>
+                <button class="topbar-nav" id="btnAchievements" data-i18n-title="nav_achievements" title="Achievements">
+                    <span class="rail-icon-slot"><svg class="rail-icon" viewBox="0 0 24 24"><path d="M12 3 14.6 8.3 20.4 9.2 16.2 13.3 17.2 19 12 16.3 6.8 19 7.8 13.3 3.6 9.2 9.4 8.3z"/></svg></span>
+                    <span class="rail-label" data-i18n="nav_achievements">Achievements</span>
+                </button>
                 <button class="topbar-nav" id="btnOrders" style="display:none" data-i18n-title="nav_orders" title="Bestellungen">
                     <span class="rail-icon-slot"><svg class="rail-icon" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.73z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></span>
                     <span class="rail-label" data-i18n="nav_orders">Bestellungen</span>
@@ -170,7 +174,7 @@
             <div class="sprofiler-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
                 <div style="flex:1;min-width:0">
                     <h1 id="topTitle" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Profil-Name</h1>
-                    <p id="topSubtitle" style="margin:0"><span id="machineSubtitle">gaggiuino</span><span id="freshnessBadge" class="freshness-badge" style="display:none"></span><span id="firmwareVersionBadge" style="display:none;font-size:.7rem;color:#52525b;margin-left:6px"></span><img id="shotHeaderThumb" class="shot-header-thumb" alt="" style="display:none" data-i18n-title="shot_photo_title"></p>
+                    <p id="topSubtitle" style="margin:0"><span id="machineSubtitle">gaggiuino</span><span id="freshnessBadge" class="freshness-badge" style="display:none"></span><span id="firmwareVersionBadge" style="display:none;font-size:.7rem;color:var(--gray-600);margin-left:6px"></span><img id="shotHeaderThumb" class="shot-header-thumb" alt="" style="display:none" data-i18n-title="shot_photo_title"></p>
                 </div>
                 <div style="display:flex;gap:12px;align-items:flex-start;flex-shrink:0">
                     <button class="export-btn" id="exportAllCsvBtn" data-i18n-title="export_csv_title" title="Alle Shots als CSV exportieren">↓ CSV</button>
@@ -188,8 +192,8 @@
 
             <!-- Verdict header (#398): score ring + plain-language dial-in verdict, replaces the old green dial-in banner. -->
             <div id="verdictHeader" class="verdict-header" style="display:none">
-                <div class="verdict-ring" id="verdictRing">
-                    <div class="verdict-ring-inner"><span id="verdictRingVal">–</span></div>
+                <div class="verdict-score" id="verdictRing">
+                    <span class="verdict-score-num" id="verdictRingVal">–</span><span class="verdict-score-word" id="verdictScoreWord"></span>
                 </div>
                 <div class="verdict-text">
                     <div class="verdict-headline" id="verdictHeadline">-</div>
@@ -250,7 +254,7 @@
                         <button class="chart-tab active" id="fsTabZeit" data-i18n-html="tab_time"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg> Zeit</button>
                         <button class="chart-tab" id="fsTabPQ" data-i18n="tab_pq">P·Q Kurve</button>
                     </div>
-                    <button id="closeFullscreenBtn" data-i18n="btn_fullscreen_close">✕ Schließen</button>
+                    <button id="closeFullscreenBtn" data-i18n-html="btn_fullscreen_close"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg> Schließen</button>
                 </div>
                 <div class="fs-body">
                     <canvas id="espressoShotChartFs" style="width:100%;height:100%"></canvas>
@@ -285,11 +289,11 @@
                         <button class="lib-open-btn" id="quickCloneBtn" data-i18n="ann_clone_btn" title="">↩ Letzten</button>
                     </div>
                     <div class="star-rating" id="starRating">
-                        <span class="star" data-val="1">★</span>
-                        <span class="star" data-val="2">★</span>
-                        <span class="star" data-val="3">★</span>
-                        <span class="star" data-val="4">★</span>
-                        <span class="star" data-val="5">★</span>
+                        <span class="star" data-val="1"><svg class="rail-icon sm star-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg></span>
+                        <span class="star" data-val="2"><svg class="rail-icon sm star-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg></span>
+                        <span class="star" data-val="3"><svg class="rail-icon sm star-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg></span>
+                        <span class="star" data-val="4"><svg class="rail-icon sm star-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg></span>
+                        <span class="star" data-val="5"><svg class="rail-icon sm star-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg></span>
                     </div>
                 </div>
                 <div class="annotation-photo-row" id="annotationPhotoRow">
@@ -350,7 +354,7 @@
                         </div>
                     </div>
                     <div class="annotation-field">
-                        <label>TDS % <span id="annTdsOptional" style="color:#52525b;font-weight:normal" data-i18n="ann_tds_optional">(optional)</span></label>
+                        <label>TDS % <span id="annTdsOptional" style="color:var(--gray-600);font-weight:normal" data-i18n="ann_tds_optional">(optional)</span></label>
                         <input type="number" id="annTds" data-i18n-placeholder="ann_tds_ph" placeholder="z.B. 9.2" step="0.1" min="0" max="25">
                     </div>
                     <div class="annotation-field full-width">
@@ -403,6 +407,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Achievements view (stamp card, #812) -->
+    <div id="achievements-view"></div>
 
     <!-- Orders view (barista backend) -->
     <div id="orders-view">
@@ -904,7 +911,7 @@
         <div class="guided-maint-modal profile-editor-modal">
             <div class="fw-header">
                 <h3 class="maint-section-title" data-i18n="profile_editor_title" style="margin:0">Profil-Editor</h3>
-                <button type="button" class="fw-close-x" id="closeProfileFormBtn" aria-label="Close">✕</button>
+                <button type="button" class="fw-close-x" id="closeProfileFormBtn" aria-label="Close"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
             </div>
             <div class="pe-scroll">
                 <div class="lib-form-grid">
@@ -958,7 +965,7 @@
             <div class="fw-header">
                 <img id="flavorWheelImage" class="fw-bean-image" style="display:none">
                 <h3 class="maint-section-title" id="flavorWheelTitle" style="margin:0"></h3>
-                <button type="button" class="fw-close-x" data-action="close-flavor-wheel" aria-label="Close">✕</button>
+                <button type="button" class="fw-close-x" data-action="close-flavor-wheel" aria-label="Close"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
             </div>
             <div id="flavorWheelBreadcrumb" class="fw-breadcrumb"></div>
             <div id="flavorWheelCanvas" class="fw-canvas"></div>
@@ -1021,7 +1028,7 @@
             <select id="refShotSelect">
                 <option value="" data-i18n="ref_none">— kein Referenz-Shot —</option>
             </select>
-            <button id="refClearBtn" style="display:none" data-i18n="ref_clear">✕ Löschen</button>
+            <button id="refClearBtn" style="display:none" data-i18n-html="ref_clear"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg> Löschen</button>
         </div>
 
         <div id="live-idle" style="display:none">
@@ -1034,7 +1041,12 @@
                     <div id="preheat-countdown">–</div>
                 </div>
             </div>
-            <div class="idle-icon"><svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 8h1a3 3 0 0 1 0 6h-1M4 8h13v7a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8z"/><path d="M8 2v2M12 2v2"/></svg></div>
+            <!-- #811: the animated machine icon replaces the static cup mark
+                 here. This is the one place in the app that shows machine
+                 STATE rather than shot data, which is exactly what the icon's
+                 states depict — views/live.js drives it from the same poll
+                 that feeds the preheat widget above. -->
+            <div class="idle-icon" id="liveMachineIcon"></div>
             <h2 id="liveIdleTitle" data-i18n="machine_ready">Maschine bereit</h2>
             <p id="liveIdleText" data-i18n="live_idle_text">Sobald ein Bezug startet, erscheinen hier die Echtzeit-Daten.</p>
         </div>
@@ -1179,7 +1191,7 @@
         <div class="guided-maint-modal dialin-wizard-modal">
             <div class="fw-header">
                 <h3 class="maint-section-title" data-i18n="dialin_wizard_title" style="margin:0">Geführtes Einwählen</h3>
-                <button type="button" class="fw-close-x" data-action="dialin-close" aria-label="Close">✕</button>
+                <button type="button" class="fw-close-x" data-action="dialin-close" aria-label="Close"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
             </div>
             <div id="dwBody" class="dw-body"></div>
         </div>
@@ -1190,7 +1202,7 @@
         <div class="guided-maint-modal dialin-wizard-modal">
             <div class="fw-header">
                 <h3 class="maint-section-title" data-i18n="profile_dialin_title" style="margin:0">Profil-Dial-In</h3>
-                <button type="button" class="fw-close-x" data-action="profile-dialin-close" aria-label="Close">✕</button>
+                <button type="button" class="fw-close-x" data-action="profile-dialin-close" aria-label="Close"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
             </div>
             <div id="pdwBody" class="dw-body"></div>
         </div>
@@ -1201,7 +1213,7 @@
         <div class="guided-maint-modal dialin-wizard-modal">
             <div class="fw-header">
                 <h3 class="maint-section-title" data-i18n="setup_wizard_title" style="margin:0">Willkommen bei GLP</h3>
-                <button type="button" class="fw-close-x" data-action="setup-wizard-close" aria-label="Close">✕</button>
+                <button type="button" class="fw-close-x" data-action="setup-wizard-close" aria-label="Close"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
             </div>
             <div id="swBody" class="dw-body"></div>
         </div>
@@ -1447,7 +1459,7 @@
         <div class="scan-overlay"><div class="scan-frame"></div></div>
     </div>
     <div id="scanStatus"></div>
-    <p style="color:#52525b;font-size:.7rem;text-align:center;margin:0">
+    <p style="color:var(--gray-600);font-size:.7rem;text-align:center;margin:0">
         <span data-i18n="scan_attribution">Produktdaten von</span> <a href="https://world.openfoodfacts.org" target="_blank" style="color:#71717a">Open Food Facts</a> (ODbL)
     </p>
     <button class="scan-close-btn" id="closeScanModalBtn" data-i18n="scan_close">Schließen</button>

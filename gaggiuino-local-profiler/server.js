@@ -9,6 +9,7 @@ const { loadOptions }                                = require('./lib/data');
 const state                                          = require('./lib/state');
 const { getDb }                                      = require('./lib/db');
 const shotService                                    = require('./lib/services/ShotService');
+const achievementService                             = require('./lib/services/AchievementService');
 const { errorHandler }                               = require('./lib/middleware/error');
 const { createApiRateLimiter }                       = require('./lib/middleware/rateLimit');
 const { loadPreheatState, startPreheatWatcher }                              = require('./lib/preheat');
@@ -204,6 +205,7 @@ app.use(require('./routes/backup'));
 app.use(require('./routes/import'));
 app.use(require('./routes/debug'));
 app.use(require('./routes/sse'));
+app.use(require('./routes/achievements'));
 
 // ── Centralized error handling ────────────────────────────────────────────
 app.use(errorHandler);
@@ -271,6 +273,12 @@ const server = app.listen(PORT, () => {
     startPreheatWatcher();
     shotService.purgeExpiredTrash();
     setInterval(() => shotService.purgeExpiredTrash(), 24 * 60 * 60 * 1000);
+    // #812: subscribes to the 4+2 bus events once, then runs the "first run
+    // after the update" retroactive sweep -- idempotent (see
+    // AchievementService.evaluateAll's doc comment), so this is also just
+    // every subsequent restart's ordinary re-check.
+    achievementService.init();
+    achievementService.evaluateAll();
     fetchMachineVersion();
     (async () => {
         try { await checkAndApplyMachinePower(); }

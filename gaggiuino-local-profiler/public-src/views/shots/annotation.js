@@ -314,7 +314,11 @@ export function _renderFrozenPortionPills(beanName, shotMs, selectedId) {
   const options = [{ id: '', label: t('ann_frozen_portion_none') }, ...portions.map(p => {
     const dateStr    = new Date(p.frozenAt).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' });
     const remaining  = Number.isFinite(p.remainingCount) ? p.remainingCount : p.portionCount;
-    return { id: String(p.id), label: `❄ ${remaining}/${p.portionCount} · ${dateStr}` };
+    // #811: no glyph in the label -- this string is rendered as an <option>
+    // text node in one place and as escaped markup in another, and an <option>
+    // cannot carry an inline SVG. The frozen state is already carried by the
+    // portion count and date, and by the icon on the badge itself.
+    return { id: String(p.id), label: `${remaining}/${p.portionCount} · ${dateStr}` };
   })];
   container.innerHTML = options.map(o =>
     `<button type="button" class="drink-pill${selected === o.id ? ' active' : ''}" data-action="select-frozen-portion" data-id="${esc(o.id)}">${esc(o.label)}</button>`

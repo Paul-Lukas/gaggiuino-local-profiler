@@ -33,6 +33,18 @@ export const NAV_ITEMS = [
     iconPaths: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>' },
   { id: 'maintenance', i18nKey: 'nav_maintenance', label: 'Wartung',
     iconPaths: '<path d="M14.7 6.3a4.8 4.8 0 0 0-6.4 6.4L3 18l3 3 5.3-5.3a4.8 4.8 0 0 0 6.4-6.4l-3 3-2.7-2.7z"/>' },
+  // #812: no hiddenByDefault here on purpose — that flag is for a capability
+  // that gets revealed later by other code (status.js un-hides Live/Orders
+  // once the machine/orders capability is known). Achievements has no such
+  // gate, and nothing would ever un-hide it, so it would render permanently
+  // invisible in the "Mehr" sheet too, not just absent from the main bar.
+  // Placement in the main bar is already config-driven (getBottomNavConfig()
+  // only returns ids from an explicit user selection or DEFAULT_MAIN_BAR,
+  // neither of which can contain a brand-new id) — a new destination always
+  // lands in the "Mehr" sheet by construction, so existing users' main-bar
+  // layout can't shift under them regardless of this flag.
+  { id: 'achievements', i18nKey: 'nav_achievements', label: 'Achievements',
+    iconPaths: '<path d="M12 3 14.6 8.3 20.4 9.2 16.2 13.3 17.2 19 12 16.3 6.8 19 7.8 13.3 3.6 9.2 9.4 8.3z"/>' },
   { id: 'orders', i18nKey: 'nav_orders', label: 'Bestellungen', hiddenByDefault: true,
     iconPaths: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.73z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>' },
   { id: 'settings', i18nKey: 'nav_settings', label: 'Einstellungen',
