@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Fixed
+- **A comment broke the stylesheet.** An explanatory comment in `style.css` named the token pattern `--gray-*/--err`; the `*/` inside it closed the comment early, so the remaining prose was parsed as CSS and `npm run build` failed. Nothing caught it beforehand -- the test suite never loaded the file and ESLint does not read CSS -- so a test now parses `style.css` and points at the exact line of any comment that closes itself early. #812
+
 ### Added
 - **The stamp card.** The achievement catalogue now has a face: a printed cardboard card with seven categories side by side, browsable from the first visit. Every field is identically pre-printed and only the stamp tells them apart — rough ink with a ragged edge, each one sitting a couple of degrees askew, at a fixed angle per badge so it never re-jitters between paints. A locked secret badge shows a "?" and nothing else; its name and description never reach the browser at all. A category with every badge unlocked gets a diagonal "Full" overprint with the date. No level, no rank, no point score. The card stays paper-coloured in the dark theme too — it is a depicted object, not a panel. #812
 

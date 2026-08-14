@@ -2726,7 +2726,7 @@
            A printed cardboard card, not an app panel — per PLAN.md section 5
            it stays paper-colored in the dark theme too, so every color below
            is a hardcoded literal (--ach-paper/--ach-ink/--ach-stamp-ink,
-           scoped to .ach-card), never one of this file's --gray-*/--err
+           scoped to .ach-card), never one of this file's --gray-* / --err
            theme tokens. Every class is prefixed .ach- — this round already
            hit two class-collision bugs from unprefixed names (.sec, .dot),
            see PLAN.md's "Fallen" list. */
