@@ -508,7 +508,7 @@ export default {
     orders_type_preheat_ready:'Machine klaar (voorverwarmen voltooid)', orders_type_low_stock:'Bonenvoorraad laag',
     orders_type_shop_state:'Bar geopend/gesloten', orders_type_new_order:'Nieuwe bestelling (naar barista)',
     orders_type_order_status:'Bestelstatus (naar klant)',
-    orders_types_save:'Opslaan', orders_types_saved:'✓ Opgeslagen',
+    orders_types_save:'Opslaan', orders_types_saved:'Opgeslagen',
     orders_trending_toggle:'Trending aan/uit',
     orders_variants_label:'Varianten', orders_variant_ph:'Variant …', orders_variant_add_btn:'+',
     orders_variant_select:'Selecteer variant',

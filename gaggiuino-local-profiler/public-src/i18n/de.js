@@ -491,7 +491,7 @@ export default {
     orders_type_preheat_ready:'Maschine betriebsbereit', orders_type_low_stock:'Bohnen-Bestand niedrig',
     orders_type_shop_state:'Kaffeebar geöffnet/geschlossen', orders_type_new_order:'Neue Bestellung (an Barista)',
     orders_type_order_status:'Bestellstatus (an Kunde)',
-    orders_types_save:'Speichern', orders_types_saved:'✓ Gespeichert',
+    orders_types_save:'Speichern', orders_types_saved:'Gespeichert',
     orders_trending_toggle:'Trending ein/aus',
     orders_variants_label:'Varianten', orders_variant_ph:'Variante …', orders_variant_add_btn:'+',
     orders_variant_select:'Variante wählen',

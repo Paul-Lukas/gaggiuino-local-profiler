@@ -651,7 +651,7 @@ export async function saveNotifyToggles() {
   });
   const btn = document.getElementById('ordersTypesSaveBtn');
   if (btn) {
-    btn.textContent = t('orders_types_saved');
+    btn.innerHTML = `${CHECK_ICON_SVG} ${t('orders_types_saved')}`;
     setTimeout(() => { btn.textContent = t('orders_types_save'); }, 2000);
   }
 }

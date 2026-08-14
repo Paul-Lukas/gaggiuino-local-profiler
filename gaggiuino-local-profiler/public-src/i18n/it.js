@@ -508,7 +508,7 @@ export default {
     orders_type_preheat_ready:'Macchina pronta (preriscaldamento completato)', orders_type_low_stock:'Scorta caffè bassa',
     orders_type_shop_state:'Bar aperto/chiuso', orders_type_new_order:'Nuovo ordine (al barista)',
     orders_type_order_status:'Stato ordine (al cliente)',
-    orders_types_save:'Salva', orders_types_saved:'✓ Salvato',
+    orders_types_save:'Salva', orders_types_saved:'Salvato',
     orders_trending_toggle:'Attiva/disattiva trending',
     orders_variants_label:'Varianti', orders_variant_ph:'Variante …', orders_variant_add_btn:'+',
     orders_variant_select:'Seleziona variante',

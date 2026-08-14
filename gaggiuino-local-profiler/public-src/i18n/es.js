@@ -508,7 +508,7 @@ export default {
     orders_type_preheat_ready:'Máquina lista (precalentamiento terminado)', orders_type_low_stock:'Stock de café bajo',
     orders_type_shop_state:'Bar abierto/cerrado', orders_type_new_order:'Nuevo pedido (al barista)',
     orders_type_order_status:'Estado del pedido (al cliente)',
-    orders_types_save:'Guardar', orders_types_saved:'✓ Guardado',
+    orders_types_save:'Guardar', orders_types_saved:'Guardado',
     orders_trending_toggle:'Activar/desactivar tendencia',
     orders_variants_label:'Variantes', orders_variant_ph:'Variante …', orders_variant_add_btn:'+',
     orders_variant_select:'Seleccionar variante',

@@ -508,7 +508,7 @@ export default {
     orders_type_preheat_ready:'Machine ready (preheat done)', orders_type_low_stock:'Low bean stock',
     orders_type_shop_state:'Shop opened/closed', orders_type_new_order:'New order (to barista)',
     orders_type_order_status:'Order status (to customer)',
-    orders_types_save:'Save', orders_types_saved:'✓ Saved',
+    orders_types_save:'Save', orders_types_saved:'Saved',
     orders_trending_toggle:'Toggle trending',
     orders_variants_label:'Variants', orders_variant_ph:'Variant …', orders_variant_add_btn:'+',
     orders_variant_select:'Select variant',

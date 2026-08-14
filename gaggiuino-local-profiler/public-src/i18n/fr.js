@@ -508,7 +508,7 @@ export default {
     orders_type_preheat_ready:'Machine prête (préchauffage terminé)', orders_type_low_stock:'Stock de café bas',
     orders_type_shop_state:'Bar ouvert/fermé', orders_type_new_order:'Nouvelle commande (au barista)',
     orders_type_order_status:'Statut de commande (au client)',
-    orders_types_save:'Enregistrer', orders_types_saved:'✓ Enregistré',
+    orders_types_save:'Enregistrer', orders_types_saved:'Enregistré',
     orders_trending_toggle:'Activer/désactiver tendance',
     orders_variants_label:'Variantes', orders_variant_ph:'Variante …', orders_variant_add_btn:'+',
     orders_variant_select:'Sélectionner une variante',
