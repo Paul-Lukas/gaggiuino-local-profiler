@@ -88,4 +88,28 @@ describe('CARD_TOKENS mirrors public-src/style.css (#811 drift guard)', () => {
   it('light-crema gray scale matches [data-theme="light"][data-accent="crema"]', () => {
     for (const k of grayKeys) expect(CARD_TOKENS.gray['light-crema'][k]).toBe(cssVar(lightCremaBlock, `gray-${k}`));
   });
+
+  const semanticKeys = ['ok', 'warn', 'err'];
+
+  it('dark semantic colours (--ok/--warn/--err) match :root', () => {
+    for (const k of semanticKeys) expect(CARD_TOKENS.semantic.dark[k]).toBe(cssVar(rootBlock, k));
+  });
+
+  // dark-crema only overrides --err in style.css ([data-accent="crema"] has
+  // no --ok/--warn of its own) -- CARD_TOKENS.semantic['dark-crema'] mirrors
+  // that inheritance by hand, so ok/warn are checked against :root here,
+  // not against the crema block (which doesn't declare them at all).
+  it('dark-crema semantic colours match [data-accent="crema"] (err) and :root (ok/warn, inherited)', () => {
+    expect(CARD_TOKENS.semantic['dark-crema'].err).toBe(cssVar(cremaDarkBlock, 'err'));
+    expect(CARD_TOKENS.semantic['dark-crema'].ok).toBe(cssVar(rootBlock, 'ok'));
+    expect(CARD_TOKENS.semantic['dark-crema'].warn).toBe(cssVar(rootBlock, 'warn'));
+  });
+
+  it('light semantic colours match [data-theme="light"]', () => {
+    for (const k of semanticKeys) expect(CARD_TOKENS.semantic.light[k]).toBe(cssVar(lightBlock, k));
+  });
+
+  it('light-crema semantic colours match [data-theme="light"][data-accent="crema"]', () => {
+    for (const k of semanticKeys) expect(CARD_TOKENS.semantic['light-crema'][k]).toBe(cssVar(lightCremaBlock, k));
+  });
 });

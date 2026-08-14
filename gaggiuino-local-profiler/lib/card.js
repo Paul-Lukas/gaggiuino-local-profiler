@@ -129,8 +129,19 @@ const CARD_TOKENS = {
         light:         { 200: '#1b1d1f', 400: '#4a4e52', 500: '#585d61', 700: '#dcdcd8', 800: '#eeeeec', 900: '#f7f7f6', 950: '#ffffff' },
         'light-crema': { 200: '#2a1b0f', 400: '#55442f', 500: '#5f4c38', 700: '#d4b48c', 800: '#ead5b5', 900: '#f3e4ce', 950: '#fbf3e7' },
     },
+    // ok/warn/err mirror the same --ok/--warn/--err custom properties the
+    // gray scale above mirrors, keyed the same way. dark-crema has no own
+    // --ok/--warn block in style.css (only --err is overridden there), so it
+    // reuses dark's values -- same inheritance style.css itself relies on.
+    semantic: {
+        dark:          { ok: '#5cb98a', warn: '#d3a03f', err: '#e0705f' },
+        'dark-crema':  { ok: '#5cb98a', warn: '#d3a03f', err: '#e17363' },
+        light:         { ok: '#2f7350', warn: '#7d5510', err: '#a83526' },
+        'light-crema': { ok: '#0d622c', warn: '#7a4a05', err: '#a71b1b' },
+    },
 };
 const GRAY_SCALES = CARD_TOKENS.gray;
+const SEMANTIC_COLORS = CARD_TOKENS.semantic;
 
 // Canvas scale factor established by the pre-#811 CHIP_R constant (14px,
 // scaled up from the single old 8px --radius token for this 1080px canvas:
@@ -224,6 +235,7 @@ function buildPalette(accent, theme) {
     const key  = a === 'crema' ? `${th}-crema` : th;
     const gray = GRAY_SCALES[key];
     const line = LINE_COLORS[key];
+    const semantic = SEMANTIC_COLORS[key];
     const [accentFrom, accentTo] = ACCENTS[a][th];
     return {
         bg: gray[950], bgCard: gray[900], bgChart: gray[800],
@@ -239,6 +251,7 @@ function buildPalette(accent, theme) {
         accentFrom, accentTo,
         accentTint: `rgba(${hexToRgb(accentFrom)},`,
         star: accentFrom, starDim: gray[700],
+        ok: semantic.ok, warn: semantic.warn, err: semantic.err,
     };
 }
 
@@ -258,18 +271,27 @@ function Fs(size, bold = false) {
     return fam ? `${bold ? 'bold ' : ''}${size}px ${fam}` : F(size, bold);
 }
 
-// NOTE (found, not fixed, while pulling this file onto the #811 tokens):
-// this uses its own 80/60 thresholds and accentFrom/textDim/textMute, not
-// the live UI's scoreColor() (public-src/utils.js), which is var(--ok)
-// >=90 / var(--warn) >=70 / var(--err) below on the same "Score-Skala
-// bleibt: grün >= 90, gelb >= 70, rot darunter" rule the redesign plan
-// states. Changing the ring's colour logic/thresholds is a bigger call than
-// mirroring tokens — left as-is and reported instead of silently changed.
+// Matches the live UI's scoreColor() (public-src/utils.js) exactly now:
+// var(--ok) >=90 / var(--warn) >=70 / var(--err) below, the same "Score-
+// Skala bleibt: grün >= 90, gelb >= 70, rot darunter" rule the redesign plan
+// states. Previously used its own 80/60 thresholds and
+// accentFrom/textDim/textMute instead, so a shared card could tell a
+// different story about the same shot than the app that generated it.
+// GLP.ok/warn/err don't exist on the frozen LEGACY_GLP snapshot (old cached
+// card links, deliberately untouched by #811 — see its own comment above),
+// so this falls back to that snapshot's original 80/60 logic exactly when
+// they're absent, keeping every already-shared legacy image identical to
+// what it always rendered.
 function scoreColor(s, GLP) {
     if (s == null) return GLP.textMute;
-    if (s >= 80)   return GLP.accentFrom;
-    if (s >= 60)   return GLP.textDim;
-    return GLP.textMute;
+    if (!GLP.ok) {
+        if (s >= 80) return GLP.accentFrom;
+        if (s >= 60) return GLP.textDim;
+        return GLP.textMute;
+    }
+    if (s >= 90) return GLP.ok;
+    if (s >= 70) return GLP.warn;
+    return GLP.err;
 }
 
 // score >= 90 → outstanding, >= 80 → nailed it, >= 60 → solid, else → still
@@ -1118,6 +1140,7 @@ module.exports = {
     isAvailable: () => createCanvas !== null,
     // Exported for unit testing of the pure logic pieces
     scoreTierPhrase,
+    scoreColor,
     resolveBeanOriginCode,
     starPoints,
     installCodeFor,

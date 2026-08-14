@@ -10,6 +10,7 @@ const {
   LINE_COLORS,
   contrastRatio,
   hexToRgbArr,
+  scoreColor,
 } = require('../lib/card');
 
 // #811: install code always rendered on the share card, derived from the
@@ -99,5 +100,45 @@ describe('buildPalette() legacy snapshot (#462)', () => {
     expect(GLP.border).toBe('#3f3f46');
     expect(GLP.borderDim).toBe('#27272a');
     expect(GLP.bgChart).toBe('#27272a');
+  });
+});
+
+
+// scoreColor() previously used its own 80/60 thresholds and
+// accentFrom/textDim/textMute -- a shared card could tell a different
+// score story than the live UI's own scoreColor() (public-src/utils.js),
+// which is var(--ok) >=90 / var(--warn) >=70 / var(--err) below, the "Score-
+// Skala bleibt: grün >= 90, gelb >= 70, rot darunter" rule from the redesign
+// plan. Now both agree.
+describe('scoreColor() (#811)', () => {
+  const GLP = buildPalette('amber', 'dark');
+
+  it('is green (--ok) at and above 90', () => {
+    expect(scoreColor(90, GLP)).toBe(GLP.ok);
+    expect(scoreColor(99, GLP)).toBe(GLP.ok);
+  });
+
+  it('is yellow (--warn) from 70 up to (not including) 90', () => {
+    expect(scoreColor(70, GLP)).toBe(GLP.warn);
+    expect(scoreColor(89, GLP)).toBe(GLP.warn);
+  });
+
+  it('is red (--err) below 70', () => {
+    expect(scoreColor(69, GLP)).toBe(GLP.err);
+    expect(scoreColor(0, GLP)).toBe(GLP.err);
+  });
+
+  it('falls back to textMute when there is no score at all', () => {
+    expect(scoreColor(null, GLP)).toBe(GLP.textMute);
+  });
+
+  // The frozen LEGACY_GLP snapshot (buildPalette() with no args, #462) has
+  // no ok/warn/err -- old cached card links must keep rendering with the
+  // original 80/60 thresholds, not silently pick up the new 90/70 ones.
+  it('keeps the original 80/60 logic on the legacy snapshot, unchanged', () => {
+    const legacy = buildPalette();
+    expect(scoreColor(85, legacy)).toBe(legacy.accentFrom);
+    expect(scoreColor(65, legacy)).toBe(legacy.textDim);
+    expect(scoreColor(50, legacy)).toBe(legacy.textMute);
   });
 });
