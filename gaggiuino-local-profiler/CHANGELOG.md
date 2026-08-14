@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Fixed
+- **The share card's score badge told a different story than the app that generated it.** The live UI colours a score green from 90, yellow from 70, red below (`--ok`/`--warn`/`--err`). The share-card renderer had its own, older 80/60 thresholds using the accent colour instead — found while pulling `lib/card.js` onto the redesign's tokens, not introduced by it. Both now agree; the frozen pre-#811 snapshot used by old cached card links is deliberately left on its original logic. #811
+
 ### Added
 - **The share card now always carries a short install code** (e.g. `A7K2-M94X`), derived deterministically from the install's existing ID so a shared card can always be traced back to the install it came from — no new identifier, no opt-out. #811
 
