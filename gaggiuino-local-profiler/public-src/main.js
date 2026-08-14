@@ -76,6 +76,7 @@ import { loadMaintenanceView, markMaintDone, saveMaintThreshold, setMaintMode, s
          renderMaintenanceDashboard, maintStatusLabel,
          openMaintLogForm, closeMaintLogForm, submitMaintLogEntry, deleteMaintLogEntry,
          openGuidedMaint, closeGuidedMaint, submitGuidedMaint, updateGuidedMaintDoneState } from './views/maintenance.js';
+import { loadAchievementsView } from './views/achievements.js';
 import { openFlavorWheel, closeFlavorWheel, zoomFlavorWheelTo } from './components/flavor-wheel.js';
 
 import { loadOrdersView, startOrdersPolling, stopOrdersPolling, setOrdersEnabled,
@@ -304,6 +305,9 @@ Object.assign(window, {
   buildBeanStats,
   buildProfileChart,
   _renderCalendar,
+
+  // achievements view (#812)
+  loadAchievementsView,
 
   // maintenance view
   loadMaintenanceView,
@@ -610,6 +614,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDialin').addEventListener('click', () => switchMode('dialin'));
   document.getElementById('btnLibrary').addEventListener('click', () => switchMode('library'));
   document.getElementById('btnMaintenance').addEventListener('click', () => switchMode('maintenance'));
+  document.getElementById('btnAchievements').addEventListener('click', () => switchMode('achievements'));
   document.getElementById('btnOrders').addEventListener('click', () => switchMode('orders'));
   document.getElementById('btnSettings').addEventListener('click', () => switchMode('settings'));
 

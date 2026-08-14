@@ -2105,7 +2105,7 @@
             .live-stats { grid-template-columns: repeat(2, 1fr); }
             .sprofiler-header h1 { font-size: var(--fs-3); }
             #analytics-view, #library-view, #maintenance-view,
-            #dialin-view, #settings-view, #orders-view { padding: var(--sp-3); }
+            #dialin-view, #settings-view, #orders-view, #achievements-view { padding: var(--sp-3); }
 
             /* #459: was a fixed 240px (half of desktop) — clamp() keeps the
                chart from shrinking on small phones while still leaving room
@@ -2721,3 +2721,83 @@
             .machine-icon-live.is-steaming .milk-top,
             .machine-icon-live.is-steaming .swirl { animation: none !important; }
         }
+
+        /* ══ Achievements view: the stamp card (#812) ═══════════════════════
+           A printed cardboard card, not an app panel — per PLAN.md section 5
+           it stays paper-colored in the dark theme too, so every color below
+           is a hardcoded literal (--ach-paper/--ach-ink/--ach-stamp-ink,
+           scoped to .ach-card), never one of this file's --gray-*/--err
+           theme tokens. Every class is prefixed .ach- — this round already
+           hit two class-collision bugs from unprefixed names (.sec, .dot),
+           see PLAN.md's "Fallen" list. */
+        #achievements-view { display:none; flex-direction:column; flex:1; min-width:0; min-height:0; overflow-x:hidden; overflow-y:auto; padding: var(--sp-5); gap: var(--sp-4); }
+        .ach-cardwrap { display:flex; justify-content:center; }
+        .ach-card {
+            --ach-paper: #ece2d0;
+            --ach-ink: #33261a;
+            --ach-stamp-ink: #8c3f27;
+            position:relative; width:100%; max-width:660px;
+            background:var(--ach-paper); color:var(--ach-ink);
+            border-radius:7px; padding:26px 26px 20px;
+            box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 0 rgba(0,0,0,.22), 0 16px 34px rgba(0,0,0,.34);
+        }
+        .ach-frame { position:absolute; inset:9px; border:1px solid color-mix(in srgb, var(--ach-ink) 26%, transparent); border-radius:4px; pointer-events:none; }
+        .ach-head { display:flex; flex-direction:column; align-items:center; gap:2px; padding-bottom:16px; }
+        .ach-brand { font-size:.6875rem; letter-spacing:.16em; color:color-mix(in srgb, var(--ach-ink) 72%, var(--ach-paper)); }
+        .ach-title { font-weight:600; font-size:1.45rem; line-height:1.1; }
+        .ach-grid {
+            padding-top:18px; padding-bottom:18px; margin-top:2px;
+            border-top:1px dashed color-mix(in srgb, var(--ach-ink) 32%, transparent);
+            border-bottom:1px dashed color-mix(in srgb, var(--ach-ink) 32%, transparent);
+        }
+        .ach-page { position:relative; }
+        .ach-page[hidden] { display:none; }
+        .ach-fields { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px 12px; justify-items:center; }
+        @media(max-width:520px){ .ach-fields { grid-template-columns:repeat(3, 1fr); } }
+
+        /* Fields are all identically pre-printed — only the ink stamp tells
+           them apart. Locked = empty ring; locked + secret = "?" only. */
+        .ach-field { position:relative; width:52px; height:52px; background:none; border:0; padding:0; cursor:pointer; display:block; }
+        .ach-ring { position:absolute; inset:0; border-radius:50%; border:1.4px solid color-mix(in srgb, var(--ach-ink) 52%, var(--ach-paper)); }
+        .ach-field.ach-secret .ach-ring { border-style:dashed; }
+        .ach-qm { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:1.05rem; font-weight:600; color:color-mix(in srgb, var(--ach-ink) 62%, var(--ach-paper)); }
+        .ach-ink { position:absolute; inset:-5px; color:var(--ach-stamp-ink); transform:rotate(var(--ach-rot, 0deg)); }
+        .ach-stamp { width:100%; height:100%; display:block; opacity:.88; }
+        .ach-field:focus-visible { outline:2px solid var(--ach-stamp-ink); outline-offset:4px; border-radius:50%; }
+        .ach-field:hover .ach-ring { border-color:color-mix(in srgb, var(--ach-ink) 62%, transparent); }
+        .ach-field[aria-current="true"] .ach-ring { border-color:var(--ach-stamp-ink); border-width:2px; }
+
+        .ach-overprint {
+            position:absolute; top:52%; left:50%; transform:translate(-50%,-50%) rotate(-14deg);
+            display:flex; flex-direction:column; align-items:center; gap:2px;
+            font-family:'Fraunces', Georgia, serif; font-weight:600; font-size:2.4rem; letter-spacing:.1em;
+            color:var(--ach-stamp-ink); opacity:.32; pointer-events:none;
+            border:5px solid var(--ach-stamp-ink); border-radius:8px; padding:2px 22px 6px;
+            filter:url(#ach-rough-ink); white-space:nowrap;
+        }
+        .ach-overprint-date { font-family:'Figtree', sans-serif; font-size:.8125rem; letter-spacing:.04em; }
+
+        .ach-foot { display:flex; align-items:center; justify-content:center; gap:14px; padding-top:16px; }
+        .ach-pg {
+            width:28px; height:28px; border-radius:50%; background:none; cursor:pointer;
+            border:1.4px solid color-mix(in srgb, var(--ach-ink) 45%, var(--ach-paper));
+            color:color-mix(in srgb, var(--ach-ink) 80%, var(--ach-paper)); font-size:1rem; line-height:1;
+            display:flex; align-items:center; justify-content:center;
+        }
+        .ach-pg:hover { border-color:var(--ach-ink); color:var(--ach-ink); }
+        .ach-pg:focus-visible { outline:2px solid var(--ach-stamp-ink); outline-offset:3px; }
+        .ach-dots { display:flex; gap:7px; }
+        .ach-pdot { width:9px; height:9px; border-radius:50%; padding:0; cursor:pointer; background:none; border:1.3px solid color-mix(in srgb, var(--ach-ink) 50%, var(--ach-paper)); }
+        .ach-pdot.ach-on { background:var(--ach-stamp-ink); border-color:var(--ach-stamp-ink); }
+        .ach-pdot:focus-visible { outline:2px solid var(--ach-stamp-ink); outline-offset:3px; }
+
+        .ach-fineline { display:flex; justify-content:center; padding-top:12px; font-size:.6875rem; color:color-mix(in srgb, var(--ach-ink) 70%, var(--ach-paper)); font-variant-numeric:tabular-nums; }
+
+        /* Detail pane below the card — this one DOES use the app's own
+           theme tokens, unlike the card itself: it's chrome around the
+           depicted object, not part of the object. */
+        .ach-detail { border-radius:var(--radius); border:1px solid var(--gray-700); background:var(--gray-900); padding:var(--sp-4); min-height:64px; max-width:660px; margin:0 auto; width:100%; }
+        .ach-detail-hint { color:var(--gray-600); font-size:var(--fs-1); }
+        .ach-detail-n { font-size:var(--fs-3); font-weight:600; color:var(--gray-200); }
+        .ach-detail-d { font-size:var(--fs-2); color:var(--gray-500); margin-top:2px; }
+        .ach-detail-m { font-size:var(--fs-1); color:var(--gray-600); margin-top:6px; font-variant-numeric:tabular-nums; }

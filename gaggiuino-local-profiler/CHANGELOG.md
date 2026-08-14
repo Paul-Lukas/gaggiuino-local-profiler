@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Added
+- **The stamp card.** The achievement catalogue now has a face: a printed cardboard card with seven categories side by side, browsable from the first visit. Every field is identically pre-printed and only the stamp tells them apart — rough ink with a ragged edge, each one sitting a couple of degrees askew, at a fixed angle per badge so it never re-jitters between paints. A locked secret badge shows a "?" and nothing else; its name and description never reach the browser at all. A category with every badge unlocked gets a diagonal "Full" overprint with the date. No level, no rank, no point score. The card stays paper-coloured in the dark theme too — it is a depicted object, not a panel. #812
+
+### Added
 - **Achievement copy in all six languages, and the tests the feature was missing.** The 48 open badges now have a name and description in de/en/it/fr/es/nl; the 6 secret ones stay encoded server-side so reading the JS bundle cannot spoil them. #812
 
 

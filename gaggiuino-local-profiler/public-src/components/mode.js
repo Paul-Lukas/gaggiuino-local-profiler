@@ -24,6 +24,7 @@ export function switchMode(mode) {
   document.getElementById('btnDialin').classList.toggle('active',      mode === 'dialin');
   document.getElementById('btnLibrary').classList.toggle('active',     mode === 'library');
   document.getElementById('btnMaintenance').classList.toggle('active', mode === 'maintenance');
+  document.getElementById('btnAchievements').classList.toggle('active', mode === 'achievements');
   document.getElementById('btnOrders').classList.toggle('active',      mode === 'orders');
   document.getElementById('btnSettings').classList.toggle('active',    mode === 'settings');
 
@@ -40,6 +41,7 @@ export function switchMode(mode) {
   document.getElementById('dialin-view').style.display      = mode === 'dialin'      ? 'flex' : 'none';
   document.getElementById('library-view').style.display     = mode === 'library'     ? 'flex' : 'none';
   document.getElementById('maintenance-view').style.display = mode === 'maintenance' ? 'flex' : 'none';
+  document.getElementById('achievements-view').style.display = mode === 'achievements' ? 'flex' : 'none';
   document.getElementById('orders-view').style.display      = mode === 'orders'      ? 'flex' : 'none';
   document.getElementById('settings-view').style.display    = mode === 'settings'    ? 'grid' : 'none';
 
@@ -56,6 +58,7 @@ export function switchMode(mode) {
     if (window.renderGrinderList) window.renderGrinderList();
   }
   if (mode === 'maintenance') { if (window.loadMaintenanceView) window.loadMaintenanceView(); }
+  if (mode === 'achievements') { if (window.loadAchievementsView) window.loadAchievementsView(); }
   // #334: re-render on every entry so the per-machine shot count reflects
   // S.allShots as of now, not whatever it was at the initial loadMachines()
   // call (which can race loadData() on startup — see #333).
@@ -70,7 +73,7 @@ export function switchMode(mode) {
   const modeMap = {
     shots: 'btnShots', live: 'btnLive', analytics: 'btnAnalytics',
     dialin: 'btnDialin', library: 'btnLibrary', maintenance: 'btnMaintenance',
-    orders: 'btnOrders', settings: 'btnSettings'
+    achievements: 'btnAchievements', orders: 'btnOrders', settings: 'btnSettings'
   };
   const activeBtn = document.getElementById(modeMap[mode]);
   if (activeBtn) activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
