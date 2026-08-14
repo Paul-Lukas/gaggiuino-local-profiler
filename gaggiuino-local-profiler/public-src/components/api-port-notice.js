@@ -11,6 +11,7 @@
 import { t } from '../i18n.js';
 import { isApiPortBlocked } from '../api.js';
 import { devBannerHeight } from './dev-banner.js';
+import { themeColor } from '../utils.js';
 
 const DISMISS_KEY = 'glp_api_port_closed_banner_dismissed';
 
@@ -18,9 +19,7 @@ export function apiPortClosedHtml() {
   return `<div class="loading-state" style="max-width:520px;margin:0 auto;text-align:center">
     <div style="font-weight:600;margin-bottom:6px">${t('api_port_closed_title')}</div>
     <div style="font-size:.85rem;line-height:1.45">${t('api_port_closed_desc')}</div>
-    <button data-action="goto-settings" style="margin-top:12px;padding:4px 12px;cursor:pointer;
-      background:rgba(63,63,70,.5);color:#a1a1aa;border:1px solid #3f3f46;border-radius:6px;
-      font-family:Figtree,sans-serif;font-size:.8rem">${t('api_port_closed_settings_btn')}</button>
+    <button data-action="goto-settings" class="export-btn" style="margin-top:var(--sp-3)">${t('api_port_closed_settings_btn')}</button>
   </div>`;
 }
 
@@ -46,7 +45,10 @@ export function updateApiPortClosedBanner() {
       + (document.getElementById('glpUpdateBanner')?.offsetHeight || 0)
       + (document.getElementById('glpOnboardingBanner')?.offsetHeight || 0)
       + (document.getElementById('glpLegacyMachineOptionsBanner')?.offsetHeight || 0)}px`,
-    background: '#3f3f46', color: '#e4e4e7',
+    // #814: was a hardcoded dark surface + light text, so these banners
+  // stayed dark-on-dark chips on a light page. --raised/--gray-200 are the
+  // themed equivalents of exactly those two values.
+  background: themeColor('--raised', '#3f3f46'), color: themeColor('--gray-200', '#e4e4e7'),
     padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '12px',
     fontSize: '.875rem', fontWeight: '500', boxShadow: '0 2px 8px rgba(0,0,0,.35)',
   });
@@ -60,14 +62,14 @@ export function updateApiPortClosedBanner() {
   settingsBtn.dataset.action = 'goto-settings';
   settingsBtn.textContent = t('api_port_closed_settings_btn');
   Object.assign(settingsBtn.style, {
-    background: 'rgba(0,0,0,.25)', color: '#e4e4e7', border: '1px solid #52525b',
+    background: themeColor('--gray-900', '#18181b'), color: themeColor('--gray-200', '#e4e4e7'), border: `1px solid ${themeColor('--gray-700', '#52525b')}`,
     borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
     fontSize: '.8rem', whiteSpace: 'nowrap',
   });
 
   const closeBtn = document.createElement('button');
   closeBtn.textContent = '✕';
-  Object.assign(closeBtn.style, { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: '#e4e4e7', padding: '0 2px' });
+  Object.assign(closeBtn.style, { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: themeColor('--gray-200', '#e4e4e7'), padding: '0 2px' });
   closeBtn.addEventListener('click', () => {
     sessionStorage.setItem(DISMISS_KEY, '1');
     banner.remove();

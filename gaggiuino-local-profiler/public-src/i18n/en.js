@@ -17,6 +17,7 @@ export default {
     recipe_dose_yield:'Dose → Yield', recipe_ratio:'Ratio', recipe_bean_grinder:'Bean & Grinder', recipe_grinder_grind:(g,s)=>g?`${g} · grind ${s}`:`Grind ${s}`,
     process_pressure:'Pressure (avg / max)', process_flow:'Pump flow (avg)', process_temp:'Temperature (avg ±σ)',
     verdict_word_high:'great', verdict_word_mid:'good', verdict_word_low:'weak',
+    conn_error:'Connection error',
     verdict_no_data:'Not enough data yet for a verdict.',
     verdict_bean_target_hint:'Scored against this bean\'s own brew target',
     tab_time:`${CLOCK_ICON_SVG} Time`, tab_pq:'P·Q Curve',

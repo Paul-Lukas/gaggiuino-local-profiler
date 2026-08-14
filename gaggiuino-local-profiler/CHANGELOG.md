@@ -8,6 +8,14 @@
 - **An animated machine icon with live states.** Ported from the "Instrument" prototype: a Gaggiuino (rectangular display) and a GaggiMate (chrome puck) variant sharing one body, with heating/ready/brewing/steaming states — the body fills with the machine's accent colour as it heats, a brew scale gains a cup that fills as two converging streams (never a drip, which would depict channeling), and a milk jug appears with a rotating vortex while steaming. `prefers-reduced-motion` shows the correct static state rather than a frozen frame. Not yet wired into a live view — `machineIconAnimatedSvg()`/`setMachineIconMode()` in `public-src/machine-icon.js` are ready for that follow-up. #811
 
 ### Fixed
+- **Charts kept dark-theme colours on a light page.** Chart.js was configured with hardcoded hexes rather than the theme tokens, so legends and axis labels measured about 1.3:1 against a light background — effectively invisible. Chart chrome now resolves from the tokens at render time, and switching theme repaints charts that are already on screen instead of leaving them on the old palette. Series colours are untouched. Closes #814
+- **The phase shading's labels and divider were fixed light-on-dark** and vanished on a light chart area; they now follow the theme (measured 5.1:1 in the light theme). The translucent phase fills are unchanged.
+- **The onboarding banner, the API-port notice and the toast** carried inline dark surfaces with light text, which stayed dark chips on a light page. They use the themed tokens now.
+- **The bean QR code was drawn inverted** — light modules on a dark ground. Many scanners cope with that, older ones do not. Fixed to standard dark-on-light polarity in both themes.
+- The connection-error message was hardcoded German with a hardcoded red; it is translated in all six languages now.
+
+
+### Fixed
 - **Four buttons were unreadable in the light theme.** The export, share, compare, sync and power buttons filled themselves with a hardcoded `rgba(63,63,70,.5)`, which never inverts — on the light page it composited to a mid grey that left their label text at 3.03:1. They use the themed surface token now. #811
 
 ### Changed
