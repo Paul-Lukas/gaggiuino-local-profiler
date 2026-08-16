@@ -11,7 +11,9 @@ const {
   contrastRatio,
   hexToRgbArr,
   scoreColor,
+  generateShareCard,
 } = require('../lib/card');
+const { createCanvas, loadImage } = require('@napi-rs/canvas');
 
 // #811: install code always rendered on the share card, derived from the
 // existing kv.install_id UUID (lib/db.js ensureInstallId(), #751) -- no new
@@ -87,6 +89,123 @@ describe('buildPalette() line contrast (#811)', () => {
 
   it('LINE_COLORS has an entry for every CARD_TOKENS.gray combo', () => {
     expect(Object.keys(LINE_COLORS).sort()).toEqual(Object.keys(CARD_TOKENS.gray).sort());
+  });
+
+  // #811 "Instrument" Fix 2: the chart's own bgChart/border box is gone on
+  // the current palette, so its axis gridlines/labels (still GLP.border/
+  // GLP.textMute) now render directly against GLP.bg (the page background)
+  // instead. This was never checked before -- the box always stood between
+  // them -- so it needs its own assertion, not just the bgChart/bgCard one
+  // above.
+  it('border/borderDim also clear 3:1 against bg (#811 Fix 2: chart lost its bgChart backdrop)', () => {
+    for (const [accent, theme] of combos) {
+      const GLP = buildPalette(accent, theme);
+      expect(contrastRatio(hexToRgbArr(GLP.border), hexToRgbArr(GLP.bg))).toBeGreaterThanOrEqual(3);
+      expect(contrastRatio(hexToRgbArr(GLP.borderDim), hexToRgbArr(GLP.bg))).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  // The frozen legacy line colour was only ever lifted against bgChart/
+  // bgCard (see LINE_COLORS above) and was NEVER meant to stand against bg
+  // directly -- it measures well under 3:1 there. This is exactly why Fix 2
+  // keeps LEGACY_GLP's chart box: removing it would silently regress this.
+  it('legacy border fails 3:1 against bg -- documents why Fix 2 keeps the legacy chart box', () => {
+    const legacy = buildPalette();
+    expect(contrastRatio(hexToRgbArr(legacy.border), hexToRgbArr(legacy.bg))).toBeLessThan(3);
+  });
+});
+
+// #811 "Instrument" Fix 1 + Fix 2: generateShareCard() end-to-end render
+// checks. Pixel-sampled against the actual PNG output (decoded back via
+// @napi-rs/canvas) rather than asserting on canvas mock-call args, so these
+// catch what the eye would actually see.
+function makeTestShot(id) {
+  return {
+    id,
+    timestamp: 1700000000,
+    duration: 280,
+    annotation: { coffee: 'Test Bean', dose: 15, totalWeight: 36 },
+    datapoints: {
+      pressure: Array.from({ length: 30 }, (_, i) => 50 + i * 2),
+      temperature: Array(30).fill(930),
+      timeInShot: Array.from({ length: 30 }, (_, i) => i * 10),
+    },
+  };
+}
+
+async function decodePixels(pngBuffer) {
+  const img = await loadImage(pngBuffer);
+  const canvas = createCanvas(img.width, img.height);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  return { ctx, width: img.width, height: img.height };
+}
+
+function countColor(imageData, [r, g, b]) {
+  const d = imageData.data;
+  let count = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] === r && d[i + 1] === g && d[i + 2] === b) count++;
+  }
+  return count;
+}
+
+// Old ring badge centre -- scx/scy from the (now legacy-only) SCORE BADGE
+// block in lib/card.js: scx = W - PX - 88, scy = BAR_H + HH + 90.
+const RING_CX = 1080 - 52 - 88;
+const RING_CY = 4 + 76 + 90;
+
+describe('generateShareCard() ring removal (#811 "Instrument" Fix 1)', () => {
+  it('current palette: nothing is drawn at the old ring centre any more -- identical with and without a score', async () => {
+    const withScore = await generateShareCard(makeTestShot(1), 87, 'square', 'amber', 'dark');
+    const noScore   = await generateShareCard(makeTestShot(1), null, 'square', 'amber', 'dark');
+    const { ctx: ctxWith } = await decodePixels(withScore);
+    const { ctx: ctxNo }   = await decodePixels(noScore);
+    expect(Array.from(ctxWith.getImageData(RING_CX, RING_CY, 1, 1).data))
+      .toEqual(Array.from(ctxNo.getImageData(RING_CX, RING_CY, 1, 1).data));
+  });
+
+  it('legacy snapshot (buildPalette() with no args): still paints the ring disc at the same centre, unchanged', async () => {
+    const withScore = await generateShareCard(makeTestShot(2), 87, 'square');
+    const noScore   = await generateShareCard(makeTestShot(2), null, 'square');
+    const { ctx: ctxWith } = await decodePixels(withScore);
+    const { ctx: ctxNo }   = await decodePixels(noScore);
+    expect(Array.from(ctxWith.getImageData(RING_CX, RING_CY, 1, 1).data))
+      .not.toEqual(Array.from(ctxNo.getImageData(RING_CX, RING_CY, 1, 1).data));
+  });
+
+  it('current palette: draws the score number itself, in scoreColor(), on the verdict line -- not just the phrase (which the pre-#811 code already drew there)', async () => {
+    const buf = await generateShareCard(makeTestShot(5), 87, 'square', 'amber', 'dark');
+    const { ctx } = await decodePixels(buf);
+    const GLP    = buildPalette('amber', 'dark');
+    const sColor = scoreColor(87, GLP);
+    // Wide strip just below the headline baseline where the verdict number/
+    // separator/phrase line sits (left-aligned at PX=52). A solid count of
+    // exact sColor pixels there can only come from the bold 62px score
+    // digits -- the phrase text itself is always GLP.textDim, never sColor,
+    // so this fails if the number is dropped and only the phrase survives.
+    const count = countColor(ctx.getImageData(52, 150, 400, 80), hexToRgbArr(sColor));
+    expect(count).toBeGreaterThan(200);
+  });
+});
+
+describe('generateShareCard() chart container removal (#811 "Instrument" Fix 2)', () => {
+  it('current palette: the large bgChart-filled chart box is gone -- only the small legend/stat chips still use that colour', async () => {
+    const buf = await generateShareCard(makeTestShot(3), 87, 'square', 'amber', 'dark');
+    const { ctx, width, height } = await decodePixels(buf);
+    const GLP = buildPalette('amber', 'dark');
+    const count = countColor(ctx.getImageData(0, 0, width, height), hexToRgbArr(GLP.bgChart));
+    // Legend/stat chips alone total a few thousand px; the old chart box
+    // covered several hundred thousand -- a wide, unambiguous margin.
+    expect(count).toBeLessThan(20000);
+  });
+
+  it('legacy snapshot: the chart still paints its large bgChart-filled box, unchanged', async () => {
+    const buf = await generateShareCard(makeTestShot(4), 87, 'square');
+    const { ctx, width, height } = await decodePixels(buf);
+    const legacy = buildPalette();
+    const count = countColor(ctx.getImageData(0, 0, width, height), hexToRgbArr(legacy.bgChart));
+    expect(count).toBeGreaterThan(100000);
   });
 });
 
