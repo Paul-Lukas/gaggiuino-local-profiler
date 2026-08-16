@@ -1,13 +1,11 @@
 import Chart from 'chart.js/auto';
-import * as echarts from 'echarts';
-import * as topojson from 'topojson-client';
 import { S } from '../state.js';
 import { t } from '../i18n.js';
-import { localeFor, COFFEE_COUNTRIES, COUNTRY_CENTROIDS, countryName, flagEmoji } from '../constants.js';
-import { scoreClass } from '../utils.js';
+import { localeFor, COFFEE_COUNTRIES, COUNTRY_CENTROIDS, countryName } from '../constants.js';
+import { scoreClass, chartColors } from '../utils.js';
 import { _parseGrindNum } from './shots/grind.js';
 import { _equipmentName } from './shots/index.js';
-import { TARGET_ICON_SVG } from '../icons.js';
+import { TARGET_ICON_SVG, WARNING_ICON_SVG } from '../icons.js';
 
 // ── Analytics entry point ─────────────────────────────────────────────────
 export function initAnalytics() {
@@ -45,6 +43,13 @@ function calcLongestStreak(shots) {
 }
 
 const _esc = s => s == null ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+// #811: was the hardcoded #52525b (Tailwind zinc-600) on every chart's tick
+// labels -- a fixed dark-theme gray that didn't track --gray-600 across
+// themes/accents. Canvas needs a resolved color, not a CSS var() reference,
+// so this reads the live custom property the same way buildWorldMap() below
+// already does for its own colors.
+const _mutedTickColor = () =>
+  (getComputedStyle(document.documentElement).getPropertyValue('--gray-600') || '#52525b').trim() || '#52525b';
 const _bgColor = sc => sc == null ? 'rgba(63,63,70,.5)'
   : sc >= 88 ? 'rgba(34,197,94,.7)' : sc >= 75 ? 'rgba(132,204,22,.7)'
   : sc >= 60 ? 'rgba(234,179,8,.7)'  : sc >= 45 ? 'rgba(249,115,22,.7)' : 'rgba(239,68,68,.7)';
@@ -95,7 +100,10 @@ export function buildSummaryKpis() {
       if (slope < -1.5) {
         const drop = Math.abs(slope).toFixed(1);
         warnEl.className = 'trend-warning';
-        warnEl.textContent = t('analytics_trend_warning', n, drop);
+        // #811: the ⚠ glyph came out of the translated string; the icon is
+        // rendered here instead so translators never carry markup. `n`/`drop`
+        // are numbers computed above, so there is no untrusted input here.
+        warnEl.innerHTML = `${WARNING_ICON_SVG} ${_esc(t('analytics_trend_warning', n, drop))}`;
         warnEl.style.display = '';
       } else {
         warnEl.style.display = 'none';
@@ -111,7 +119,7 @@ export function buildPersonalBests() {
   const el = document.getElementById('personalBests');
   if (!el) return;
   if (S.shots.length < 3) {
-    el.innerHTML = `<p style="color:#52525b;font-size:.85rem">${t('analytics_no_bests')}</p>`;
+    el.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem">${t('analytics_no_bests')}</p>`;
     return;
   }
 
@@ -210,7 +218,7 @@ function _renderEquipmentStats(containerId, entries, emptyKey) {
   const el = document.getElementById(containerId);
   if (!el) return;
   if (entries.length === 0) {
-    el.innerHTML = `<p style="color:#52525b;font-size:.85rem">${t(emptyKey)}</p>`;
+    el.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem">${t(emptyKey)}</p>`;
     return;
   }
   let html = '<div class="bean-cards">';
@@ -267,7 +275,7 @@ function _buildDoseDist() {
   if (S.doseDistChart) { S.doseDistChart.destroy(); S.doseDistChart = null; }
   const doses = S.shots.map(s => s.annotation?.dose).filter(d => d != null && d > 5 && d < 50);
   if (doses.length < 5) {
-    ctx.parentElement.innerHTML = `<p style="color:#52525b;font-size:.85rem;padding-top:8px">${t('analytics_no_distribution')}</p>`;
+    ctx.parentElement.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem;padding-top:8px">${t('analytics_no_distribution')}</p>`;
     return;
   }
   const lo = Math.floor(Math.min(...doses) * 2) / 2;
@@ -282,8 +290,8 @@ function _buildDoseDist() {
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        x: { ticks: { color: '#52525b', font: { size: 10 } }, grid: { display: false } },
-        y: { ticks: { color: '#52525b', font: { size: 10 }, precision: 0 }, grid: { color: 'rgba(63,63,70,.3)' } }
+        x: { ticks: { color: _mutedTickColor(), font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { color: _mutedTickColor(), font: { size: 10 }, precision: 0 }, grid: { color: 'rgba(63,63,70,.3)' } }
       }
     }
   });
@@ -297,7 +305,7 @@ function _buildRatioDist() {
     .map(s => s.annotation?.dose && s.weight ? (s.weight / 10) / s.annotation.dose : null)
     .filter(r => r != null && r > 1 && r < 4);
   if (ratios.length < 5) {
-    ctx.parentElement.innerHTML = `<p style="color:#52525b;font-size:.85rem;padding-top:8px">${t('analytics_no_distribution')}</p>`;
+    ctx.parentElement.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem;padding-top:8px">${t('analytics_no_distribution')}</p>`;
     return;
   }
   const lo = Math.floor(Math.min(...ratios) * 10) / 10;
@@ -312,8 +320,8 @@ function _buildRatioDist() {
     options: { responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
-        x: { ticks: { color: '#52525b', font: { size: 10 } }, grid: { display: false } },
-        y: { ticks: { color: '#52525b', font: { size: 10 }, precision: 0 }, grid: { color: 'rgba(63,63,70,.3)' } }
+        x: { ticks: { color: _mutedTickColor(), font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { color: _mutedTickColor(), font: { size: 10 }, precision: 0 }, grid: { color: 'rgba(63,63,70,.3)' } }
       }
     }
   });
@@ -334,7 +342,7 @@ export function buildTimeOfDay() {
     }
   }
   if (!hours.some(h => h.count > 0)) {
-    ctx.parentElement.innerHTML = `<p style="color:#52525b;font-size:.85rem;padding-top:8px">${t('analytics_no_time')}</p>`;
+    ctx.parentElement.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem;padding-top:8px">${t('analytics_no_time')}</p>`;
     return;
   }
   const avgSc = h => h.scores.length ? Math.round(h.scores.reduce((a, b) => a + b, 0) / h.scores.length) : null;
@@ -352,8 +360,8 @@ export function buildTimeOfDay() {
         }}}
       },
       scales: {
-        x: { ticks: { color: '#52525b', font: { size: 9 }, maxRotation: 0 }, grid: { display: false } },
-        y: { ticks: { color: '#52525b', font: { size: 10 }, precision: 0 }, grid: { color: 'rgba(63,63,70,.3)' } }
+        x: { ticks: { color: _mutedTickColor(), font: { size: 9 }, maxRotation: 0 }, grid: { display: false } },
+        y: { ticks: { color: _mutedTickColor(), font: { size: 10 }, precision: 0 }, grid: { color: 'rgba(63,63,70,.3)' } }
       }
     }
   });
@@ -368,6 +376,9 @@ export function setTrendWindow(n) {
 }
 
 export function buildTrendChart() {
+  // #814: resolved per render, never at module load — the value has to be
+  // whatever the ACTIVE theme resolves to right now.
+  const C = chartColors();
   const all = S.shots.filter(s => {
     if (!window.calcShotScore || !window.getShotData) return false;
     return window.calcShotScore(s, window.getShotData(s)) !== null;
@@ -379,7 +390,7 @@ export function buildTrendChart() {
   if (S.trendChart) { S.trendChart.destroy(); S.trendChart = null; }
 
   if (src.length < 2) {
-    ctx.parentElement.innerHTML = `<p style="color:#52525b;font-size:.85rem;padding-top:8px">${t('analytics_no_trend')}</p>`;
+    ctx.parentElement.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem;padding-top:8px">${t('analytics_no_trend')}</p>`;
     return;
   }
 
@@ -408,12 +419,12 @@ export function buildTrendChart() {
         if (elements.length > 0 && window.goToShot) window.goToShot(src[elements[0].index].id);
       },
       plugins: {
-        legend: { labels: { color: '#a1a1aa', font: { size: 11 } } },
+        legend: { labels: { color: C.tick, font: { size: 11 } } },
         tooltip: { callbacks: { footer: () => '↗ Shot anzeigen' } },
       },
       scales: {
-        x: { ticks: { color: '#52525b', font: { size: 10 }, maxRotation: 45 }, grid: { color: 'rgba(63,63,70,.3)' } },
-        y: { min: 0, max: 100, ticks: { color: '#52525b', font: { size: 10 }, stepSize: 20 }, grid: { color: 'rgba(63,63,70,.3)' } }
+        x: { ticks: { color: _mutedTickColor(), font: { size: 10 }, maxRotation: 45 }, grid: { color: 'rgba(63,63,70,.3)' } },
+        y: { min: 0, max: 100, ticks: { color: _mutedTickColor(), font: { size: 10 }, stepSize: 20 }, grid: { color: 'rgba(63,63,70,.3)' } }
       }
     }
   });
@@ -483,7 +494,7 @@ export function _renderCalendar() {
   const cls = c => c === 0 ? 'cal-0' : c === 1 ? 'cal-1' : c === 2 ? 'cal-2' : 'cal-3';
 
   let html = `<div style="position:relative;height:${cellSize + 3}px;margin-bottom:4px">`;
-  for (const m of months) html += `<span style="position:absolute;left:${m.weekIdx * CELL}px;font-size:.65rem;color:#52525b">${m.label}</span>`;
+  for (const m of months) html += `<span style="position:absolute;left:${m.weekIdx * CELL}px;font-size:.65rem;color:var(--gray-600)">${m.label}</span>`;
   html += `</div><div class="cal-grid" style="gap:${GAP}px">`;
 
   for (const week of weeks) {
@@ -527,7 +538,7 @@ export function buildBeanStats() {
   const beans = Object.entries(byBean).sort((a, b) => b[1].count - a[1].count);
 
   if (beans.length === 0) {
-    el.innerHTML = `<p style="color:#52525b;font-size:.85rem">${t('analytics_no_beans')}</p>`;
+    el.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem">${t('analytics_no_beans')}</p>`;
     return;
   }
 
@@ -546,7 +557,7 @@ export function buildBeanStats() {
         ${bestSc !== null ? `<div class="bean-stat"><span class="bean-stat-val">${bestSc}</span><span class="bean-stat-lbl">${t('bean_stat_best')}</span></div>` : ''}
         ${avgDur !== null ? `<div class="bean-stat"><span class="bean-stat-val">${avgDur}s</span><span class="bean-stat-lbl">${t('bean_stat_duration')}</span></div>` : ''}
       </div>
-      ${d.dialinShot !== null ? `<div class="bean-stat-dialin">${TARGET_ICON_SVG} ${t('analytics_dialin', d.dialinShot)}</div>` : (d.scores.length >= 3 ? `<div class="bean-stat-dialin" style="color:#52525b">${t('analytics_dialin_none')}</div>` : '')}
+      ${d.dialinShot !== null ? `<div class="bean-stat-dialin">${TARGET_ICON_SVG} ${t('analytics_dialin', d.dialinShot)}</div>` : (d.scores.length >= 3 ? `<div class="bean-stat-dialin" style="color:var(--gray-600)">${t('analytics_dialin_none')}</div>` : '')}
     </div>`;
   }
   html += '</div>';
@@ -565,6 +576,12 @@ let _worldTopo = null;
 let _worldMapRegistered = false;
 let _echartsInstance = null;
 let _resizeBound = false;
+// #797: echarts + topojson-client (~380 kB gzip combined) are dynamic
+// imports now, only fetched once the map actually has data to draw — cached
+// as a promise (not the resolved modules) so a second buildWorldMap() call
+// racing the first one's still-in-flight import reuses the same request
+// instead of firing a duplicate one.
+let _mapLibsPromise = null;
 
 // #648: buildWorldMap() is fired unawaited from initAnalytics(), which can
 // itself run again (re-navigating to Analytics) before a prior call's
@@ -794,26 +811,48 @@ export async function buildWorldMap() {
 
   if (Object.keys(byCode).length === 0) {
     if (_echartsInstance) { _echartsInstance.dispose(); _echartsInstance = null; }
-    wrap.innerHTML = `<p style="color:#52525b;font-size:.85rem">${t('analytics_map_empty')}</p>`;
+    wrap.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem">${t('analytics_map_empty')}</p>`;
     return;
   }
   if (!wrap.querySelector('.world-map-canvas')) {
     wrap.innerHTML = `<div class="world-map-canvas" style="width:100%;height:100%"></div>
       <div class="world-map-hint">${t('analytics_map_zoom_hint')}</div>`;
   }
+  const container = wrap.querySelector('.world-map-canvas');
 
   if (!_worldTopo) {
     let topo;
     try { topo = await (await fetch('countries-110m.json')).json(); }
     catch {
       if (token !== _worldMapReqToken) return; // a newer call has since taken over
-      wrap.innerHTML = `<p style="color:#52525b;font-size:.85rem">${t('analytics_map_empty')}</p>`;
+      wrap.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem">${t('analytics_map_empty')}</p>`;
       return;
     }
     if (token !== _worldMapReqToken) return; // a newer call has since taken over
     // eslint-disable-next-line require-atomic-updates -- guarded above by the token check; not a real race
     _worldTopo = topo;
   }
+
+  // #797: echarts + topojson-client only ship once there's actually
+  // something to draw (not on every Analytics visit). _mapLibsPromise
+  // caches the in-flight import so a second buildWorldMap() call racing
+  // this one's chunk download reuses the same request instead of firing a
+  // duplicate one.
+  let echarts, topojson;
+  try {
+    if (!_mapLibsPromise) {
+      _mapLibsPromise = Promise.all([import('echarts'), import('topojson-client')]);
+      container.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem">${t('analytics_map_loading')}</p>`;
+    }
+    [echarts, topojson] = await _mapLibsPromise;
+  } catch {
+    // eslint-disable-next-line require-atomic-updates -- a concurrent call resetting the same promise to null is idempotent, not a real race
+    _mapLibsPromise = null; // don't cache a rejected promise — allow a retry on the next navigation
+    if (token !== _worldMapReqToken) return; // a newer call has since taken over
+    wrap.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem">${t('analytics_map_unavailable')}</p>`;
+    return;
+  }
+  if (token !== _worldMapReqToken) return; // a newer call has since taken over
 
   if (!_worldMapRegistered) {
     const geo = topojson.feature(_worldTopo, _worldTopo.objects.countries);
@@ -869,8 +908,10 @@ export async function buildWorldMap() {
   const accentTo = (cs.getPropertyValue('--accent-to') || '#f97316').trim() || '#f97316';
   const mutedText = (cs.getPropertyValue('--gray-500') || '#71717a').trim() || '#71717a';
 
-  const container = wrap.querySelector('.world-map-canvas');
-  if (!_echartsInstance) _echartsInstance = echarts.init(container);
+  if (!_echartsInstance) {
+    container.innerHTML = ''; // clear the loading message before echarts takes over this node
+    _echartsInstance = echarts.init(container);
+  }
 
   const boundingCoords = [
     ...Object.keys(byCode).map(code => COUNTRY_CENTROIDS[code]).filter(Boolean),
@@ -885,7 +926,7 @@ export async function buildWorldMap() {
         if (params.seriesType === 'map') {
           const stats = params.data?._stats;
           if (!stats) return null;
-          const name = `${flagEmoji(params.name)} ${countryName(params.name, S.currentLang)}`.trim();
+          const name = countryName(params.name, S.currentLang);
           // Annotate a bean's weighted contribution only when it's a blend
           // (non-integer share) — a single-origin bean's full count is
           // already implied by the total, no need to repeat it per-bean.
@@ -931,6 +972,9 @@ export async function buildWorldMap() {
 }
 
 export function buildProfileChart() {
+  // #814: resolved per render, never at module load — the value has to be
+  // whatever the ACTIVE theme resolves to right now.
+  const C = chartColors();
   const byProfile = {};
   for (const s of S.shots) {
     const p = s.profile?.name || s.profileName || 'Unbekannt';
@@ -953,7 +997,7 @@ export function buildProfileChart() {
   if (S.profileBarChart) { S.profileBarChart.destroy(); S.profileBarChart = null; }
 
   if (entries.length === 0) {
-    wrap.innerHTML = `<p style="color:#52525b;font-size:.85rem">${t('analytics_no_profiles')}</p>`;
+    wrap.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem">${t('analytics_no_profiles')}</p>`;
     return;
   }
 
@@ -976,8 +1020,8 @@ export function buildProfileChart() {
         tooltip: { callbacks: { afterLabel: (c) => `${entries[c.dataIndex].count} Shots` } }
       },
       scales: {
-        x: { min: 0, max: 100, ticks: { color: '#52525b', font: { size: 10 } }, grid: { color: 'rgba(63,63,70,.3)' } },
-        y: { ticks: { color: '#a1a1aa', font: { size: 11 } }, grid: { display: false } }
+        x: { min: 0, max: 100, ticks: { color: _mutedTickColor(), font: { size: 10 } }, grid: { color: 'rgba(63,63,70,.3)' } },
+        y: { ticks: { color: C.tick, font: { size: 11 } }, grid: { display: false } }
       }
     }
   });
@@ -993,7 +1037,7 @@ export function buildWeekdayHourHeatmap() {
   if (!el) return;
 
   if (!S.shots.length) {
-    el.innerHTML = `<p style="color:#52525b;font-size:.85rem">${t('analytics_no_time')}</p>`;
+    el.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem">${t('analytics_no_time')}</p>`;
     return;
   }
 
@@ -1092,7 +1136,7 @@ export function buildBeanRanking() {
 
   const rows = _computeBeanRanking(S.shots);
   if (!rows.length) {
-    el.innerHTML = `<p style="color:#52525b;font-size:.85rem">${t('analytics_no_beans')}</p>`;
+    el.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem">${t('analytics_no_beans')}</p>`;
     return;
   }
 
@@ -1183,7 +1227,7 @@ export function buildMachineComparison() {
 
   const rows = _computeMachineComparison(S.allShots || [], machines);
   if (!rows.some(r => r.count > 0)) {
-    el.innerHTML = `<p style="color:#52525b;font-size:.85rem">${t('analytics_no_machine_data')}</p>`;
+    el.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem">${t('analytics_no_machine_data')}</p>`;
     return;
   }
 
@@ -1239,12 +1283,15 @@ export function setDialinProgressionBean(name) {
 }
 
 function _renderDialinProgressionChart(beanName) {
+  // #814: resolved per render, never at module load — the value has to be
+  // whatever the ACTIVE theme resolves to right now.
+  const C = chartColors();
   const ctx = document.getElementById('dialinProgressionChart');
   if (!ctx) return;
   if (S.dialinProgressionChart) { S.dialinProgressionChart.destroy(); S.dialinProgressionChart = null; }
 
   if (!beanName) {
-    ctx.parentElement.innerHTML = `<p style="color:#52525b;font-size:.85rem;padding-top:8px">${t('analytics_no_beans')}</p>`;
+    ctx.parentElement.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem;padding-top:8px">${t('analytics_no_beans')}</p>`;
     return;
   }
 
@@ -1253,7 +1300,7 @@ function _renderDialinProgressionChart(beanName) {
     .sort((a, b) => a.timestamp - b.timestamp);
 
   if (shots.length < 2) {
-    ctx.parentElement.innerHTML = `<p style="color:#52525b;font-size:.85rem;padding-top:8px">${t('analytics_no_trend')}</p>`;
+    ctx.parentElement.innerHTML = `<p style="color:var(--gray-600);font-size:.85rem;padding-top:8px">${t('analytics_no_trend')}</p>`;
     return;
   }
 
@@ -1277,11 +1324,11 @@ function _renderDialinProgressionChart(beanName) {
       onClick: (_, elements) => {
         if (elements.length > 0 && window.goToShot) window.goToShot(shots[elements[0].index].id);
       },
-      plugins: { legend: { labels: { color: '#a1a1aa', font: { size: 11 } } } },
+      plugins: { legend: { labels: { color: C.tick, font: { size: 11 } } } },
       scales: {
-        x:  { ticks: { color: '#52525b', font: { size: 10 } }, grid: { color: 'rgba(63,63,70,.3)' } },
-        y:  { position: 'left',  ticks: { color: '#52525b', font: { size: 10 } }, grid: { color: 'rgba(63,63,70,.3)' } },
-        y1: { position: 'right', min: 0, max: 100, ticks: { color: '#52525b', font: { size: 10 } }, grid: { drawOnChartArea: false } },
+        x:  { ticks: { color: _mutedTickColor(), font: { size: 10 } }, grid: { color: 'rgba(63,63,70,.3)' } },
+        y:  { position: 'left',  ticks: { color: _mutedTickColor(), font: { size: 10 } }, grid: { color: 'rgba(63,63,70,.3)' } },
+        y1: { position: 'right', min: 0, max: 100, ticks: { color: _mutedTickColor(), font: { size: 10 } }, grid: { drawOnChartArea: false } },
       },
     },
   });

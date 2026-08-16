@@ -2,9 +2,7 @@ import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { localeFor } from '../constants.js';
 import { esc, scoreClass, formatTimeLabel, groupShotsByDay } from '../utils.js';
-import { loadShotImageBlobUrl } from '../bean-image.js';
-import { openLightbox } from './lightbox.js';
-import { STAR_ICON_SVG } from '../icons.js';
+import { STAR_ICON_SVG , ICE_CUBE_ICON_SVG, CLOSE_ICON_SVG} from '../icons.js';
 import { resolveBeanForAnnotation } from '../views/shots/utils.js';
 
 // These are imported lazily via window to avoid circular dependencies
@@ -63,17 +61,6 @@ export function renderSidebar() {
   updateSidebarHighlighting();
   updateBeanFilterIndicator();
   if (S.currentFilter || S.beanFilter) filterShots(S.currentFilter);
-  loadShotThumbnails();
-}
-
-// Shot images need the auth token, so <img src> can't point at the API
-// directly (see bean-image.js) — set the blob-url src async after render,
-// mirroring loadBeanThumbnails() in views/library.js.
-function loadShotThumbnails() {
-  document.querySelectorAll('.shot-thumb[data-shot-id]').forEach(img => {
-    const id = parseInt(img.dataset.shotId);
-    loadShotImageBlobUrl(id).then(url => { if (url) img.src = url; });
-  });
 }
 
 function _buildShotWrapper(shot) {
@@ -104,27 +91,30 @@ function _buildShotWrapper(shot) {
     const line2 = [ann.coffee || null, dose ? `${dose.toFixed(1)} g` : null].filter(Boolean).join(' · ') || durLabel || '';
     // #502: which frozen-portion batch (if any) this shot's dose came from —
     // an explicit annotation-panel choice, shown at a glance in the list too.
-    const frozenBadge = ann.frozenPortionId ? `<span class="shot-frozen-badge" title="${esc(t('ann_frozen_portion'))}">❄</span>` : '';
+    const frozenBadge = ann.frozenPortionId ? `<span class="shot-frozen-badge" title="${esc(t('ann_frozen_portion'))}">${ICE_CUBE_ICON_SVG}</span>` : '';
 
     const rating = parseInt(ann.rating) || 0;
     const starsHtml = rating > 0
-      ? `<span class="stars">${'★'.repeat(rating)}<span class="off">${'★'.repeat(5 - rating)}</span></span>`
+      ? `<span class="stars">${STAR_ICON_SVG.repeat(rating)}<span class="off">${STAR_ICON_SVG.repeat(5 - rating)}</span></span>`
       : '';
     const timeLabel = date.toLocaleTimeString(localeFor(S.currentLang), { hour: '2-digit', minute: '2-digit' });
     // #429: grind setting alongside the grinder in the meta line.
     const grinderLabel = [ann.grinder, ann.grindSetting].filter(Boolean).join(' · ');
     const grinderHtml = grinderLabel ? `<span class="shot-grinder">${esc(grinderLabel)}</span>` : '';
 
-    const thumbHtml = shot.image ? `<img class="shot-thumb" data-shot-id="${shot.id}" alt="">` : '';
     // Multi-machine badge (#325): only shown in "all machines" mode with
     // more than one machine registered — a machine-scoped list already
     // implies every visible shot is from that machine, so the badge would
     // be redundant noise there.
     const machineBadge = (S.machines?.length > 1 && S.activeMachineId === 'all' && shot.machineId != null)
       ? `<span class="shot-machine-badge">${esc((S.machines.find(m => m.id === shot.machineId) || {}).name || '?')}</span>` : '';
+    // #816: the bean-photo/avatar circle (.shot-thumb) is gone — the
+    // prototype's rail-item mockup is text-only, no image or colored circle
+    // (Border-Diät extends to photos, not just boxes). The photo itself is
+    // still viewable from the annotation panel (shots/annotation.js), which
+    // is a separate, unrelated element.
     divShot.innerHTML = `
       <div class="shot-row">
-        ${thumbHtml}
         <div class="shot-text">
           <div class="shot-line1">
             <span class="shot-line1-name"><span class="profile-name-sidebar">${esc(profileName)}</span>${machineBadge}</span>
@@ -158,15 +148,6 @@ function _buildShotWrapper(shot) {
         }
       }
     };
-
-    // #367: clicking the shot photo opens it full-size (same lightbox as
-    // the annotation panel's own photo, openShotPhotoLightbox() in
-    // shots/annotation.js) instead of just selecting the row.
-    const thumbEl = divShot.querySelector('.shot-thumb');
-    if (thumbEl) {
-      thumbEl.style.cursor = 'pointer';
-      thumbEl.onclick = e => { e.stopPropagation(); if (thumbEl.src) openLightbox(thumbEl.src); };
-    }
 
     const btnCmp = document.createElement('button');
     btnCmp.className = 'compare-btn';
@@ -241,7 +222,7 @@ function updateBeanFilterIndicator() {
   if (!S.beanFilter) { el.style.display = 'none'; el.innerHTML = ''; return; }
   el.style.display = '';
   el.innerHTML = `<span class="bean-filter-label">${t('bean_filter_active', esc(S.beanFilter.name))}</span>` +
-    `<button type="button" class="bean-filter-clear" data-action="clear-bean-filter" title="${t('bean_filter_clear')}">✕</button>`;
+    `<button type="button" class="bean-filter-clear" data-action="clear-bean-filter" title="${t('bean_filter_clear')}">${CLOSE_ICON_SVG}</button>`;
 }
 
 function shotMatchesBeanFilter(shot) {
@@ -341,59 +322,20 @@ export function sortedShots() {
   return list.reverse();
 }
 
-// ── Split-flap counter ────────────────────────────────────────────────────
-function _flapFlip(container, str) {
-  [...str].forEach((ch, i) => {
-    const cell = container.children[i];
-    if (!cell || cell.dataset.val === ch) return;
-    const oldCh = cell.dataset.val;
-    cell.dataset.val = ch;
-    const fold = document.createElement('div');
-    fold.className = 'flap-fold';
-    fold.innerHTML = `<span>${oldCh}</span>`;
-    cell.appendChild(fold);
-    setTimeout(() => {
-      fold.classList.add('flipping');
-      setTimeout(() => {
-        cell.querySelector('.flap-half.top span').textContent = ch;
-        cell.querySelector('.flap-half.bottom span').textContent = ch;
-        fold.remove();
-      }, 140);
-    }, i * 55);
-  });
-}
-
-// #333: loadData() and loadMachines() both race to call renderSidebar() on
-// startup with no fixed order — if loadMachines() resolves first (its
-// default-machine bootstrap re-filters S.shots from a still-empty
-// S.allShots), the resulting 0-count call used to be treated as "the" first
-// call, scheduling a deferred flip that then clobbered the real count back
-// to zero once it arrived. Tracking the pending timeout lets a later call
-// cancel it and win instead, the same way the header text (set synchronously
-// on every renderSidebar() call, never deferred) already always shows the
-// latest count.
-let _flapInitTimeout = null;
-
+// ── Shot count (#823: flattened from the old split-flap odometer to plain
+// text) ─────────────────────────────────────────────────────────────────
+// #333 originally guarded against a startup race between loadData() and
+// loadMachines() clobbering the count back to zero: the flap animation
+// deferred its flip by a timeout, so a stale "0" call whose deferred flip
+// fired *after* the real count arrived could overwrite it, and a tracked
+// timeout let the later call cancel and win instead. That guard is dropped
+// here on purpose, not silently: a plain textContent write is synchronous
+// and unconditional, so whichever call runs last always wins — the same
+// property the guard existed to simulate for the flap animation.
 export function updateFlapCounter(count) {
-  const container = document.getElementById('flapDigits');
-  if (!container) return;
-  const str = String(count).padStart(Math.max(String(count).length, 4), '0');
-  while (container.children.length < str.length) {
-    const cell = document.createElement('div');
-    cell.className = 'flap-cell';
-    cell.dataset.val = '0';
-    cell.innerHTML =
-      '<div class="flap-half top"><span>0</span></div>' +
-      '<div class="flap-half bottom"><span>0</span></div>';
-    container.appendChild(cell);
-  }
-  if (!S._flapInitDone) {
-    S._flapInitDone = true;
-    _flapInitTimeout = setTimeout(() => { _flapInitTimeout = null; _flapFlip(container, str); }, 350);
-  } else {
-    if (_flapInitTimeout) { clearTimeout(_flapInitTimeout); _flapInitTimeout = null; }
-    _flapFlip(container, str);
-  }
+  const el = document.getElementById('flapDigits');
+  if (!el) return;
+  el.textContent = String(count).padStart(Math.max(String(count).length, 4), '0');
 }
 
 // ── Desktop sidebar collapse ──────────────────────────────────────────────

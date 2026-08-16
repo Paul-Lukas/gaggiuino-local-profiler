@@ -1,13 +1,15 @@
 import Chart from 'chart.js/auto';
 import { S, filterShotsByMachine }                            from '../../state.js';
 import { t }                                                  from '../../i18n.js';
-import { apiFetch }                                           from '../../api.js';
+import { apiFetch, isApiPortBlocked }                         from '../../api.js';
 import { localeFor, phasePlugin, corsairPlugin, clearChartOnTouchEnd } from '../../constants.js';
 import {
   esc, avg, avgActive, max, fmt, formatTimeLabel, formatDelta,
-  stddev, detectPhases, detectChanneling, scoreClass, scoreColor, shareOrDownloadBlob
+  stddev, detectPhases, detectChanneling, scoreClass, scoreColor, shareOrDownloadBlob,
+  chartColors
 } from '../../utils.js';
 import { renderSidebar }                                      from '../../components/sidebar.js';
+import { apiPortClosedHtml }                                  from '../../components/api-port-notice.js';
 import { getShotData, calcShotScore, shotUsedBeanTarget, findPreviousShot, findPreviousShotForBean, isNewestShotForBean } from './utils.js';
 import { calcGrindAdvice, calcComparativeGrindAdvice, _miniShotChart } from './grind.js';
 import { renderAnnotationPanel }                              from './annotation.js';
@@ -49,7 +51,14 @@ export async function loadData() {
     const r = await apiFetch('shots.json');
     if (token !== _loadDataReqToken) return;
     if (!r.ok) {
-      shotsEl.innerHTML = `<div class="loading-state" style="color:#ef4444">HTTP ${r.status}</div>`;
+      // #807: Shots is the landing view, so a session that arrived on the
+      // direct port with expose_api_port off sees this 401 before it ever
+      // sees the Settings card that explains it. Everything needed to
+      // explain it is already client-side (see isApiPortBlocked), so say it
+      // here instead of showing a bare status code.
+      shotsEl.innerHTML = isApiPortBlocked(r.status)
+        ? apiPortClosedHtml()
+        : `<div class="loading-state" style="color:#ef4444">HTTP ${r.status}</div>`;
       return;
     }
     fetched = await r.json();
@@ -57,10 +66,13 @@ export async function loadData() {
   } catch {
     if (token !== _loadDataReqToken) return;
     shotsEl.innerHTML =
-      `<div class="loading-state" style="color:#ef4444">Verbindungsfehler<br>` +
-      `<button data-action="reload-data" style="margin-top:10px;padding:4px 12px;cursor:pointer;` +
-      `background:rgba(63,63,70,.5);color:#a1a1aa;border:1px solid #3f3f46;border-radius:6px;` +
-      `font-family:Figtree,sans-serif;font-size:.8rem">${t('btn_reload')}</button></div>`;
+      // #814: was a hardcoded #ef4444 (the pre-redesign err value) and an
+      // untranslated German string in an otherwise six-language app.
+      `<div class="loading-state" style="color:var(--err)">${t('conn_error')}<br>` +
+      // #814: was inline dark-theme neutrals (rgba(63,63,70,.5) fill, #a1a1aa
+      // text, #3f3f46 border) that never inverted. .export-btn is the same
+      // "fill, no persistent border" button this was hand-rolling.
+      `<button data-action="reload-data" class="export-btn" style="margin-top:var(--sp-3)">${t('btn_reload')}</button></div>`;
     return;
   }
 
@@ -129,6 +141,7 @@ export function renderTrash() {
     const name = shot.profile?.name || shot.profileName || `Shot ${shot.id}`;
     const row  = document.createElement('div');
     row.className = 'trash-item';
+    // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
     row.innerHTML = `
       <div class="trash-item-info">
         <div class="trash-item-name">${esc(name)}</div>
@@ -206,6 +219,9 @@ function _setDeltaChip(id, delta, decimals = 0, unit = '', colorClass = null, ti
 }
 
 export function updateView() {
+  // #814: resolved per render, never at module load — the value has to be
+  // whatever the ACTIVE theme resolves to right now.
+  const C = chartColors();
   const shotA = S.shots.find(s => s.id === S.primaryShotId);
   const shotB = S.compareShotId ? S.shots.find(s => s.id === S.compareShotId) : null;
   if (!shotA) return;
@@ -389,16 +405,18 @@ export function updateView() {
   const channeling = !shotB && detectChanneling(pressureTimes, pressureVals);
   document.getElementById('channelingWarning').style.display = channeling ? '' : 'none';
 
-  // Verdict header (#398): score ring (unified scale, #397) + the dial-in
-  // advice as a plain-language headline, replacing the old green banner.
+  // Verdict header (#398): score + the dial-in advice as one plain-language
+  // line (#816: de-boxed — was a score badge beside a boxed advice line).
   const verdictHeader = document.getElementById('verdictHeader');
   if (!shotB) {
     const advice = calcGrindAdvice(shotA, dA);
     const sc     = calcShotScore(shotA, dA);
-    const ring    = document.getElementById('verdictRing');
-    const ringVal = document.getElementById('verdictRingVal');
-    ring.style.setProperty('--ring-pct', sc ?? 0);
-    ring.style.setProperty('--ring-color', scoreColor(sc));
+    // #813: the score ring is now type. A 58px conic-gradient ring is a badge
+    // shape the redesign removes on both surfaces (the shot card did the same
+    // in glp-lovelace-card#120) — the number itself, at display size and in
+    // the score colour, carries the same information with none of the chrome.
+    const ringVal  = document.getElementById('verdictRingVal');
+    ringVal.style.setProperty('--ring-color', scoreColor(sc));
     ringVal.textContent = sc !== null ? sc : '–';
 
     // Score delta chip (#402): same-profile auto-compare, unified score
@@ -566,16 +584,16 @@ export function updateView() {
           legend:  {
             display: true,
             position: 'bottom',
-            labels: { color: '#e4e4e7', font: { family: 'Figtree', size: window.innerWidth <= 600 ? 9 : 11 }, boxWidth: window.innerWidth <= 600 ? 8 : 12, padding: window.innerWidth <= 600 ? 4 : 8 }
+            labels: { color: C.text, font: { family: 'Figtree', size: window.innerWidth <= 600 ? 9 : 11 }, boxWidth: window.innerWidth <= 600 ? 8 : 12, padding: window.innerWidth <= 600 ? 4 : 8 }
           },
           tooltip: { callbacks: { title: ctx => t('chart_time', formatTimeLabel(ctx[0].parsed.x)) } }
         },
         scales: {
           x:  { type:'linear', min:0, max:Math.max(maxTimeA, maxTimeB, maxTimePrev), clip:false,
-                ticks:{ color:'#a1a1aa', font:{family:'Figtree'}, stepSize:5, callback:v=>formatTimeLabel(v), maxTicksLimit: window.innerWidth <= 600 ? 6 : 12 },
-                grid:{ color:'#27272a' } },
-          y:  { type:'linear', position:'left',  min:0, max:12, ticks:{color:'#a1a1aa', maxTicksLimit:6}, grid:{color:'#27272a'} },
-          y1: { type:'linear', position:'right', min:0, max:Number(tempMaxScale), ticks:{color:'#a1a1aa', maxTicksLimit:6}, grid:{drawOnChartArea:false} }
+                ticks:{ color:C.tick, font:{family:'Figtree'}, stepSize:5, callback:v=>formatTimeLabel(v), maxTicksLimit: window.innerWidth <= 600 ? 6 : 12 },
+                grid:{ color:C.grid } },
+          y:  { type:'linear', position:'left',  min:0, max:12, ticks:{color:C.tick, maxTicksLimit:6}, grid:{color:C.grid} },
+          y1: { type:'linear', position:'right', min:0, max:Number(tempMaxScale), ticks:{color:C.tick, maxTicksLimit:6}, grid:{drawOnChartArea:false} }
         }
       }
     });

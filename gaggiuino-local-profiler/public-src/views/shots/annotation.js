@@ -314,7 +314,11 @@ export function _renderFrozenPortionPills(beanName, shotMs, selectedId) {
   const options = [{ id: '', label: t('ann_frozen_portion_none') }, ...portions.map(p => {
     const dateStr    = new Date(p.frozenAt).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' });
     const remaining  = Number.isFinite(p.remainingCount) ? p.remainingCount : p.portionCount;
-    return { id: String(p.id), label: `❄ ${remaining}/${p.portionCount} · ${dateStr}` };
+    // #811: no glyph in the label -- this string is rendered as an <option>
+    // text node in one place and as escaped markup in another, and an <option>
+    // cannot carry an inline SVG. The frozen state is already carried by the
+    // portion count and date, and by the icon on the badge itself.
+    return { id: String(p.id), label: `${remaining}/${p.portionCount} · ${dateStr}` };
   })];
   container.innerHTML = options.map(o =>
     `<button type="button" class="drink-pill${selected === o.id ? ' active' : ''}" data-action="select-frozen-portion" data-id="${esc(o.id)}">${esc(o.label)}</button>`
@@ -353,6 +357,7 @@ export function _renderBeanSelect(selectedName, selectedBeanId) {
   if (selectedName && !options.some(o => o.name === selectedName)) options.push({ name: selectedName, id: null });
   const byId = selectedBeanId != null ? options.find(o => o.id === selectedBeanId) : null;
   const selected = byId ? byId.name : selectedName;
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   select.innerHTML = `<option value=""></option>` +
     options.map(o => `<option value="${esc(o.name)}"${o.id != null ? ` data-bean-id="${o.id}"` : ''}${o.name === selected ? ' selected' : ''}>${esc(o.name)}</option>`).join('');
 }
@@ -365,6 +370,7 @@ export function _renderBasketSelect(selectedId) {
   const select = document.getElementById('annBasket');
   if (!select) return;
   const baskets = S.coffeeLibrary?.baskets || [];
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   select.innerHTML = `<option value="">${t('ann_basket_none')}</option>` +
     baskets.map(b => `<option value="${b.id}" data-basket-id="${b.id}"${selectedId === b.id ? ' selected' : ''}>${esc(b.name)}</option>`).join('');
 }
@@ -373,6 +379,7 @@ export function _renderPuckScreenSelect(selectedId) {
   const select = document.getElementById('annPuckScreen');
   if (!select) return;
   const puckScreens = S.coffeeLibrary?.puckScreens || [];
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   select.innerHTML = `<option value="">${t('ann_puckscreen_none')}</option>` +
     puckScreens.map(p => `<option value="${p.id}" data-puckscreen-id="${p.id}"${selectedId === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
 }
@@ -384,6 +391,7 @@ export function _renderRecipeSelect(selectedId) {
   const recipes = S.coffeeLibrary?.recipes || [];
   if (!recipes.length) { field.style.display = 'none'; return; }
   field.style.display = '';
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   select.innerHTML = `<option value="">${t('ann_recipe_none')}</option>` +
     recipes.map(r => `<option value="${r.id}"${r.id === selectedId ? ' selected' : ''}>${esc(r.name)}</option>`).join('');
 }

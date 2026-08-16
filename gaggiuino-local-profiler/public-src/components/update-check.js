@@ -1,6 +1,7 @@
 import { apiFetch } from '../api.js';
 import { t } from '../i18n.js';
 import { devBannerHeight } from './dev-banner.js';
+import { CLOSE_ICON_SVG } from '../icons.js';
 
 export async function checkForUpdate() {
     try {
@@ -18,7 +19,7 @@ function showUpdateBanner({ current, latest, release_url }) {
     banner.id = 'glpUpdateBanner';
     Object.assign(banner.style, {
         position: 'fixed', top: `${devBannerHeight()}px`, left: '0', right: '0', zIndex: '9998',
-        background: 'var(--accent-color, #f59e0b)', color: '#1c1917',
+        background: 'var(--accent)', color: 'var(--accent-text)',
         padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '12px',
         fontSize: '.875rem', fontWeight: '500', boxShadow: '0 2px 8px rgba(0,0,0,.35)',
     });
@@ -37,7 +38,7 @@ function showUpdateBanner({ current, latest, release_url }) {
     });
 
     const closeBtn = document.createElement('button');
-    closeBtn.textContent = '✕';
+    closeBtn.innerHTML = CLOSE_ICON_SVG;
     Object.assign(closeBtn.style, {
         background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: '#1c1917', padding: '0 2px',
     });

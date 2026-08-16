@@ -86,7 +86,8 @@ describe('testMachineForm (#729/#733)', () => {
       { url: 'api/machines/42/test', method: 'POST' },
       { url: 'api/machines', method: undefined }, // loadMachines() refresh
     ]);
-    expect(fakeElement('machineFormTestResult').textContent).toBe('✓ Reachable');
+    expect(fakeElement('machineFormTestResult').innerHTML).toContain('Reachable');
+    expect(fakeElement('machineFormTestResult').innerHTML).toContain('<svg');
     expect(fakeElement('machineFormCard').style.display).toBe('');
   });
 
@@ -112,7 +113,8 @@ describe('testMachineForm (#729/#733)', () => {
       { url: 'api/machines/9/test', method: 'POST' },
       { url: 'api/machines', method: undefined },
     ]);
-    expect(fakeElement('machineFormTestResult').textContent).toBe('✗ Not reachable');
+    expect(fakeElement('machineFormTestResult').innerHTML).toContain('Not reachable');
+    expect(fakeElement('machineFormTestResult').innerHTML).toContain('<svg');
     expect(fakeElement('machineFormCard').style.display).toBe('');
   });
 

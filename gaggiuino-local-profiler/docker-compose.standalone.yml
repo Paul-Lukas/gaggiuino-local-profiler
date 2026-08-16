@@ -1,0 +1,45 @@
+# GLP -- standalone Docker install (no Home Assistant Supervisor required).
+# For HA installs that don't have an Add-on Store (HA Container, HA Core,
+# Unraid, TrueNAS SCALE, ...). See DOCS.md "Standalone Docker Installation"
+# for the full walkthrough and a feature-parity comparison with the
+# Supervisor add-on.
+#
+# Usage: docker compose -f docker-compose.standalone.yml up -d
+
+services:
+  glp:
+    # GLP_STANDALONE_IMAGE/PORT/DATA_DIR let scripts/docker-standalone-test.mjs
+    # run this exact file against a locally-built image on an isolated port
+    # and temp data dir -- unset, the defaults below are unchanged.
+    image: ${GLP_STANDALONE_IMAGE:-ghcr.io/mxkissnr/gaggiuino-local-profiler/amd64:latest}
+    container_name: glp
+    restart: unless-stopped
+    ports:
+      - "${GLP_STANDALONE_PORT:-8099}:8099"
+    volumes:
+      # Persists the shot database, coffee library, bean images and API
+      # token across container restarts/updates -- do not skip this.
+      - ${GLP_STANDALONE_DATA_DIR:-./data}:/data
+    environment:
+      # All optional -- leave unset (or pass via a sibling .env file /
+      # `VAR=value docker compose ... up`) to keep the add-on's own
+      # defaults. Left blank, each behaves exactly as if it were unset.
+
+      # Point GLP at your machine directly instead of using the in-app
+      # Settings -> Machines dialog after first start.
+      - MACHINE_URL=${MACHINE_URL:-}
+
+      # App config that the HA Supervisor add-on would normally set via its
+      # own Configuration tab (config.yaml's `options`).
+      - GLP_SYNC_INTERVAL=${GLP_SYNC_INTERVAL:-}      # minutes, 1-60, default 5
+      - GLP_PREHEAT_TIME=${GLP_PREHEAT_TIME:-}        # minutes, 1-120, default 20
+      - GLP_ENABLE_ORDERS=${GLP_ENABLE_ORDERS:-false}
+      - GLP_DEBUG_LOGGING=${GLP_DEBUG_LOGGING:-false}
+
+      # Restores HA auto-sync, switch-entity power control and push
+      # notifications without a Supervisor. GLP_HA_TOKEN is a normal Home
+      # Assistant long-lived access token (HA -> your profile -> Security ->
+      # "Long-lived access tokens" -> Create Token). Both must be set
+      # together.
+      - GLP_HA_URL=${GLP_HA_URL:-}
+      - GLP_HA_TOKEN=${GLP_HA_TOKEN:-}

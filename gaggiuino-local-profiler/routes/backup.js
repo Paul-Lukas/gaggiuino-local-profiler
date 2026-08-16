@@ -22,6 +22,7 @@ const { imagePath, imageFilename, matchesImageMagicBytes, CONTENT_TYPE_EXT } = r
 const { encryptSecrets, decryptSecrets } = require('../lib/backup-crypto');
 const { createZip, readZip } = require('../lib/zip');
 const state = require('../lib/state');
+const { bus, EVENTS } = require('../lib/events');
 
 // Filename-safe local-time timestamp, e.g. "2026-08-06_08-32-05" -- a bare
 // date (the previous `.toISOString().slice(0, 10)`) collapsed every backup
@@ -408,6 +409,7 @@ router.get('/api/backup', (req, res, next) => {
         const bundle   = buildBackupBundleJson(null, null);
         const filename = `glp-backup-${backupTimestamp()}.json`;
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        bus.emit(EVENTS.BACKUP_EXPORTED, {});
         res.json(bundle);
     } catch (err) { next(err); }
 });
@@ -429,6 +431,7 @@ router.post('/api/backup', (req, res, next) => {
         const filename    = `glp-backup-${backupTimestamp()}.zip`;
         res.setHeader('Content-Type', 'application/zip');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        bus.emit(EVENTS.BACKUP_EXPORTED, {});
         res.send(zip);
     } catch (err) { next(err); }
 });

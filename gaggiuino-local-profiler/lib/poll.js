@@ -9,6 +9,7 @@ const state = require('./state');
 const { getMachineRuntimeState } = require('./machine-runtime-state');
 const { deriveMachineState, isStillWarm } = require('./machine-state');
 const liveTransport = require('./live-transport');
+const { events: liveEvents } = require('./gaggiuino-live-client');
 const { savePreheatState, isTempStable, buildPreheatResponse } = require('./preheat');
 const { syncAfterBrew, syncShots, fetchMachineVersion } = require('./sync');
 const { summarizeConnectivity, WINDOW_MS: CONN_WINDOW_MS } = require('./connectivity-stats');
@@ -38,6 +39,44 @@ let _connWindowStart = Date.now();
 // is covered by routes/machines.js's direct save-triggered sync instead, not
 // by this recovery path.
 let _wasReachable = null;
+
+// #708: a fresh WS/MQTT sample previously just sat in liveTransport's cache
+// until the next tick of the 1s interval below read it -- up to ~1s of pure
+// waiting on top of the transport's own latency. gaggiuino-live-client.js's
+// `events` emitter (reused by gaggiuino-mqtt-client.js, see its own header
+// comment) fires the instant either transport's cache updates, so
+// startLivePolling()/stopLivePolling() bridge that straight into an
+// immediate LIVE_SNAPSHOT instead of waiting for the tick. Module-scoped
+// like _wasReachable/_connWindow above, for the same hard-single-machine
+// reason (see the header comment) -- there is only ever one bridge to
+// attach/detach, regardless of which runtime instance happens to call
+// start/stop.
+const LIVE_SNAPSHOT_THROTTLE_MS = 150;
+let _lastLiveSnapshotEmitAt = 0;
+let _liveEventBridgeActive = false;
+
+// Single emit path for every LIVE_SNAPSHOT push (tick, event-triggered,
+// stop, error) so the throttle timestamp below is always accurate --
+// callers that must never be swallowed (state transitions on stop/error)
+// call this directly and unconditionally; onLiveTransportEvent() below is
+// the only path that checks the timestamp before calling it.
+function emitLiveSnapshot() {
+    _lastLiveSnapshotEmitAt = Date.now();
+    bus.emit(EVENTS.LIVE_SNAPSHOT, buildLiveDataResponse());
+}
+
+// Not filtered by connection identity: WS sessions key by baseUrl, MQTT
+// sessions key by host:port:prefix (see gaggiuino-mqtt-client.js's
+// connKeyFor()) -- there's no shared identity format to match against, and
+// this module already only ever tracks the single default/legacy machine
+// (see header comment), so any event on the shared bus is "the" default
+// machine's regardless of which transport produced it. A burst of rapid
+// MQTT messages shouldn't turn into an SSE frame per message, hence the
+// throttle.
+function onLiveTransportEvent() {
+    if (Date.now() - _lastLiveSnapshotEmitAt < LIVE_SNAPSHOT_THROTTLE_MS) return;
+    emitLiveSnapshot();
+}
 
 function recordConnectivity(ok, latencyMs, err) {
     _connWindow.push({ ok, latencyMs, err });
@@ -75,6 +114,13 @@ function startLivePolling(runtime = defaultRuntime) {
     runtime.tempHistory = [];
     log('Live polling started via /api/system/status');
     runtime.livePollTimer = setInterval(() => pollLive(runtime), 1000);
+    // #708: bridge the transport's own push-on-arrival events into an
+    // immediate LIVE_SNAPSHOT -- see the bridge functions' own comments above.
+    if (!_liveEventBridgeActive) {
+        liveEvents.on('sensor-snap', onLiveTransportEvent);
+        liveEvents.on('sys-state', onLiveTransportEvent);
+        _liveEventBridgeActive = true;
+    }
     // #736: immediate push so the Ready badge/preheat widget update the
     // instant polling (re)starts, instead of waiting for the 30s watcher tick.
     bus.emit(EVENTS.PREHEAT_UPDATE, buildPreheatResponse(runtime));
@@ -99,6 +145,14 @@ function stopLivePolling(runtime = defaultRuntime) {
         runtime.stabilityReady = false;
         runtime.tempHistory    = [];
         savePreheatState(runtime);
+        // #708: matching teardown for the bridge attached in
+        // startLivePolling() -- without this a stop/start cycle (MQTT toggle,
+        // add-on restart) would leak a listener per cycle.
+        if (_liveEventBridgeActive) {
+            liveEvents.off('sensor-snap', onLiveTransportEvent);
+            liveEvents.off('sys-state', onLiveTransportEvent);
+            _liveEventBridgeActive = false;
+        }
         log('Live polling stopped');
     }
     // #736: emit both push types on stop, not just PREHEAT_UPDATE -- without
@@ -111,7 +165,7 @@ function stopLivePolling(runtime = defaultRuntime) {
     // the machineReachable:false flip is always broadcast, even on the
     // no-active-timer path.
     bus.emit(EVENTS.PREHEAT_UPDATE, buildPreheatResponse(runtime));
-    bus.emit(EVENTS.LIVE_SNAPSHOT, buildLiveDataResponse());
+    emitLiveSnapshot();
 }
 
 async function pollLive(runtime = defaultRuntime) {
@@ -245,7 +299,7 @@ async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
         // #736: broadcast this tick's live snapshot -- same shape GET
         // /api/live/data returns, single source of truth via
         // buildLiveDataResponse() above.
-        bus.emit(EVENTS.LIVE_SNAPSHOT, buildLiveDataResponse());
+        emitLiveSnapshot();
     } catch (err) {
         recordConnectivity(false, null, err.code || null);
         state.machineReachable = false;
@@ -254,7 +308,7 @@ async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
         log(`Live poll error: ${err.message}`, true);
         // #736: also broadcast on the error path -- machineReachable just
         // flipped false, and the live view needs that transition in real time.
-        bus.emit(EVENTS.LIVE_SNAPSHOT, buildLiveDataResponse());
+        emitLiveSnapshot();
     }
 }
 

@@ -3,12 +3,13 @@ const fs       = require('fs');
 const path     = require('path');
 const crypto   = require('crypto');
 
-const { GLP_VERSION, DEFAULT_PORT, DATA_DIR, TOKEN_FILE, HA_INGRESS_PATH } = require('./lib/constants');
+const { GLP_VERSION, DEFAULT_PORT, DATA_DIR, TOKEN_FILE, HA_INGRESS_PREFIX } = require('./lib/constants');
 const { log, writeFileSafe, isSupervisorIp, formatUnhandledRejection } = require('./lib/helpers');
 const { loadOptions }                                = require('./lib/data');
 const state                                          = require('./lib/state');
 const { getDb }                                      = require('./lib/db');
 const shotService                                    = require('./lib/services/ShotService');
+const achievementService                             = require('./lib/services/AchievementService');
 const { errorHandler }                               = require('./lib/middleware/error');
 const { createApiRateLimiter }                       = require('./lib/middleware/rateLimit');
 const { loadPreheatState, startPreheatWatcher }                              = require('./lib/preheat');
@@ -84,14 +85,13 @@ app.use((req, res, next) => {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'same-origin');
     res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
-    // Chart.js, ECharts, topojson-client and QRCode are bundled into the app
-    // (no third-party script host needed); Figtree font is still loaded from
-    // bunny.net.
+    // Chart.js, ECharts, topojson-client, QRCode and both fonts (Figtree,
+    // Fraunces) are bundled into the app — no third-party host needed.
     res.setHeader('Content-Security-Policy',
         "default-src 'self'; " +
         "script-src 'self'; " +
-        "style-src 'self' 'unsafe-inline' https://fonts.bunny.net; " +
-        "font-src 'self' data: https://fonts.bunny.net; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "font-src 'self' data:; " +
         "img-src 'self' data: blob:; " +
         "connect-src 'self';");
     next();
@@ -110,6 +110,17 @@ function isFromSupervisor(req) {
     return isSupervisorIp(req.socket?.remoteAddress || req.ip || '');
 }
 
+// #801: isSupervisorIp() trusts the whole 172.30.0.0/16 Supervisor add-on
+// network, not just the Ingress proxy specifically -- any other add-on
+// running on that network, not only the Supervisor's own ingress path, could
+// in principle send a crafted X-Ingress-Path and be treated as Ingress here.
+// Not a regression (equally true before this fix) and not exploitable beyond
+// what the already-public GET /api/token grants today, but it means
+// isIngressRequest()'s actual trust boundary is "anything on the Supervisor
+// network", not "the Ingress proxy alone" -- load-bearing for anything later
+// built on the assumption that Ingress implies trusted (e.g. the planned
+// expose_api_port hardening).
+
 // True only for requests that genuinely arrive through HA Ingress (Supervisor
 // IP + X-Ingress-Path header — same trust check the auth bypass below uses).
 // Also used to decide whether index.html gets the PWA manifest link / service
@@ -119,9 +130,14 @@ function isFromSupervisor(req) {
 // service worker"). Gating server-side — not just client-side — means the
 // Companion App's WebView can never see the manifest link or SW registration
 // call at all, so it structurally cannot regress the same way again.
+//
+// #801: only the prefix is checked against the header, never a full slug --
+// see the HA_INGRESS_PREFIX comment in lib/constants.js for why. The
+// Supervisor-IP check is what stops a LAN client on port 8099 from just
+// sending its own X-Ingress-Path to pass this.
 function isIngressRequest(req) {
     const ingressPath = req.headers['x-ingress-path'];
-    return ingressPath !== undefined && ingressPath.startsWith(HA_INGRESS_PATH) && isFromSupervisor(req);
+    return typeof ingressPath === 'string' && ingressPath.startsWith(HA_INGRESS_PREFIX) && isFromSupervisor(req);
 }
 
 // API token auth
@@ -141,12 +157,16 @@ app.use((req, res, next) => {
     // error at startup), deny everything instead of letting every request
     // through unauthenticated.
     if (!state.apiToken) return res.status(503).json({ error: 'API token unavailable' });
+    // #803: computed once and exposed on req so routes/system.js's GET
+    // /api/token (the only other caller that needs this distinction) reuses
+    // this exact check instead of a second implementation of it.
+    req.glpIsIngress = isIngressRequest(req);
     // Ingress bypass: only trust X-Ingress-Path when the request genuinely
     // originates from the HA Supervisor (172.30.x.x), preventing header spoofing
     // from external LAN clients who can also reach port 8099.
-    if (isIngressRequest(req)) return next();
+    if (req.glpIsIngress) return next();
     if (req.path === '/api/status') return next();
-    if (req.path === '/api/token') return next(); // endpoint handles its own IP-based check
+    if (req.path === '/api/token') return next(); // endpoint enforces expose_api_port itself, using req.glpIsIngress above
     if (!req.path.startsWith('/api/') && req.path !== '/shots.json') return next();
     if (req.glpAuthenticated) return next();
     res.status(401).json({ error: 'Unauthorized' });
@@ -185,6 +205,7 @@ app.use(require('./routes/backup'));
 app.use(require('./routes/import'));
 app.use(require('./routes/debug'));
 app.use(require('./routes/sse'));
+app.use(require('./routes/achievements'));
 
 // ── Centralized error handling ────────────────────────────────────────────
 app.use(errorHandler);
@@ -252,6 +273,12 @@ const server = app.listen(PORT, () => {
     startPreheatWatcher();
     shotService.purgeExpiredTrash();
     setInterval(() => shotService.purgeExpiredTrash(), 24 * 60 * 60 * 1000);
+    // #812: subscribes to the 4+2 bus events once, then runs the "first run
+    // after the update" retroactive sweep -- idempotent (see
+    // AchievementService.evaluateAll's doc comment), so this is also just
+    // every subsequent restart's ordinary re-check.
+    achievementService.init();
+    achievementService.evaluateAll();
     fetchMachineVersion();
     (async () => {
         try { await checkAndApplyMachinePower(); }
@@ -279,3 +306,11 @@ function gracefulShutdown(signal) {
 }
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// #801: exported for test/pwa-gating.test.js, which needs to call
+// isIngressRequest() with a fabricated non-Supervisor-IP req directly --
+// the real HTTP server this file starts always sees loopback as the source
+// address (isSupervisorIp() trusts it), so a genuine end-to-end request can
+// never exercise the "spoofed header, untrusted IP" rejection path. `node
+// server.js` (production entrypoint, see Dockerfile) never reads this value.
+module.exports = { isIngressRequest, isFromSupervisor };

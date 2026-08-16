@@ -248,8 +248,12 @@ describe('GET /api/events', () => {
         const snapshot = { isLive: true, profileName: 'Test profile', datapoints: null, seq: 1, machineReachable: true };
         bus.emit(EVENTS.LIVE_SNAPSHOT, snapshot);
 
+        // #708: connecting now also primes an immediate live-snapshot event
+        // (see routes/sse.js), so the first "event: live-snapshot" seen is
+        // that priming payload, not this test's bus.emit() -- wait for the
+        // emitted payload's own JSON specifically instead of the event name.
         let buf = '';
-        while (!buf.includes('event: live-snapshot')) {
+        while (!buf.includes(JSON.stringify(snapshot))) {
             const { value } = await reader.read();
             buf += decoder.decode(value, { stream: true });
         }

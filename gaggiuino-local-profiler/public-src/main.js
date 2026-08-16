@@ -39,6 +39,7 @@ import { initToken, apiFetch } from './api.js';
 import { t, setLang, applyTranslations } from './i18n.js';
 import { connectEvents, onEvent, EVENTS } from './sse.js';
 import { generateBeanQR } from './glp-qr.js';
+import { themeColor, THEME_CHANGE_EVENT, onThemeChange, applyChartTheme } from './utils.js';
 import { openBackupExportModal, openBackupRestoreModal } from './components/backup-modal.js';
 
 import { renderSidebar, updateSidebarHighlighting, filterShots, setSortMode, sortedShots, updateFlapCounter,
@@ -75,6 +76,7 @@ import { loadMaintenanceView, markMaintDone, saveMaintThreshold, setMaintMode, s
          renderMaintenanceDashboard, maintStatusLabel,
          openMaintLogForm, closeMaintLogForm, submitMaintLogEntry, deleteMaintLogEntry,
          openGuidedMaint, closeGuidedMaint, submitGuidedMaint, updateGuidedMaintDoneState } from './views/maintenance.js';
+import { loadAchievementsView } from './views/achievements.js';
 import { openFlavorWheel, closeFlavorWheel, zoomFlavorWheelTo } from './components/flavor-wheel.js';
 
 import { loadOrdersView, startOrdersPolling, stopOrdersPolling, setOrdersEnabled,
@@ -145,7 +147,9 @@ function showToast(msg, duration = 3000) {
     el.id = 'glpToast';
     el.style.cssText = [
       'position:fixed', 'bottom:24px', 'left:50%', 'transform:translateX(-50%)',
-      'background:#27272a', 'color:#e4e4e7', 'padding:10px 20px', 'border-radius:8px',
+      // #814: was a hardcoded #27272a/#e4e4e7 — a dark chip on a light page.
+      `background:${themeColor('--raised', '#27272a')}`, `color:${themeColor('--gray-200', '#e4e4e7')}`,
+      'padding:10px 20px', 'border-radius:8px',
       'font-size:.85rem', 'z-index:9999', 'box-shadow:0 4px 12px rgba(0,0,0,.4)',
       'transition:opacity .3s', 'pointer-events:none', 'white-space:nowrap',
     ].join(';');
@@ -158,16 +162,33 @@ function showToast(msg, duration = 3000) {
 }
 
 // ── API token (Settings view) ──────────────────────────────────────────────
-// Shown once the session holds a token. Since #533 /api/token serves any caller
-// that can reach the port, so this is populated on ingress and direct-port
-// access alike (see api.js).
+// Shows the token once the session holds one. #803: when expose_api_port is
+// off, a direct-port session (no Ingress) never gets a token at all — this
+// card then shows an explanation instead of just disappearing, since a
+// silently-hidden card here is exactly what would leave someone setting up
+// the installable PWA or a direct-URL Order Card with no idea why. A session
+// that reached Settings via Ingress is unaffected either way (Ingress always
+// gets a token, expose_api_port or not) and still shows the token normally.
 function renderApiTokenCard() {
   const card = document.getElementById('apiTokenCard');
   const valueEl = document.getElementById('apiTokenValue');
+  const rowEl = document.getElementById('apiTokenRow');
+  const noticeEl = document.getElementById('apiTokenPortClosedNotice');
   if (!card || !valueEl) return;
-  if (!S.glpToken) { card.style.display = 'none'; return; }
-  valueEl.textContent = S.glpToken;
-  card.style.display = '';
+  if (S.glpToken) {
+    valueEl.textContent = S.glpToken;
+    card.style.display = '';
+    if (rowEl) rowEl.style.display = '';
+    if (noticeEl) noticeEl.style.display = 'none';
+    return;
+  }
+  if (S.apiPortExposed === false) {
+    card.style.display = '';
+    if (rowEl) rowEl.style.display = 'none';
+    if (noticeEl) noticeEl.style.display = '';
+    return;
+  }
+  card.style.display = 'none';
 }
 
 function copyApiToken() {
@@ -194,6 +215,7 @@ Object.assign(window, {
   },
   setAccentTheme: (name) => {
     localStorage.setItem('glp_accent_theme', name);
+    window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT));  // #814, see _applyTheme
     document.documentElement.dataset.accent = name;
     document.querySelectorAll('.accent-swatch').forEach(b =>
       b.classList.toggle('active', b.dataset.accent === name));
@@ -283,6 +305,9 @@ Object.assign(window, {
   buildBeanStats,
   buildProfileChart,
   _renderCalendar,
+
+  // achievements view (#812)
+  loadAchievementsView,
 
   // maintenance view
   loadMaintenanceView,
@@ -539,7 +564,26 @@ document.addEventListener('DOMContentLoaded', () => {
     document.documentElement.dataset.theme = theme;
     document.querySelectorAll('.theme-btn').forEach(b =>
       b.classList.toggle('active', b.dataset.themeVal === theme));
+    // #814: Chart.js resolves its colours once, at construction. Setting the
+    // theme attribute repaints everything CSS controls but leaves every chart
+    // already on screen with the previous theme's legend, ticks and grid, so
+    // the views holding a live Chart instance need telling.
+    window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT));
   };
+  // #814: one listener for every live Chart instance. Charts resolve their
+  // chrome colours at construction, so without this a chart already on screen
+  // keeps the previous theme's legend/ticks/grid until something else happens
+  // to rebuild it. Listed explicitly rather than discovered, so a new chart
+  // added later shows up as a missing entry here rather than silently keeping
+  // stale colours.
+  onThemeChange(() => {
+    for (const key of ['chart', 'pqChart', 'fsChart', 'liveChart', 'trendChart',
+                       'profileBarChart', 'profilePreviewChart', 'doseDistChart',
+                       'ratioDistChart', 'timeOfDayChart', 'dialinProgressionChart']) {
+      applyChartTheme(S[key]);
+    }
+  });
+
   _applyTheme(localStorage.getItem('glp_theme') || 'dark');
 
   const _savedAccent = localStorage.getItem('glp_accent_theme') || 'amber';
@@ -570,6 +614,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnDialin').addEventListener('click', () => switchMode('dialin'));
   document.getElementById('btnLibrary').addEventListener('click', () => switchMode('library'));
   document.getElementById('btnMaintenance').addEventListener('click', () => switchMode('maintenance'));
+  document.getElementById('btnAchievements').addEventListener('click', () => switchMode('achievements'));
   document.getElementById('btnOrders').addEventListener('click', () => switchMode('orders'));
   document.getElementById('btnSettings').addEventListener('click', () => switchMode('settings'));
 
@@ -834,6 +879,9 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'select-milk':        selectMilkType(strId()); break;
       case 'select-frozen-portion': selectFrozenPortion(strId()); break;
       case 'reload-data':        loadData(); break;
+      // #807: the "why is this empty" notices (in-view block and app-wide
+      // banner, components/api-port-notice.js) both link here.
+      case 'goto-settings':      switchMode('settings'); break;
       case 'set-maint-mode':     setMaintMode(el.dataset.task, el.dataset.mode, el.dataset.machineId); break;
       case 'mark-maint-done':    markMaintDone(el.dataset.task, el.dataset.machineId); break;
       case 'open-guided-maint':  openGuidedMaint(el.dataset.task, el.dataset.machineId); break;

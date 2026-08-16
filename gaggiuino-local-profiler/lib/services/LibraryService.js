@@ -3,6 +3,7 @@ const shotRepo = require('../repositories/ShotRepository');
 const orderRepo = require('../repositories/OrderRepository');
 const { log } = require('../helpers');
 const { LOW_STOCK_THRESHOLD_G, isGlobalMaintenanceTask } = require('../constants');
+const { bus, EVENTS } = require('../events');
 
 class LibraryService {
     getLibrary()         { return repo.getLibrary(); }
@@ -18,7 +19,11 @@ class LibraryService {
         const shotCount = isGlobalMaintenanceTask(task)
             ? shotRepo.findAll().length
             : shotRepo.findAll(machineId).length;
-        return repo.addMaintenanceLogEntry(task, notes, machine, shotCount, machineId);
+        const entry = repo.addMaintenanceLogEntry(task, notes, machine, shotCount, machineId);
+        // #812: single choke point both routes/maintenance.js POST endpoints
+        // ("mark done" and "manual log entry") funnel through.
+        bus.emit(EVENTS.MAINTENANCE_ACKNOWLEDGED, { task, machineId });
+        return entry;
     }
 
     // Remaining grams for a stock-tracked bean — mirrors the library view's math
@@ -43,7 +48,12 @@ class LibraryService {
         const activeBag = bags.length ? bags[bags.length - 1] : null;
         const name      = String(bean.name || '').toLowerCase();
         const idExists  = new Set((allBeans || []).map(b => b.id));
-        const consumed  = doseRows.reduce((sum, r) => {
+        // Guard mirrors public-src/bean-math.js's computeBeanRemaining — no
+        // live caller passes a nullish doseRows (shotRepo.getAnnotatedDoses()
+        // always returns an array), but the frontend port defends against it
+        // and this side silently didn't, a real (if unreachable) divergence
+        // caught by test/bean-math-parity.test.js.
+        const consumed  = (doseRows || []).reduce((sum, r) => {
             const d = parseFloat(r.dose);
             if (!d) return sum;
             const matches = r.beanId != null && idExists.has(r.beanId)

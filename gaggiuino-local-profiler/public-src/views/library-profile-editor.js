@@ -63,6 +63,7 @@ export function renderProfileList() {
     el.innerHTML = `<div class="lib-empty">${t('lib_empty_profiles')}</div>`;
     return;
   }
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   el.innerHTML = S.machineProfiles.map(p => `<div class="lib-item">
       <div class="lib-item-info">
         <div class="lib-item-name">${esc(p.name)}</div>

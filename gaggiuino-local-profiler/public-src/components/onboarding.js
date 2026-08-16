@@ -3,6 +3,8 @@ import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { apiFetch } from '../api.js';
 import { devBannerHeight } from './dev-banner.js';
+import { themeColor } from '../utils.js';
+import { CLOSE_ICON_SVG } from '../icons.js';
 
 const DISMISS_KEY = 'glp_onboarding_banner_dismissed';
 
@@ -31,7 +33,10 @@ export function updateMachineBanner(status = null) {
   Object.assign(banner.style, {
     position: 'fixed', left: '0', right: '0', zIndex: '9997',
     top: `${devBannerHeight() + (document.getElementById('glpUpdateBanner')?.offsetHeight || 0)}px`,
-    background: '#3f3f46', color: '#e4e4e7',
+    // #814: was a hardcoded dark surface + light text, so these banners
+  // stayed dark-on-dark chips on a light page. --raised/--gray-200 are the
+  // themed equivalents of exactly those two values.
+  background: themeColor('--raised', '#3f3f46'), color: themeColor('--gray-200', '#e4e4e7'),
     padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '12px',
     fontSize: '.875rem', fontWeight: '500', boxShadow: '0 2px 8px rgba(0,0,0,.35)',
   });
@@ -46,11 +51,11 @@ export function updateMachineBanner(status = null) {
   wikiLink.target = '_blank';
   wikiLink.rel = 'noopener';
   wikiLink.textContent = t('onboarding_wiki_link');
-  Object.assign(wikiLink.style, { color: '#e4e4e7', fontSize: '.8rem', textDecoration: 'underline', whiteSpace: 'nowrap' });
+  Object.assign(wikiLink.style, { color: themeColor('--gray-200', '#e4e4e7'), fontSize: '.8rem', textDecoration: 'underline', whiteSpace: 'nowrap' });
 
   const closeBtn = document.createElement('button');
-  closeBtn.textContent = '✕';
-  Object.assign(closeBtn.style, { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: '#e4e4e7', padding: '0 2px' });
+  closeBtn.innerHTML = CLOSE_ICON_SVG;
+  Object.assign(closeBtn.style, { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: themeColor('--gray-200', '#e4e4e7'), padding: '0 2px' });
   closeBtn.addEventListener('click', () => {
     sessionStorage.setItem(DISMISS_KEY, '1');
     banner.remove();
@@ -90,7 +95,10 @@ export function updateLegacyMachineOptionsBanner(status = null) {
     top: `${devBannerHeight()
       + (document.getElementById('glpUpdateBanner')?.offsetHeight || 0)
       + (document.getElementById('glpOnboardingBanner')?.offsetHeight || 0)}px`,
-    background: '#3f3f46', color: '#e4e4e7',
+    // #814: was a hardcoded dark surface + light text, so these banners
+  // stayed dark-on-dark chips on a light page. --raised/--gray-200 are the
+  // themed equivalents of exactly those two values.
+  background: themeColor('--raised', '#3f3f46'), color: themeColor('--gray-200', '#e4e4e7'),
     padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '12px',
     fontSize: '.875rem', fontWeight: '500', boxShadow: '0 2px 8px rgba(0,0,0,.35)',
   });
@@ -100,8 +108,8 @@ export function updateLegacyMachineOptionsBanner(status = null) {
   msg.textContent = t('legacy_machine_options_banner_msg');
 
   const closeBtn = document.createElement('button');
-  closeBtn.textContent = '✕';
-  Object.assign(closeBtn.style, { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: '#e4e4e7', padding: '0 2px' });
+  closeBtn.innerHTML = CLOSE_ICON_SVG;
+  Object.assign(closeBtn.style, { background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: themeColor('--gray-200', '#e4e4e7'), padding: '0 2px' });
   closeBtn.addEventListener('click', () => {
     sessionStorage.setItem(LEGACY_DISMISS_KEY, '1');
     banner.remove();

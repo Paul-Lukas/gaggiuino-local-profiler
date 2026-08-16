@@ -2,6 +2,7 @@ const repo            = require('../repositories/OrderRepository');
 const shotRepo         = require('../repositories/ShotRepository');
 const libraryService   = require('./LibraryService');
 const machineRegistry  = require('../machines/registry');
+const { bus, EVENTS }  = require('../events');
 
 const DEFAULT_PREP_TIME = 4; // minutes per order, used when no historical data
 
@@ -163,6 +164,10 @@ class OrderService {
             } catch { /* non-critical */ }
         }
         repo.saveAll(orders);
+        // #812: fires after the order is fully persisted (status, milk
+        // deduction, shot annotation all settled), so achievements sees a
+        // consistent snapshot.
+        bus.emit(EVENTS.ORDER_COMPLETED, { orderId: order.id, machineId: order.machineId });
         return order;
     }
 

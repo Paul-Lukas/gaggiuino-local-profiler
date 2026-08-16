@@ -2,6 +2,7 @@
 // dark overlay with the image centered and scaled to fit the viewport.
 // Closeable via backdrop click, the close (×) button, or Escape.
 import { t } from '../i18n.js';
+import { CLOSE_ICON_SVG } from '../icons.js';
 
 export function openLightbox(url) {
   if (!url) return;
@@ -17,7 +18,7 @@ export function openLightbox(url) {
   closeBtn.type = 'button';
   closeBtn.className = 'lightbox-close';
   closeBtn.setAttribute('aria-label', t('lightbox_close'));
-  closeBtn.textContent = '✕';
+  closeBtn.innerHTML = CLOSE_ICON_SVG;
 
   const img = document.createElement('img');
   img.className = 'lightbox-img';

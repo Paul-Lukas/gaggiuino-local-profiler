@@ -1,3 +1,97 @@
+## [Unreleased]
+
+## [2.34.0] – 2026-08-16
+
+### Fixed
+- **Settings → Machines showed the same icon for a Gaggiuino and a GaggiMate machine.** The list, topbar switcher and add/edit preview still drew the old pre-redesign single-body icon; they now render the same rectangular-panel vs. round-puck bodies the Live view already used. Closes #822
+- **The sidebar's shot-count header is no longer a mechanical split-flap odometer** — boxed digits, monospace font, drop-shadow and flip animation replaced with plain text (bold count, small muted label), matching the redesign prototype's own literal markup. #823
+
+### Changed
+- **The last text-glyph buttons (✕/✎) and glyph-prefixed status text (✓/✗) become drawn icons**, matching the rest of the redesign's single visual language for close/delete/edit/success/failure affordances instead of mixing in Unicode symbols. #811
+
+### Fixed
+- **Three more toggle-button groups still filled their active state instead of drawing a line, the same anti-pattern already fixed for the top-nav tabs.** The Shots view's Zeit/P·Q Kurve chart toggle, the Analytics trend-range filter and the sidebar sort buttons now match the prototype's bordered "chip" pattern (coloured border + bold text) instead of a solid grey fill. #820
+- **The Shots view still had four boxes/pills/photos the redesign was supposed to replace with lines, underlines and text.** The verdict header was a filled panel with the grind advice boxed separately below it (now one plain line: score · advice); the grind-advice colour variants were filled/bordered panels (now a left accent line); sidebar shot rows showed a bean-photo/avatar circle (now text-only); the active top-nav tab was a filled pill (now a 2px underline). #816
+- **The share card's score badge told a different story than the app that generated it.** The live UI colours a score green from 90, yellow from 70, red below (`--ok`/`--warn`/`--err`). The share-card renderer had its own, older 80/60 thresholds using the accent colour instead — found while pulling `lib/card.js` onto the redesign's tokens, not introduced by it. Both now agree; the frozen pre-#811 snapshot used by old cached card links is deliberately left on its original logic. #811
+
+### Added
+- **The share card now always carries a short install code** (e.g. `A7K2-M94X`), derived deterministically from the install's existing ID so a shared card can always be traced back to the install it came from — no new identifier, no opt-out. #811
+
+### Changed
+- **The share card now draws from the same graphite tokens as the rest of the app**, instead of a colour table that had drifted since the redesign started, and its labels are sentence case rather than shouting caps. A legend-chip outline that was stroking in the exact colour of its own fill (invisible in every theme) is fixed along with the rest of the card's line contrast, which measured well under the 3:1 floor for non-text lines. #811
+
+### Fixed
+- **A comment broke the stylesheet.** An explanatory comment in `style.css` named the token pattern `--gray-*/--err`; the `*/` inside it closed the comment early, so the remaining prose was parsed as CSS and `npm run build` failed. Nothing caught it beforehand -- the test suite never loaded the file and ESLint does not read CSS -- so a test now parses `style.css` and points at the exact line of any comment that closes itself early. #812
+
+### Added
+- **The stamp card.** The achievement catalogue now has a face: a printed cardboard card with seven categories side by side, browsable from the first visit. Every field is identically pre-printed and only the stamp tells them apart — rough ink with a ragged edge, each one sitting a couple of degrees askew, at a fixed angle per badge so it never re-jitters between paints. A locked secret badge shows a "?" and nothing else; its name and description never reach the browser at all. A category with every badge unlocked gets a diagonal "Full" overprint with the date. No level, no rank, no point score. The card stays paper-coloured in the dark theme too — it is a depicted object, not a panel. #812
+
+### Added
+- **Achievement copy in all six languages, and the tests the feature was missing.** The 48 open badges now have a name and description in de/en/it/fr/es/nl; the 6 secret ones stay encoded server-side so reading the JS bundle cannot spoil them. #812
+
+
+### Added
+- **The animated machine icon now actually appears** — in the Live view's idle panel, driven by the same poll that feeds the preheat widget. It shows off, heating (filling from the bottom as the machine warms), ready, and brewing with the real weight, time and pressure on its little display. #811
+
+
+### Added
+- **An animated machine icon with live states.** Ported from the "Instrument" prototype: a Gaggiuino (rectangular display) and a GaggiMate (chrome puck) variant sharing one body, with heating/ready/brewing/steaming states — the body fills with the machine's accent colour as it heats, a brew scale gains a cup that fills as two converging streams (never a drip, which would depict channeling), and a milk jug appears with a rotating vortex while steaming. `prefers-reduced-motion` shows the correct static state rather than a frozen frame. Not yet wired into a live view — `machineIconAnimatedSvg()`/`setMachineIconMode()` in `public-src/machine-icon.js` are ready for that follow-up. #811
+
+### Fixed
+- **Charts kept dark-theme colours on a light page.** Chart.js was configured with hardcoded hexes rather than the theme tokens, so legends and axis labels measured about 1.3:1 against a light background — effectively invisible. Chart chrome now resolves from the tokens at render time, and switching theme repaints charts that are already on screen instead of leaving them on the old palette. Series colours are untouched. Closes #814
+- **The phase shading's labels and divider were fixed light-on-dark** and vanished on a light chart area; they now follow the theme (measured 5.1:1 in the light theme). The translucent phase fills are unchanged.
+- **The onboarding banner, the API-port notice and the toast** carried inline dark surfaces with light text, which stayed dark chips on a light page. They use the themed tokens now.
+- **The bean QR code was drawn inverted** — light modules on a dark ground. Many scanners cope with that, older ones do not. Fixed to standard dark-on-light polarity in both themes.
+- The connection-error message was hardcoded German with a hardcoded red; it is translated in all six languages now.
+
+
+### Fixed
+- **Four buttons were unreadable in the light theme.** The export, share, compare, sync and power buttons filled themselves with a hardcoded `rgba(63,63,70,.5)`, which never inverts — on the light page it composited to a mid grey that left their label text at 3.03:1. They use the themed surface token now. #811
+
+### Changed
+- **The shot view's metric tiles became guided lines, and the score ring became type.** Two grids of filled, rounded tiles sat directly above and below the chart; the score sat in a 58px coloured ring. Both are shapes this redesign removes, and the shot card dropped them in the same round. The metrics now read value-first with a hairline between entries, the process row deliberately quieter than the recipe row, and the score reads "99 stark" in the score colour. Thresholds unchanged. #813
+
+### Changed
+- **Country flags and star characters replaced by drawn icons.** The flags were built at render time from the country code, so no source scan ever saw them; they rendered in the OS font and degrade to a bare two-letter box on Windows. The resolved country name was always shown next to them, so nothing is lost. Star ratings now use the drawn star, filled or empty via the same path. #811
+
+### Fixed
+- **Text sitting ON a semantic fill was unreadable in the dark theme.** The dial-in score chip and score pill put white text on `--ok`/`--warn`/`--err` used as a *background* — measured **2.37:1** to 3.16:1. The earlier audits only ever checked these tokens as text on a surface, never as a surface under text, so the case was invisible to them. New `--on-fill` is black in the dark theme and white in the light one — the reverse of the intuition, because the dark theme's semantic colours are the light, saturated ones. Same mechanism as the existing `--accent-text`.
+- **The compare-mode button's white label measured 3.15:1.** Its fill is deliberately a fixed blue that does not invert with the theme, and a comment asserted that this made it exempt; it does not. Darkened along the same hue to `#217cb9`, the first value carrying white text at 4.5:1.
+- `test/theme-contrast.test.js` now covers the fill-under-text direction too, and reads three-digit hex — a six-digit-only pattern had silently reported `--on-fill` as undefined.
+
+### Changed
+- **The design token layer moves to a cool graphite scale, with a six-step type scale, a spacing ladder and two radii.** Groundwork for the "Instrument" redesign (#811, alongside glp-order-card#90 and glp-lovelace-card#120). `--fs-1..6` replaces 53 distinct font-size literals that stepped in 0.02rem increments, `--sp-1..6` replaces the loose gap/padding values, and `--radius-sm`/`--radius` replace the eight ad-hoc corner values. New `--raised` is the surface step that carries nesting depth without a border, which is what makes the border diet possible at all. The gray scale stays role-based and still inverts under `[data-theme="light"]` — `--gray-200` is always primary text, `--gray-900` always the page background.
+- The 6 app accents and 8 machine themes keep their **exact** values. They are audited here, not changed: all six clear 4.5:1 as text on every dark surface (worst: aurora 5.59:1).
+- **The rest of the stylesheet now actually uses the token layer above, instead of just having it available.** All 23 `text-transform: uppercase` labels are gone (sentence case, no letter-spacing) and all 53 font-size literals resolve through `--fs-1..6` (down to 6 distinct sizes). Of 96 `1px solid var(--gray-700)` borders, the 26 that wrapped a non-interactive container (stat tiles, info cards, modal cards over their own scrim) were dropped in favour of the surface fill they already had; borders now survive only around things you can click, plus the handful of floating dropdowns/sheets that have no scrim to separate them from the page. 724 gap/padding/margin literals map onto `--sp-1..6`, and 56 repeated `font-family:'Figtree',sans-serif` declarations collapse into one inherited rule on `button, input, select, textarea`. Part of #811.
+- **Hardcoded `#fff` on themed surfaces is gone**, in `style.css` and in the inline styles/Chart.js tick colours of `analytics.js`/`index.html` — the single biggest light-theme regression indicator this redesign tracks (white text/lines on a surface that turns near-white in the light theme). Part of #811.
+
+### Fixed
+- **Semantic colours failed WCAG AA on the surfaces they actually sit on, in every theme.** The earlier audits (#397, #404) covered the gray scale only, so nothing ever checked green/amber/red against the card and page backgrounds. Measured before this change: `--ok` at **3.00:1** against every light surface, **2.30:1** in Crema light; `--err` at **3.96:1** on the dark card surface. All recomputed; every text role now clears 4.5:1 against every surface in all four theme variants, worst case 4.54:1. Crema gets its own `--err` (dark) and its own semantics (light), since its warmer, narrower surface range does not carry the shared values.
+- **The accent was unreadable as text in the light theme, and four of the six accents had no light-theme definition at all** — ocean, aurora, ember and forest kept their dark values on a white ground, measuring as low as **1.54:1** (forest), 1.71:1 (ocean), 1.81:1 (ember). New `--accent-ink` is the accent's text form, darkened per accent to the first value along its own hue that clears 4.5:1 on all four light surfaces; the 18 `color: var(--accent)` sites now resolve through it. **Fills, gradients and glows are untouched**, so the brand colour renders exactly as configured.
+- **Four CSS variables were used but never defined**, silently inheriting whatever colour happened to be in scope: `--gray-100` (5 uses, the KPI value colour) and `--gray-300` (19 uses) are now defined in all four theme variants; `--accent-color` (3 uses) and `--amber` (1 use) were typos for `--accent` and `--warn` and are fixed at the call sites rather than aliased.
+- `test/theme-contrast.test.js` computes every one of these ratios from the values declared in `style.css` itself, so the palette cannot drift back. Verified it rejects the old values as well as accepting the new ones.
+
+## [2.33.3] – 2026-08-11
+
+### Changed
+- **Live view updates faster on a fresh sensor reading.** A WebSocket or MQTT sample now pushes to the Live tab the instant it arrives instead of waiting for the next 1-second poll tick. Closes #708
+
+## [2.33.2] – 2026-08-11
+
+### Changed
+- **Sidebar shot counter cleaned up**: removed the redundant "(N)" text next to the flap-board counter, and moved the counter in front of the "Shots" label. Closes #776
+
+## [2.33.1] – 2026-08-11
+
+### Fixed
+- **Theme/accent colour swatches (Settings → Machines → Farbe, and the app-wide colour scheme picker) now render as fully filled circles.** They previously showed a visible square edge peeking out from behind the circle on some browsers/GPU drivers. Closes #772
+- **Shot-import progress no longer shows the total shrinking mid-backfill** during a large sync. A missing safeguard let two sync attempts overlap and interfere with each other's progress count — shots were never lost, just the on-screen number. Closes #773
+
+## [2.33.0] – 2026-08-11
+
+### Added
+- **Standalone Docker install support**, for Home Assistant setups without a Supervisor (HA Container, HA Core, Unraid, TrueNAS SCALE, …): a ready-made `docker-compose.standalone.yml`, plus env-var fallbacks (`GLP_SYNC_INTERVAL`/`GLP_PREHEAT_TIME`/`GLP_ENABLE_ORDERS`/`GLP_DEBUG_LOGGING`) and an optional HA long-lived-token integration (`GLP_HA_URL`/`GLP_HA_TOKEN`) for auto-sync, switch-entity power control and push notifications. Closes #764
+
 ## [2.32.0] – 2026-08-11
 
 > ⚠ **Configuration change:** `machine_host`/`switch_entity` are removed from the add-on's Configuration page. Existing values carry over automatically — no action needed. If you manage those fields via automation/scripts through the Configuration tab, switch to Settings → Machines instead, since edits there no longer take effect.

@@ -3,6 +3,7 @@ const { calcShotScore, calcShotScoreDetail } = require('../score');
 const libraryService    = require('./LibraryService');
 const { log }           = require('../helpers');
 const { MAX_SHOT_ID } = require('../constants');
+const { bus, EVENTS } = require('../events');
 
 class ShotService {
     // machineId optional (#341) — omitted keeps the original all-machines
@@ -68,7 +69,12 @@ class ShotService {
     }
 
     upsertShot(shot) {
-        return repo.upsert(shot);
+        const saved = repo.upsert(shot);
+        // #812: single choke point for every "a shot got saved" path (live
+        // sync backfill, restore/import) -- see lib/events.js's EVENTS
+        // header comment for why achievements listens here.
+        bus.emit(EVENTS.SHOT_SAVED, { shotId: saved?.id ?? shot.id });
+        return saved;
     }
 
     // #450: scores against the bean's own brewTempC/brewRatio recommendation

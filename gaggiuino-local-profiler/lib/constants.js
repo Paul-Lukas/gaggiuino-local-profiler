@@ -3,7 +3,7 @@ if (typeof File === 'undefined') {
     try { global.File = require('buffer').File; } catch { global.File = class File {}; }
 }
 
-const GLP_VERSION  = '2.32.0';
+const GLP_VERSION  = '2.34.0';
 const DEFAULT_PORT = 8099;
 
 const DATA_DIR             = '/data';
@@ -21,13 +21,32 @@ const ORDERS_HISTORY_TTL_MS = 7  * 24 * 60 * 60 * 1000;
 // MACHINE_ID_OFFSET + nativeId (see lib/machines/index.js) so their shots
 // never collide with the default machine's native ids, which stay untouched.
 const MAX_SHOT_ID           = 99_999_999;
-const HA_INGRESS_PATH       = '/api/hassio_ingress/gaggiuino_local_profiler';
-const HA_API                = 'http://supervisor/core/api';
+// #801: this is a PREFIX, not the add-on's own path. HA Core sets
+// X-Ingress-Path to `/api/hassio_ingress/<per-session random token>`
+// (homeassistant/components/hassio/ingress.py), never the add-on slug, and
+// the token differs per install and even per dev-add-on install -- there is
+// no fixed suffix to pin. The Supervisor-IP check alongside every use of
+// this prefix is what makes the header trustworthy (any LAN client that can
+// reach port 8099 can otherwise send an arbitrary X-Ingress-Path).
+const HA_INGRESS_PREFIX     = '/api/hassio_ingress/';
+// #764: standalone Docker (no Supervisor, e.g. HA Container on Unraid/
+// TrueNAS) has no SUPERVISOR_TOKEN and can't reach the internal `supervisor`
+// hostname — GLP_HA_URL + GLP_HA_TOKEN (a normal HA long-lived access token,
+// Profile -> Security) is the opt-in substitute so lib/ha.js's HA
+// auto-sync/switch-control/notify calls still work outside HA OS. The two
+// must be set together; HA_TOKEN otherwise stays falsy exactly like before,
+// so every existing `if (!HA_TOKEN)` guard in lib/ha.js needs no change.
+const GLP_HA_URL             = process.env.GLP_HA_URL ? process.env.GLP_HA_URL.replace(/\/$/, '') : null;
+const HA_API                = process.env.SUPERVISOR_TOKEN
+    ? 'http://supervisor/core/api'
+    : (GLP_HA_URL ? `${GLP_HA_URL}/api` : null);
 // #598: the Supervisor's own API root, distinct from HA_API above (which is
 // the *Core* API proxied through the Supervisor) — service discovery
-// (/services/mqtt) lives directly under this root, not under /core.
+// (/services/mqtt) lives directly under this root, not under /core. No
+// standalone-Docker equivalent exists (Settings' manual MQTT host/port/user/
+// pass entry is the documented fallback there, see config.yaml).
 const SUPERVISOR_API        = 'http://supervisor';
-const HA_TOKEN              = process.env.SUPERVISOR_TOKEN;
+const HA_TOKEN              = process.env.SUPERVISOR_TOKEN || (GLP_HA_URL ? process.env.GLP_HA_TOKEN : undefined);
 const ALLOWED_URL_SCHEMES   = ['http:', 'https:'];
 const ALLOWED_IMPORT_HOSTS  = ['kaffeebraun.com', 'www.kaffeebraun.com',
     'hoppenworth-ploch.de', 'www.hoppenworth-ploch.de',
@@ -98,7 +117,7 @@ module.exports = {
     GLP_VERSION, DEFAULT_PORT,
     DATA_DIR, TOKEN_FILE, PREHEAT_STATE_FILE, OPTIONS_FILE, PROFILES_CACHE_FILE,
     TRASH_TTL_MS, ORDERS_HISTORY_TTL_MS, MAX_SHOT_ID,
-    HA_INGRESS_PATH, HA_API, SUPERVISOR_API, HA_TOKEN, ALLOWED_URL_SCHEMES, ALLOWED_IMPORT_HOSTS,
+    HA_INGRESS_PREFIX, HA_API, SUPERVISOR_API, HA_TOKEN, ALLOWED_URL_SCHEMES, ALLOWED_IMPORT_HOSTS,
     TEMP_HISTORY_MAX, TEMP_STABLE_MIN, TEMP_STABLE_VAR, PREHEAT_STATE_TTL,
     WARM_TEMP_MIN, WARM_OFF_MAX_MS,
     DEFAULT_MENU, MAINTENANCE_DEFAULTS, STATIC_MAINTENANCE_TASKS, isGlobalMaintenanceTask,

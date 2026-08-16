@@ -87,6 +87,7 @@ More in [`docs/screenshots/`](gaggiuino-local-profiler/docs/screenshots/) (Dial-
 | ⇄ | **Compare Mode** | Overlay two shots side by side |
 | 👻 | **Ghost Curve & Delta Chips** | When an earlier shot exists with the same profile on the same machine, the shot detail auto-compares: a score delta chip on the verdict header, signed delta chips on pressure/flow/temp, and the previous shot's curves overlaid on the chart as a dashed ghost — independent of the explicit Compare Mode above |
 | 🏆 | **Shot Score** | Automatic 0–100 score (pressure, stability, duration, ratio, channeling), shown as a verdict-header score ring with a plain-language dial-in headline atop the shot detail; temperature/ratio target the bean's own brew recommendation from the Library when set, flagged with a target-icon badge on the header when it applies |
+| 🏅 | **Achievements** | A browsable stamp card of 54 badges across 7 categories, unlocked automatically as you brew (event-driven, with a retroactive pass over existing shot history on first load); locked secret badges show only a "?" until earned, and a fully-unlocked category gets a dated "Full" overprint — no level, rank or point score |
 | 📊 | **Analytics** | Score trend, shot calendar heatmap, bean stats, grinder/basket/puck screen stats, profile performance, interactive coffee world map (zoom/pan, per-bean origin points), a weekday × hour heatmap, a sortable bean ranking table (shots/score/last grind/trend), a machine comparison table (score/duration/temperature stability, once ≥2 machines are registered) and a per-bean dial-in progression chart |
 | 📊 | **P·Q Diagram** | Pressure vs. flow chart — reveals extraction signature |
 | ⚗️ | **EY Calculation** | Extraction Yield % when TDS and dose are entered |
@@ -170,6 +171,25 @@ Set your controller's IP/hostname — and, optionally, an HA switch entity to po
 > ```bash
 > curl http://<gaggiuino-ip>/api/shots/latest
 > ```
+
+---
+
+## 🐳 Standalone Docker Install (Unraid, TrueNAS, HA Container, …)
+
+No HA Supervisor, no Add-on Store — this is for HA Container/HA Core installs (Unraid, TrueNAS SCALE and similar). GLP already ships as a plain multi-arch image, so it runs like any other Docker app:
+
+```bash
+docker run -d --name glp --restart unless-stopped \
+  -p 8099:8099 -v ./data:/data \
+  ghcr.io/mxkissnr/gaggiuino-local-profiler/amd64:latest
+```
+
+Or use the ready-made [`docker-compose.standalone.yml`](gaggiuino-local-profiler/docker-compose.standalone.yml) (`docker compose -f docker-compose.standalone.yml up -d`) — it also documents the optional env vars that replace Supervisor-only add-on config and HA integration for this install path. Then:
+
+- **GLP Integration** ([Step 2](#step-2--install-the-glp-integration-recommended) above) — auto-discovery needs a Supervisor, so on the config step just enter `http://<docker-host>:8099` manually.
+- **Dashboard panel** — no Ingress, so embed it as a normal iframe/Webpage card pointed at `http://<docker-host>:8099` (see [Embed in HA Dashboard](#-embed-in-ha-dashboard) below) instead of a sidebar panel.
+
+Full walkthrough, env-var reference and a feature-parity table against the Supervisor add-on: see [DOCS.md](gaggiuino-local-profiler/DOCS.md#standalone-docker-installation) / [DOCS.de.md](gaggiuino-local-profiler/DOCS.de.md#standalone-docker-installation).
 
 ---
 

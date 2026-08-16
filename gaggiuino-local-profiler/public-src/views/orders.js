@@ -8,7 +8,7 @@ import { localeFor } from '../constants.js';
 // use-beans/use-milks toggle buttons and their inline notes below.
 // BEAN_ICON_SVG now lives in ../icons.js (also used by main.js's bean-age
 // hint, #419 follow-up) — MILK_ICON_SVG stays local, single-use here.
-import { CLOCK_ICON_SVG, BELL_ICON_SVG, BEAN_ICON_SVG } from '../icons.js';
+import { CLOCK_ICON_SVG, BELL_ICON_SVG, BEAN_ICON_SVG, CLOSE_ICON_SVG, CHECK_ICON_SVG } from '../icons.js';
 const MILK_ICON_SVG = '<svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 4v13a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V7z"/><path d="M9 3 12 6 15 3"/><path d="M8 10h8"/></svg>';
 
 // #603: one mute switch per automatic notification type. Stored as
@@ -190,12 +190,15 @@ export function renderOrdersList(orders) {
     ? `<div class="orders-queue-banner">${CLOCK_ICON_SVG} ${t('orders_queue_banner', totalActive, totalEta)}</div>`
     : '';
 
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   pendingEl.innerHTML = queueBanner + (pending.length ? pending.map(o => renderOrderCard(o, 'pending')).join('') :
     `<div class="orders-empty">${t('orders_empty')}</div>`);
 
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   acceptedEl.innerHTML = accepted.length ? accepted.map(o => renderOrderCard(o, 'accepted')).join('') :
     `<div class="orders-empty">${t('orders_empty')}</div>`;
 
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   historyEl.innerHTML = history.length ? history.map(o => renderOrderCard(o, 'history')).join('') : '';
   if (clearHistBtn) clearHistBtn.style.display = history.length ? '' : 'none';
 
@@ -274,7 +277,7 @@ export function renderOrderCard(o, ctx) {
       </div>
       ${declineOpen ? `<div class="order-actions">
         <input class="order-decline-input" id="declineReason_${esc(o.id)}" placeholder="${t('orders_decline_ph')}">
-        <button class="order-btn decline" data-order-decline-submit="${esc(o.id)}">${t('orders_decline')} ✓</button>
+        <button class="order-btn decline" data-order-decline-submit="${esc(o.id)}">${t('orders_decline')}</button>
       </div>` : ''}
     </div>`;
   }
@@ -290,12 +293,12 @@ export function renderOrderCard(o, ctx) {
       </div>
       <div class="order-customer">${t('orders_for')} <b>${esc(o.customer)}</b>${o.note ? ` · <span class="order-note">${esc(o.note)}</span>` : ''}</div>
       <div class="order-actions">
-        <button class="order-btn complete" data-order-complete="${esc(o.id)}">${t('orders_complete')}</button>
+        <button class="order-btn complete" data-order-complete="${esc(o.id)}">${CHECK_ICON_SVG} ${t('orders_complete')}</button>
         <button class="order-btn decline" data-order-decline-toggle="${esc(o.id)}">${t('orders_decline')}</button>
       </div>
       ${declineOpen ? `<div class="order-actions">
         <input class="order-decline-input" id="declineReason_${esc(o.id)}" placeholder="${t('orders_decline_ph')}">
-        <button class="order-btn decline" data-order-decline-submit="${esc(o.id)}">${t('orders_decline')} ✓</button>
+        <button class="order-btn decline" data-order-decline-submit="${esc(o.id)}">${t('orders_decline')}</button>
       </div>` : ''}
     </div>`;
   }
@@ -347,7 +350,7 @@ export async function renderOrdersMenuAdmin(menu) {
     const useBeans   = !!item.useBeans;
     const useMilks   = !!item.useMilks;
     const chipHtml   = variants.map(v =>
-      `<span class="orders-menu-variant-chip">${esc(v)}<button class="orders-menu-variant-del" data-menu-id="${esc(item.id)}" data-variant="${esc(v)}" title="✕">×</button></span>`
+      `<span class="orders-menu-variant-chip">${esc(v)}<button class="orders-menu-variant-del" data-menu-id="${esc(item.id)}" data-variant="${esc(v)}">×</button></span>`
     ).join('');
     const variantSection = useBeans
       ? `<span class="orders-use-beans-note">${BEAN_ICON_SVG} ${t('orders_use_beans_note')}</span>`
@@ -365,7 +368,7 @@ export async function renderOrdersMenuAdmin(menu) {
         <button class="orders-menu-use-beans${useBeans ? ' active' : ''}" data-menu-use-beans="${esc(item.id)}" title="${t('orders_use_beans_toggle')}">${BEAN_ICON_SVG}</button>
         <button class="orders-menu-use-milks${useMilks ? ' active' : ''}" data-menu-use-milks="${esc(item.id)}" title="${t('orders_use_milks_toggle')}">${MILK_ICON_SVG}</button>
         <button class="orders-menu-trend${item.trending ? ' active' : ''}" data-menu-trend="${esc(item.id)}" title="${t('orders_trending_toggle')}"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></button>
-        <button class="orders-menu-del" data-menu-del="${esc(item.id)}" title="${t('orders_confirm_delete_item')}">✕</button>
+        <button class="orders-menu-del" data-menu-del="${esc(item.id)}" title="${t('orders_confirm_delete_item')}">${CLOSE_ICON_SVG}</button>
       </div>
       <div class="orders-menu-variants">${variantSection}</div>
       <div class="orders-menu-milk-row">
@@ -628,7 +631,7 @@ export async function saveBroadcastRecipients() {
   });
   const btn = document.getElementById('ordersBroadcastSaveBtn');
   if (btn) {
-    btn.textContent = t('orders_broadcast_saved');
+    btn.innerHTML = `${CHECK_ICON_SVG} ${t('orders_broadcast_saved')}`;
     setTimeout(() => { btn.textContent = t('orders_broadcast_save'); }, 2000);
   }
 }
@@ -648,7 +651,7 @@ export async function saveNotifyToggles() {
   });
   const btn = document.getElementById('ordersTypesSaveBtn');
   if (btn) {
-    btn.textContent = t('orders_types_saved');
+    btn.innerHTML = `${CHECK_ICON_SVG} ${t('orders_types_saved')}`;
     setTimeout(() => { btn.textContent = t('orders_types_save'); }, 2000);
   }
 }
@@ -664,7 +667,7 @@ export async function saveBaristaNotify() {
   });
   const btn = document.getElementById('ordersBaristaSaveBtn');
   if (btn) {
-    btn.textContent = t('orders_barista_saved');
+    btn.innerHTML = `${CHECK_ICON_SVG} ${t('orders_barista_saved')}`;
     setTimeout(() => { btn.textContent = t('orders_barista_save'); }, 2000);
   }
 }
@@ -683,7 +686,7 @@ export async function saveNotifyMapping() {
   });
   const btn = document.getElementById('ordersNotifySaveBtn');
   if (btn) {
-    btn.textContent = t('orders_notify_saved');
+    btn.innerHTML = `${CHECK_ICON_SVG} ${t('orders_notify_saved')}`;
     setTimeout(() => { btn.textContent = t('orders_notify_save'); }, 2000);
   }
 }

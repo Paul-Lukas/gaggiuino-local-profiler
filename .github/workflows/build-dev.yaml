@@ -76,7 +76,47 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # #809: the push (not the build) has hit ghcr.io's secondary rate limit
+      # -- all three arch jobs push the same image set concurrently, so a
+      # 403 "exceeded a secondary rate limit" fails the whole run and, since
+      # publish-manifest is gated on this job, silently leaves the dev
+      # manifest pointing at the previous build. First attempt is allowed to
+      # fail and is retried once below after a pause. A first-attempt
+      # failure still shows in the run's step list, so a systematic problem
+      # stays visible instead of being masked.
       - name: Build and push
+        id: push
+        continue-on-error: true
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: ./gaggiuino-local-profiler
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            GLP_DEV_BUILD=${{ needs.prep.outputs.version }}
+          cache-from: type=gha,scope=dev-amd64
+          cache-to: type=gha,mode=max,scope=dev-amd64
+          tags: |
+            ghcr.io/mxkissnr/gaggiuino-local-profiler/amd64:${{ needs.prep.outputs.version }}
+            ghcr.io/mxkissnr/gaggiuino-local-profiler/amd64:dev
+          labels: |
+            org.opencontainers.image.title=GLP DEV — Gaggiuino Local Profiler (unstable)
+            org.opencontainers.image.description=Unstable dev build of GLP — maintainer testing only
+            org.opencontainers.image.source=https://github.com/mxkissnr/gaggiuino-local-profiler
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.prep.outputs.version }}
+            org.opencontainers.image.licenses=MIT
+            io.hass.version=${{ needs.prep.outputs.version }}
+            io.hass.type=addon
+            io.hass.arch=amd64
+            io.hass.name=GLP DEV — Gaggiuino Local Profiler (unstable)
+
+      - name: Wait out the registry rate limit
+        if: steps.push.outcome == 'failure'
+        run: sleep 120
+
+      - name: Build and push (retry)
+        if: steps.push.outcome == 'failure'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: ./gaggiuino-local-profiler
@@ -142,7 +182,42 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # #809: same retry as build-amd64 above -- see its comment.
       - name: Build and push
+        id: push
+        continue-on-error: true
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: ./gaggiuino-local-profiler
+          platforms: ${{ matrix.platform }}
+          push: true
+          build-args: |
+            GLP_DEV_BUILD=${{ needs.prep.outputs.version }}
+          # Separate cache scope from the release build so a dev build can
+          # never poison the cache the release build restores from.
+          cache-from: type=gha,scope=dev-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=dev-${{ matrix.arch }}
+          tags: |
+            ghcr.io/mxkissnr/gaggiuino-local-profiler/${{ matrix.arch }}:${{ needs.prep.outputs.version }}
+            ghcr.io/mxkissnr/gaggiuino-local-profiler/${{ matrix.arch }}:dev
+          labels: |
+            org.opencontainers.image.title=GLP DEV — Gaggiuino Local Profiler (unstable)
+            org.opencontainers.image.description=Unstable dev build of GLP — maintainer testing only
+            org.opencontainers.image.source=https://github.com/mxkissnr/gaggiuino-local-profiler
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.prep.outputs.version }}
+            org.opencontainers.image.licenses=MIT
+            io.hass.version=${{ needs.prep.outputs.version }}
+            io.hass.type=addon
+            io.hass.arch=${{ matrix.arch }}
+            io.hass.name=GLP DEV — Gaggiuino Local Profiler (unstable)
+
+      - name: Wait out the registry rate limit
+        if: steps.push.outcome == 'failure'
+        run: sleep 120
+
+      - name: Build and push (retry)
+        if: steps.push.outcome == 'failure'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: ./gaggiuino-local-profiler
@@ -222,6 +297,38 @@ jobs:
           CONFIG="dev-app/gaggiuino_local_profiler_dev/config.yaml"
           LOG="dev-app/gaggiuino_local_profiler_dev/CHANGELOG.md"
           MARKER="dev-app/.last-dev-build-sha"
+          PROFILE_SRC="main-repo/gaggiuino-local-profiler/apparmor.txt"
+          PROFILE_DST="dev-app/gaggiuino_local_profiler_dev/apparmor.txt"
+          SYNC_SCRIPT="main-repo/gaggiuino-local-profiler/scripts/sync-dev-config.mjs"
+
+          # #789: Supervisor reads an add-on's AppArmor profile from the
+          # add-on's own directory, NOT from the image -- so the profile has
+          # to be copied into the manifest repo alongside config.yaml or the
+          # dev add-on runs completely unconfined. That failure is silent and
+          # actively misleading: a complain-mode validation would report an
+          # empty audit log, which is indistinguishable from a clean pass, and
+          # the step after a clean pass is enabling enforce for everyone.
+          # Absent source file: drop any stale copy rather than leaving an
+          # outdated profile in place, and say so loudly in the run.
+          if [ -f "$PROFILE_SRC" ]; then
+            cp "$PROFILE_SRC" "$PROFILE_DST"
+          else
+            echo "::warning::no apparmor.txt in the source repo -- the dev add-on will run unconfined"
+            rm -f "$PROFILE_DST"
+          fi
+
+          # #805: same class of bug as #789/#803 above, one layer up -- this
+          # workflow bumped `version` and copied apparmor.txt but never
+          # touched `options`/`schema`, so an option added to the app's own
+          # config.yaml (e.g. #804's expose_api_port) had no way to ever
+          # reach the dev add-on's Configuration tab. sync-dev-config.mjs
+          # does the merge (source schema wholesale, source-default options
+          # added, dev's existing option values preserved -- e.g.
+          # debug_logging: true) while leaving every other field (name,
+          # slug, ports, panel_*, boot, url, description) untouched; see
+          # that script's own header for why this isn't a plain YAML
+          # parse+dump.
+          node "$SYNC_SCRIPT" "main-repo/gaggiuino-local-profiler/config.yaml" "$CONFIG"
 
           # Anchored to the start of the line so the `version:` key is the only
           # possible match -- description text may contain the word too.
@@ -268,12 +375,17 @@ jobs:
           # actually correct. Happens whenever this job is re-run (e.g. after
           # fixing the PAT) or the manifest was bumped by hand in the meantime.
           cd dev-app
-          if git diff --quiet -- gaggiuino_local_profiler_dev/config.yaml gaggiuino_local_profiler_dev/CHANGELOG.md .last-dev-build-sha; then
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage first, then test the index: apparmor.txt may be brand new
+          # (#789's first run), and `git diff` on a worktree can't see an
+          # untracked file -- it would report "nothing to commit" for exactly
+          # the change this step exists to deliver. `git add -A` over the
+          # add-on directory also picks up the profile's deletion.
+          git add -A gaggiuino_local_profiler_dev .last-dev-build-sha
+          if git diff --cached --quiet; then
             echo "Already up to date with ${NEW_VERSION} -- nothing to commit"
             exit 0
           fi
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add gaggiuino_local_profiler_dev/config.yaml gaggiuino_local_profiler_dev/CHANGELOG.md .last-dev-build-sha
           git commit -m "chore(dev): point dev app at ${NEW_VERSION} (${COMMIT_SHA:0:7})"
           git push

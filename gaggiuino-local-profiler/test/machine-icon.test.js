@@ -53,11 +53,13 @@ describe('machineIconSvg / machineIconMiniSvg theme rendering (#594)', () => {
         expect(svg).toContain('var(--accent-from)');
     });
 
-    it('mini variant renders without the sub-2px detail paths (portafilter handle)', () => {
+    it('mini variant renders without the sub-2px detail paths (control panel button highlights)', () => {
         const full = machineIconSvg({ preset: 'amber-americano' });
         const mini = machineIconMiniSvg({ preset: 'amber-americano' });
-        expect(full).toContain('M47 82 L53 82'); // portafilter handle path present in full
-        expect(mini).not.toContain('M47 82 L53 82');
+        // Button highlight strip present in full detail only (#822: dropped by
+        // animBody()'s `mini` param, reused from the #811 shared body).
+        expect(full).toContain('<rect x="23" y="18.5" width="9.4" height="3.6" rx="1" fill="#fff" opacity=".13"/>');
+        expect(mini).not.toContain('<rect x="23" y="18.5" width="9.4" height="3.6" rx="1" fill="#fff" opacity=".13"/>');
     });
 
     it('every gradient id is unique across repeated calls so multiple icons in one document never collide', () => {
@@ -65,6 +67,46 @@ describe('machineIconSvg / machineIconMiniSvg theme rendering (#594)', () => {
         const second = machineIconSvg(null);
         const idOf = (svg) => svg.match(/id="(glp-machine-icon-\d+)"/)[1];
         expect(idOf(first)).not.toBe(idOf(second));
+    });
+});
+
+// #822: the settings-screen icons (list rows, topbar switcher, add/edit
+// preview) used to call this same machineIconSvg()/machineIconMiniSvg() pair
+// when it still rendered the old pre-#811 single "Gaggia Classic" body —
+// which had no `kind` parameter at all, so a Gaggiuino machine and a
+// GaggiMate machine rendered pixel-identical icons there even though the
+// Live view's machineIconAnimatedSvg() already told them apart. These tests
+// prove the fix: passing `kind` now changes the rendered body/panel markup.
+describe('machineIconSvg / machineIconMiniSvg kind rendering (#822)', () => {
+    it('defaults to the Gaggiuino rectangular display panel when kind is omitted', () => {
+        const svg = machineIconSvg(null);
+        expect(svg).toContain('rx="3" fill="#101012"'); // Gaggiuino display bezel
+        expect(svg).not.toContain('fill="#cfd4d9"'); // GaggiMate puck fill
+    });
+
+    it('renders the Gaggiuino rectangular display panel for kind="gaggiuino"', () => {
+        const svg = machineIconSvg(null, 'gaggiuino');
+        expect(svg).toContain('rx="3" fill="#101012"');
+        expect(svg).not.toContain('fill="#cfd4d9"');
+    });
+
+    it('renders a visibly different GaggiMate round puck/housing for kind="gaggimate"', () => {
+        const svg = machineIconSvg(null, 'gaggimate');
+        expect(svg).toContain('fill="#cfd4d9"'); // chrome puck housing
+        expect(svg).not.toContain('rx="3" fill="#101012"'); // no Gaggiuino display bezel
+    });
+
+    it('uses the taller viewBox the GaggiMate puck housing needs (extends above y=0)', () => {
+        expect(machineIconSvg(null, 'gaggiuino')).toContain('viewBox="0 0 100 162"');
+        expect(machineIconSvg(null, 'gaggimate')).toContain('viewBox="0 -21 100 183"');
+    });
+
+    it('mini variant also distinguishes kind the same way', () => {
+        const gaggiuino = machineIconMiniSvg(null, 'gaggiuino');
+        const gaggimate = machineIconMiniSvg(null, 'gaggimate');
+        expect(gaggiuino).toContain('rx="3" fill="#101012"');
+        expect(gaggimate).toContain('fill="#cfd4d9"');
+        expect(gaggiuino).not.toBe(gaggimate);
     });
 });
 

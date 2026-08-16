@@ -18,6 +18,24 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.34.0', date: '2026-08-16', highlights: [
+        '"Instrument" redesign: a cooler graphite look throughout the app, drawn icons in place of emoji, and a calmer, less boxy shot view with a guided metric line and a plain-text verdict.',
+        'Added the achievement stamp card: a browsable catalogue of 54 badges across 7 categories, unlocked automatically as you brew.',
+        'The machine icon (Settings, topbar, Live view) now draws the right body for your machine type, and toggle buttons/the sidebar shot counter got a lighter, less mechanical look.',
+    ] },
+    { version: '2.33.3', date: '2026-08-11', highlights: [
+        'Live view updates faster on a fresh sensor reading: a WebSocket or MQTT sample now pushes to the Live tab instantly instead of waiting for the next 1-second poll.',
+    ] },
+    { version: '2.33.2', date: '2026-08-11', highlights: [
+        'Sidebar shot counter cleaned up: removed the redundant "(N)" text next to the flap-board counter and moved the counter in front of the "Shots" label.',
+    ] },
+    { version: '2.33.1', date: '2026-08-11', highlights: [
+        'Fixed theme/accent colour swatches (Settings → Machines → Farbe, and the app-wide colour scheme picker) showing a square edge instead of a fully filled circle on some browsers.',
+        'Fixed shot-import progress showing the total shrinking mid-backfill during a large sync.',
+    ] },
+    { version: '2.33.0', date: '2026-08-11', highlights: [
+        'Added standalone Docker install support for Home Assistant setups without a Supervisor (HA Container, HA Core, Unraid, TrueNAS SCALE, …): a ready-made docker-compose.standalone.yml, plus env-var config and an optional HA long-lived-token integration.',
+    ] },
     { version: '2.32.0', date: '2026-08-11', highlights: [
         'Heads up if you manage the machine host/switch entity via the add-on\'s Configuration tab: those fields are removed there. Your existing value carries over automatically, but from now on the default machine is configured entirely under Settings → Machines instead.',
         'Added a guided first-run setup wizard: a fresh install with no machines configured now gets a welcome -> connect machine -> done walkthrough, with a one-click demo-data option and a "Restart setup tour" control in Settings → Machines.',
@@ -34,22 +52,6 @@ const WHATS_NEW_ENTRIES = [
         'Backup export now downloads as a real .zip with selectable sections, an optional encrypted API-token/MQTT-login section, and a dry-run preview before restoring.',
         'Fixed the status dot/Live tab staying green for hours after the machine was switched off — and, on the same fix, staying red for minutes after it was switched back on.',
         'Fixed barcode scanning during bean import being completely broken for every user, blocked by the app\'s own content-security policy.',
-    ] },
-    { version: '2.29.0', date: '2026-08-04', highlights: [
-        'Added Baskets and Puck Screens as new Coffee Library entity types, with photo upload and shot linkage like beans.',
-    ] },
-    { version: '2.28.0', date: '2026-08-04', highlights: [
-        'Added an in-app "What\'s New" changelog to Settings — this list.',
-    ] },
-    { version: '2.27.4', date: '2026-08-04', highlights: [
-        'Fixed a stale WebSocket session leak when a machine is removed or re-hosted.',
-        'Fixed component-test commands (pump/valve/LED) always timing out despite succeeding.',
-    ] },
-    { version: '2.27.3', date: '2026-08-04', highlights: [
-        'Live temperature/pressure/weight readings now actually update in real time over WebSocket/MQTT, instead of lagging on the 1s REST poll.',
-    ] },
-    { version: '2.27.2', date: '2026-08-04', highlights: [
-        'Preheat-ready and low-stock notification toggles are now reachable in Settings even when Orders is disabled.',
     ] },
 ];
 

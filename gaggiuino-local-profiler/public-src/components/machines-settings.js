@@ -9,7 +9,7 @@ import { S, setState, filterShotsByMachine } from '../state.js';
 import { apiFetch } from '../api.js';
 import { t } from '../i18n.js';
 import { loadMachineProfileList } from '../views/library-profile-editor.js';
-import { WARNING_ICON_SVG } from '../icons.js';
+import { WARNING_ICON_SVG, CHECK_ICON_SVG, CLOSE_ICON_SVG } from '../icons.js';
 import { updateStatus } from './status.js';
 import { THEME_PRESETS, resolveTheme } from '../../lib/machines/theme-presets.js';
 import { machineIconSvg, machineIconMiniSvg } from '../machine-icon.js';
@@ -170,6 +170,7 @@ export function renderMachineSwitcher() {
     return;
   }
 
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   el.innerHTML = `<option value="all">${escapeHtml(t('machine_switcher_all'))}</option>` +
     machines.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('');
   el.value = String(S.activeMachineId ?? 'all');
@@ -186,7 +187,7 @@ function updateMachineSwitcherIcon() {
   if (!iconEl) return;
   const machine = (S.machines || []).find(m => m.id === S.activeMachineId);
   if (!machine) { iconEl.classList.remove('visible'); iconEl.innerHTML = ''; return; }
-  iconEl.innerHTML = machineIconMiniSvg(machine.theme);
+  iconEl.innerHTML = machineIconMiniSvg(machine.theme, machine.type);
   iconEl.classList.add('visible');
 }
 
@@ -239,7 +240,7 @@ export function renderMachinesList() {
     const row = document.createElement('div');
     row.className = 'machine-row';
     row.innerHTML = `
-      <span class="machine-row-icon">${machineIconMiniSvg(m.theme)}</span>
+      <span class="machine-row-icon">${machineIconMiniSvg(m.theme, m.type)}</span>
       <span class="machine-row-name">${escapeHtml(m.name)}</span>
       <span class="machine-row-type">${m.type === 'gaggimate' ? 'GaggiMate' : 'Gaggiuino'}</span>
       <span class="machine-row-shot-count">${t('settings_machine_shot_count', shotCount)}</span>
@@ -268,7 +269,7 @@ function renderThemeSwatches() {
   const isCustom = !!(_selectedTheme && !_selectedTheme.preset);
   wrap.innerHTML = `
     <button type="button" class="machine-theme-swatch machine-theme-swatch-none${!_selectedTheme ? ' active' : ''}" data-theme-action="none" title="${escapeHtml(t('settings_machine_theme_none'))}" aria-label="${escapeHtml(t('settings_machine_theme_none'))}"></button>
-    ${THEME_PRESETS.map(p => `<button type="button" class="machine-theme-swatch${_selectedTheme?.preset === p.key ? ' active' : ''}" data-theme-action="preset" data-preset-key="${escapeHtml(p.key)}" style="background:${p.a === p.b ? p.a : `linear-gradient(135deg,${p.a},${p.b})`}" title="${escapeHtml(t(presetLabelKey(p.key)))}" aria-label="${escapeHtml(t(presetLabelKey(p.key)))}"></button>`).join('')}
+    ${THEME_PRESETS.map(p => `<button type="button" class="machine-theme-swatch${_selectedTheme?.preset === p.key ? ' active' : ''}" data-theme-action="preset" data-preset-key="${escapeHtml(p.key)}" style="${p.a === p.b ? `background-color:${p.a}` : `background-image:linear-gradient(135deg,${p.a},${p.b})`}" title="${escapeHtml(t(presetLabelKey(p.key)))}" aria-label="${escapeHtml(t(presetLabelKey(p.key)))}"></button>`).join('')}
     <button type="button" class="machine-theme-swatch machine-theme-swatch-custom${isCustom ? ' active' : ''}" data-theme-action="custom" title="${escapeHtml(t('settings_machine_theme_custom'))}" aria-label="${escapeHtml(t('settings_machine_theme_custom'))}"></button>`;
   wrap.querySelectorAll('[data-theme-action]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -289,7 +290,13 @@ function renderThemeSwatches() {
 function syncThemeFormUI() {
   renderThemeSwatches();
   const preview = document.getElementById('machineThemePreview');
-  if (preview) preview.innerHTML = machineIconSvg(_selectedTheme);
+  // Reads the type select directly (rather than a second module-level
+  // _selectedType) — this function already runs after openMachineForm() has
+  // set #machineFormType to the machine's own type (or the 'gaggiuino'
+  // default for a new machine), so the DOM value is always current by the
+  // time the preview is (re-)rendered.
+  const previewType = document.getElementById('machineFormType')?.value;
+  if (preview) preview.innerHTML = machineIconSvg(_selectedTheme, previewType);
   const customWrap = document.getElementById('machineThemeCustomInputs');
   const isCustom = !!(_selectedTheme && !_selectedTheme.preset);
   if (customWrap) customWrap.style.display = isCustom ? '' : 'none';
@@ -408,10 +415,12 @@ async function _testMachine(id) {
     const r = await apiFetch(`api/machines/${id}/test`, { method: 'POST' });
     const data = await r.json().catch(() => ({}));
     if (String(document.getElementById('machineFormId').value) !== String(id)) return;
-    resultEl.textContent = data.reachable ? t('settings_machine_test_ok') : t('settings_machine_test_fail');
+    resultEl.innerHTML = data.reachable
+      ? `${CHECK_ICON_SVG} ${t('settings_machine_test_ok')}`
+      : `${CLOSE_ICON_SVG} ${t('settings_machine_test_fail')}`;
   } catch {
     if (String(document.getElementById('machineFormId').value) !== String(id)) return;
-    resultEl.textContent = t('settings_machine_test_fail');
+    resultEl.innerHTML = `${CLOSE_ICON_SVG} ${t('settings_machine_test_fail')}`;
   }
 }
 

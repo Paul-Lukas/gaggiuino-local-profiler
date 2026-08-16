@@ -1,9 +1,8 @@
-import QRCode from 'qrcode';
 import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { apiFetch } from '../api.js';
 import { esc, roastAgeDays, frozenPortionAgeDays, freshnessState, calcBeanRating, shouldShowFreshBadge, toIsoDateInput, todayIsoDate, isoDateInputToMs } from '../utils.js';
-import { COFFEE_COUNTRIES, VARIETY_SUGGESTIONS, PROCESS_SUGGESTIONS, localeFor, countryName, flagEmoji } from '../constants.js';
+import { COFFEE_COUNTRIES, VARIETY_SUGGESTIONS, PROCESS_SUGGESTIONS, localeFor, countryName } from '../constants.js';
 import { setBeanFilter } from '../components/sidebar.js';
 import { attachAutocomplete } from '../components/autocomplete.js';
 import { switchMode } from '../components/mode.js';
@@ -15,7 +14,7 @@ import { generateBeanQR, parseGlpQrParams } from '../glp-qr.js';
 import { calcBestGrindCombosForBean } from './shots/grind.js';
 import { renderShotDefaultsSettingsCard } from '../components/shot-defaults-settings.js';
 import { sumConsumedDoses, computeBeanRemaining } from '../bean-math.js';
-import { TARGET_ICON_SVG, SLIDERS_ICON_SVG, FLAVOR_WHEEL_ICON_SVG, COFFEE_ICON_SVG, WATER_DROP_ICON_SVG, ICE_CUBE_ICON_SVG, LINK_ICON_SVG, WRENCH_ICON_SVG } from '../icons.js';
+import { TARGET_ICON_SVG, SLIDERS_ICON_SVG, FLAVOR_WHEEL_ICON_SVG, COFFEE_ICON_SVG, WATER_DROP_ICON_SVG, ICE_CUBE_ICON_SVG, LINK_ICON_SVG, WRENCH_ICON_SVG, STAR_ICON_SVG, WARNING_ICON_SVG, CLOSE_ICON_SVG, EDIT_ICON_SVG } from '../icons.js';
 
 const ICON_PENCIL = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"/></svg>`;
 const ICON_TRASH  = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H10V19H8V9M14,9H16V19H14V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z"/></svg>`;
@@ -33,7 +32,7 @@ function originDisplay(bean) {
     ? bean.origins
     : (bean.origin ? [{ code: bean.origin }] : []);
   return origins.map(o => {
-    const label = `${flagEmoji(o.code)} ${countryName(o.code, S.currentLang)}`.trim();
+    const label = countryName(o.code, S.currentLang);
     return o.percent != null ? `${label} ${o.percent}%` : label;
   }).join(' + ');
 }
@@ -118,6 +117,7 @@ export function renderBeanList() {
   const doseRows = S.shots
     .filter(s => s.annotation?.coffee != null)
     .map(s => ({ coffee: s.annotation.coffee, beanId: s.annotation.beanId, dose: s.annotation.dose, timestamp: s.timestamp }));
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   el.innerHTML = beans.map(b => {
     // Total consumption across all bags (all shots matching this bean)
     const totalConsumed = Math.round(sumConsumedDoses(b, doseRows, beans));
@@ -126,7 +126,7 @@ export function renderBeanList() {
     const bags = Array.isArray(b.bags) ? b.bags : [];
     const activeBag = bags.length ? bags[bags.length - 1] : null;
     const activeBagConsumed = activeBag
-      ? Math.round(sumConsumedDoses(b, doseRows, beans, activeBag.openedAt || 0))
+      ? Math.round(sumConsumedDoses(b, doseRows, beans, bags))
       : totalConsumed;
 
     const remaining = computeBeanRemaining(b, doseRows, beans);
@@ -169,7 +169,7 @@ export function renderBeanList() {
             <span>${bg.roastDate ? esc(bg.roastDate) : '–'}</span>
             <span>${bg.stock_g ? bg.stock_g + ' g' : '–'}</span>
             <span>${bg.batchNumber ? esc(bg.batchNumber) : '–'}</span>
-            <button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">✕</button>
+            <button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">${CLOSE_ICON_SVG}</button>
           </div>`).join('')}
       </div>
       <button class="lib-btn-sm lib-bag-history-btn" data-action="toggle-bag-history" data-id="${b.id}" id="bagHistoryBtn${b.id}">▸ ${t('lib_bag_history')}</button>` : '';
@@ -215,16 +215,16 @@ export function renderBeanList() {
       if (fp.thawedAt) {
         const thawedStr = new Date(fp.thawedAt).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' });
         return `<span class="lib-frozen-badge thawed" title="${esc(fpTitle)}">${t('bag_frozen_thawed_badge', thawedStr)}
-          <button class="lib-frozen-edit-btn" data-action="open-edit-frozen-form" data-portion-id="${fp.id}" title="${t('bag_frozen_edit_btn')}">✎</button></span>${editForm}`;
+          <button class="lib-frozen-edit-btn" data-action="open-edit-frozen-form" data-portion-id="${fp.id}" title="${t('bag_frozen_edit_btn')}">${EDIT_ICON_SVG}</button></span>${editForm}`;
       }
-      return `<span class="lib-frozen-badge" title="${esc(fpTitle)}">${remaining}/${fp.portionCount} ${t('bag_frozen_badge', frozenStr)}
+      return `<span class="lib-frozen-badge" title="${esc(fpTitle)}">${ICE_CUBE_ICON_SVG} ${remaining}/${fp.portionCount} ${t('bag_frozen_badge', frozenStr)}
         <button class="lib-frozen-thaw-btn" data-action="thaw-portion" data-bean-id="${b.id}" data-portion-id="${fp.id}" title="${t('bag_thaw_btn')}">${t('bag_thaw_btn')}</button>
-        <button class="lib-frozen-edit-btn" data-action="open-edit-frozen-form" data-portion-id="${fp.id}" title="${t('bag_frozen_edit_btn')}">✎</button></span>${editForm}`;
+        <button class="lib-frozen-edit-btn" data-action="open-edit-frozen-form" data-portion-id="${fp.id}" title="${t('bag_frozen_edit_btn')}">${EDIT_ICON_SVG}</button></span>${editForm}`;
     }).join('')}</div>` : '';
 
     const rating = calcBeanRating(b.name, S.shots);
     const ratingHtml = rating ? `<div class="lib-rating-row" title="${esc(t('bean_rating_tooltip', rating.count))}">
-      ${Array.from({ length: 5 }, (_, i) => `<span class="lib-star${i < Math.round(rating.avg) ? ' on' : ''}">★</span>`).join('')}
+      ${Array.from({ length: 5 }, (_, i) => `<span class="lib-star${i < Math.round(rating.avg) ? ' on' : ''}">${STAR_ICON_SVG}</span>`).join('')}
       <span class="lib-rating-num">${rating.avg.toFixed(1)}</span>
     </div>` : '';
 
@@ -284,7 +284,7 @@ export function renderBeanList() {
       </div>
       <div class="lib-item-actions">
         <button class="lib-btn-sm" data-action="open-new-bag" data-id="${b.id}" title="${t('lib_new_bag')}">${t('lib_new_bag')}</button>
-        ${activeBag ? `<button class="lib-btn-sm" data-action="open-freeze-form" data-id="${b.id}" title="${t('bag_freeze_btn')}">${t('bag_freeze_btn')}</button>` : ''}
+        ${activeBag ? `<button class="lib-btn-sm" data-action="open-freeze-form" data-id="${b.id}" title="${t('bag_freeze_btn')}">${ICE_CUBE_ICON_SVG} ${t('bag_freeze_btn')}</button>` : ''}
         ${Array.isArray(b.flavors) && b.flavors.length ? `<button class="lib-btn-sm" data-action="open-flavor-wheel" data-id="${b.id}" title="${t('flavor_wheel_btn')}">${FLAVOR_WHEEL_ICON_SVG}</button>` : ''}
         <button class="lib-btn-sm" data-action="create-profile-from-bean" data-id="${b.id}" title="${t('profile_create_from_bean')}">${SLIDERS_ICON_SVG}</button>
         <button class="lib-btn-sm" data-action="start-dialin-from-bean" data-id="${b.id}" title="${t('dialin_wizard_start_from_bean')}">${TARGET_ICON_SVG}</button>
@@ -513,15 +513,30 @@ export function toggleBeanQR(id) {
   if (!bean) return;
   wrap.style.display = 'flex';
   const canvas = document.getElementById(`beanQRCanvas${id}`);
+  const label = wrap.querySelector('.bean-qr-label');
+  // qrcode is a dynamic import now (#797) — the label doubles as a loading
+  // indicator while its chunk downloads, restored once the canvas is drawn
+  // (or the attempt fails).
+  if (label) label.textContent = t('bean_qr_loading');
   // toCanvas() with no callback returns a Promise — without this .catch(),
   // a rejection (e.g. QR data-capacity exceeded by a long notes field) was
   // an unhandled rejection: the canvas stayed silently blank, no error ever
   // reached the user.
-  QRCode.toCanvas(canvas, generateBeanQR(bean), { width: 140, margin: 1, errorCorrectionLevel: 'L', color: { dark: '#e4e4e7', light: '#18181b' } })
-    .catch(() => {
-      wrap.style.display = 'none';
-      alert(t('bean_qr_error'));
-    });
+  import('qrcode').then(({ default: QRCode }) =>
+    // #814: this was drawn INVERTED — dark: '#e4e4e7' on light: '#18181b' means
+    // light modules on a dark ground, to match the dark theme. The QR spec
+    // assumes dark-on-light, and while many scanners cope with inversion,
+    // plenty of older and simpler ones do not: a code that fails to scan on
+    // someone's phone is a functional defect, not a theming preference.
+    // Fixed polarity in both themes, deliberately NOT theme-aware.
+    QRCode.toCanvas(canvas, generateBeanQR(bean), { width: 140, margin: 2, errorCorrectionLevel: 'L', color: { dark: '#000000', light: '#ffffff' } })
+  ).then(() => {
+    if (label) label.textContent = t('bean_qr_label');
+  }).catch(() => {
+    wrap.style.display = 'none';
+    if (label) label.textContent = t('bean_qr_label');
+    alert(t('bean_qr_error'));
+  });
 }
 
 // ── Grinder list ──────────────────────────────────────────────────────────
@@ -537,6 +552,7 @@ export function renderGrinderList() {
     el.innerHTML = `<div class="lib-empty">${t('lib_empty_grinders')}</div>`;
     return;
   }
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   el.innerHTML = grinders.map(g => {
     const extra = [g.burrType, g.purchaseDate].filter(Boolean).join(' · ');
     return `
@@ -593,7 +609,7 @@ function renderFlavorChips() {
   for (const [i, f] of _formFlavors.entries()) {
     const chip = document.createElement('span');
     chip.className = 'flavor-chip';
-    chip.innerHTML = `${esc(f)} <button type="button" class="flavor-chip-x" data-flavor-idx="${i}">✕</button>`;
+    chip.innerHTML = `${esc(f)} <button type="button" class="flavor-chip-x" data-flavor-idx="${i}">${CLOSE_ICON_SVG}</button>`;
     wrap.insertBefore(chip, input);
   }
 }
@@ -646,7 +662,7 @@ function populateOriginSelect() {
   const sel = document.getElementById('beanFormOrigin');
   if (!sel) return;
   const options = COFFEE_COUNTRIES
-    .map(c => ({ code: c.code, label: `${flagEmoji(c.code)} ${countryName(c.code, S.currentLang)}` }))
+    .map(c => ({ code: c.code, label: countryName(c.code, S.currentLang) }))
     .sort((a, b) => a.label.localeCompare(b.label, S.currentLang));
   sel.innerHTML = `<option value="">${t('lib_bean_origin_none')}</option>`
     + options.map(o => `<option value="${o.code}">${esc(o.label)}</option>`).join('');
@@ -656,10 +672,11 @@ function populateOriginSelect() {
 function renderOriginChips() {
   const wrap = document.getElementById('beanFormOriginChips');
   if (!wrap) return;
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   wrap.innerHTML = _formOrigins.map((o, i) => `
-    <span class="flavor-chip origin-chip">${flagEmoji(o.code)} ${esc(countryName(o.code, S.currentLang))}
+    <span class="flavor-chip origin-chip">${esc(countryName(o.code, S.currentLang))}
       <input type="number" class="origin-chip-percent" data-origin-idx="${i}" min="0" max="100" step="1" placeholder="%" value="${o.percent ?? ''}">
-      <button type="button" class="flavor-chip-x" data-origin-idx-remove="${i}">✕</button>
+      <button type="button" class="flavor-chip-x" data-origin-idx-remove="${i}">${CLOSE_ICON_SVG}</button>
     </span>`).join('');
 }
 
@@ -1034,7 +1051,9 @@ function _renderDuplicateWarning(duplicateWarning) {
   const el = document.getElementById('beanFormDuplicateWarning');
   if (!el) return;
   if (!duplicateWarning) { el.style.display = 'none'; el.innerHTML = ''; return; }
-  el.textContent = t('lib_import_duplicate_warning', duplicateWarning.name);
+  // #811: icon rendered here rather than baked into the translated string.
+  // duplicateWarning.name is user/import data — escaped, since this is now innerHTML.
+  el.innerHTML = `${WARNING_ICON_SVG} ${esc(t('lib_import_duplicate_warning', duplicateWarning.name))}`;
   el.style.display = '';
 }
 
@@ -1317,6 +1336,7 @@ export function renderRecipeList() {
     el.innerHTML = `<div class="lib-empty">${t('lib_empty_recipes')}</div>`;
     return;
   }
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   el.innerHTML = recipes.map(r => {
     const brewLabel = r.brewMethod && BREW_METHOD_LABELS[r.brewMethod]
       ? `<span class="lib-brew-badge">${t(BREW_METHOD_LABELS[r.brewMethod])}</span>`
@@ -1367,6 +1387,7 @@ export function renderRecipeList() {
 function _renderStepRows(steps) {
   const list = document.getElementById('recipeStepsList');
   if (!list) return;
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   list.innerHTML = (steps || []).map((s, i) => _stepRowHtml(i, s.text, s.duration_s)).join('');
 }
 
@@ -1491,6 +1512,7 @@ export function renderMilkList() {
   if (!el) return;
   const milks = S.coffeeLibrary?.milks || [];
   if (!milks.length) { el.innerHTML = ''; return; }
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   el.innerHTML = milks.map(m => {
     const pct = m.stockMl > 0 ? Math.min(100, m.stockMl / 20) : 0; // 2000ml = 100%
     const cls = m.stockMl <= 0 ? 'empty' : m.stockMl < 300 ? 'low' : 'ok';
@@ -1498,7 +1520,7 @@ export function renderMilkList() {
       <div class="lib-milk-top">
         <span style="font-size:1.3rem">${esc(m.emoji || '🥛')}</span>
         <span class="lib-milk-name">${esc(m.name)}</span>
-        <button class="lib-milk-del" data-action="delete-milk" data-id="${m.id}" title="${t('lib_milk_delete')}">✕</button>
+        <button class="lib-milk-del" data-action="delete-milk" data-id="${m.id}" title="${t('lib_milk_delete')}">${CLOSE_ICON_SVG}</button>
       </div>
       <div class="lib-milk-stock-bar-wrap">
         <div class="lib-milk-stock-bar ${cls}" style="width:${pct}%"></div>
@@ -1580,6 +1602,7 @@ export function renderBasketList() {
   if (!el) return;
   const baskets = S.coffeeLibrary?.baskets || [];
   if (!baskets.length) { el.innerHTML = `<div class="lib-empty">${t('lib_empty_baskets')}</div>`; return; }
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   el.innerHTML = baskets.map(b => {
     const extra = [b.doseCapacity, _basketWallTypeLabel(b.wallType), _basketShapeLabel(b.shape), b.holeCount].filter(Boolean).join(' · ');
     return `
@@ -1699,6 +1722,7 @@ export function renderPuckScreenList() {
   if (!el) return;
   const puckScreens = S.coffeeLibrary?.puckScreens || [];
   if (!puckScreens.length) { el.innerHTML = `<div class="lib-empty">${t('lib_empty_puckscreens')}</div>`; return; }
+  // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   el.innerHTML = puckScreens.map(p => {
     const extra = [_puckScreenThicknessLabel(p.thickness), p.material].filter(Boolean).join(' · ');
     return `

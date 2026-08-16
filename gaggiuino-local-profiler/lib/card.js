@@ -1,7 +1,8 @@
 'use strict';
 
-const fs   = require('fs');
-const path = require('path');
+const fs     = require('fs');
+const path   = require('path');
+const crypto = require('crypto');
 const { COFFEE_COUNTRY_CODES } = require('./coffee-countries');
 const { imagePath } = require('./services/ImageService');
 
@@ -93,15 +94,116 @@ const LEGACY_GLP = {
     star: '#f59e0b', starDim: '#3f3f46',
 };
 
-// Gray scales, keyed by theme (and by accent for crema, the only theme that
-// also warms the neutral scale — public-src/style.css [data-accent="crema"]
-// / [data-theme="light"][data-accent="crema"]).
-const GRAY_SCALES = {
-    dark:        { 200: '#e4e4e7', 400: '#a1a1aa', 500: '#9a9aa3', 700: '#3f3f46', 800: '#27272a', 900: '#18181b', 950: '#09090b' },
-    'dark-crema':  { 200: '#f2e6d8', 400: '#c9b8a4', 500: '#b0a08d', 700: '#4e3a2b', 800: '#2e2118', 900: '#1e1611', 950: '#14100c' },
-    light:       { 200: '#18181b', 400: '#3f3f46', 500: '#52525b', 700: '#d4d4d8', 800: '#f4f4f5', 900: '#fafafa', 950: '#ffffff' },
-    'light-crema': { 200: '#2a1b0f', 400: '#55442f', 500: '#5f4c38', 700: '#d4b48c', 800: '#ead5b5', 900: '#f3e4ce', 950: '#fbf3e7' },
+// ── GLP-CARD-TOKENS ──────────────────────────────────────────────────────
+// Mirrors public-src/style.css's :root design-token layer (#811 "Instrument"
+// redesign) for this server-side canvas renderer, which cannot read CSS
+// custom properties. NOTHING keeps this in sync automatically — it is a
+// hand-copied snapshot. test/card-tokens.test.js re-parses style.css at
+// test time and fails if these values drift from it, which is the only
+// guard that exists; a change to style.css's token *structure* (e.g. which
+// selector overrides which property) still needs this block updated by hand
+// as well as that test's own selector map.
+//
+// fs-1..6 / sp-1..6 are mirrored for documentation/audit only — nothing
+// below consumes them. The canvas is a fixed 1080px image, not a 16px-base
+// -font page, so multiplying rem values by a browser font-size would not
+// reproduce the same visual hierarchy the six-step scale gives the live UI;
+// the hand-tuned pixel sizes throughout this file are a deliberately
+// separate scale for that reason. radius/radius-sm ARE consumed (see
+// RADIUS_PX/RADIUS_SM_PX below), because a fixed-canvas radius doesn't have
+// that rem-vs-px ambiguity.
+const CARD_TOKENS = {
+    fs: { 1: 0.8125, 2: 0.875, 3: 1, 4: 1.25, 5: 1.625, 6: 2.25 },  // rem
+    sp: { 1: 4, 2: 8, 3: 12, 4: 16, 5: 24, 6: 32 },                  // px
+    radius: 10, radiusSm: 4,                                          // px
+    // Gray scale per theme/accent combo, restricted to the roles this card
+    // actually reads (200 text / 400 soft / 500 muted / 700 line / 800
+    // card-chart surface / 900 card surface / 950 page background — same
+    // role naming style.css itself uses). Keyed by theme (and by accent for
+    // crema, the only accent that also warms the neutral scale —
+    // style.css [data-accent="crema"] / [data-theme="light"][data-accent=
+    // "crema"]).
+    gray: {
+        dark:          { 200: '#eceded', 400: '#b6babd', 500: '#a4a9ad', 700: '#2b2f33', 800: '#1a1c1f', 900: '#131416', 950: '#0d0e10' },
+        'dark-crema':  { 200: '#f2e6d8', 400: '#c9b8a4', 500: '#b0a08d', 700: '#4e3a2b', 800: '#2e2118', 900: '#1e1611', 950: '#14100c' },
+        light:         { 200: '#1b1d1f', 400: '#4a4e52', 500: '#585d61', 700: '#dcdcd8', 800: '#eeeeec', 900: '#f7f7f6', 950: '#ffffff' },
+        'light-crema': { 200: '#2a1b0f', 400: '#55442f', 500: '#5f4c38', 700: '#d4b48c', 800: '#ead5b5', 900: '#f3e4ce', 950: '#fbf3e7' },
+    },
+    // ok/warn/err mirror the same --ok/--warn/--err custom properties the
+    // gray scale above mirrors, keyed the same way. dark-crema has no own
+    // --ok/--warn block in style.css (only --err is overridden there), so it
+    // reuses dark's values -- same inheritance style.css itself relies on.
+    semantic: {
+        dark:          { ok: '#5cb98a', warn: '#d3a03f', err: '#e0705f' },
+        'dark-crema':  { ok: '#5cb98a', warn: '#d3a03f', err: '#e17363' },
+        light:         { ok: '#2f7350', warn: '#7d5510', err: '#a83526' },
+        'light-crema': { ok: '#0d622c', warn: '#7a4a05', err: '#a71b1b' },
+    },
 };
+const GRAY_SCALES = CARD_TOKENS.gray;
+const SEMANTIC_COLORS = CARD_TOKENS.semantic;
+
+// Canvas scale factor established by the pre-#811 CHIP_R constant (14px,
+// scaled up from the single old 8px --radius token for this 1080px canvas:
+// 14/8 = 1.75) — reused here so the post-#811 two-tier radius scales up the
+// same way instead of picking a fresh, unexplained ratio.
+const CANVAS_SCALE = 1.75;
+const RADIUS_SM_PX = Math.round(CARD_TOKENS.radiusSm * CANVAS_SCALE); // controls: chips, pills
+const RADIUS_PX    = Math.round(CARD_TOKENS.radius   * CANVAS_SCALE); // containers: chart card, stats tiles
+
+// ── Non-text line contrast (WCAG 1.4.11, >=3:1) ─────────────────────────
+// GLP.border/borderDim below are this card's grid lines, card outlines and
+// chip strokes. Measured directly against the surfaces they're actually
+// drawn on: the raw --gray-700 mirrored above clears only 1.18-1.67:1
+// against --gray-800/-900 in every one of the 4 combos — nowhere near 3:1.
+// style.css's own #811 audit only checked TEXT roles (>=4.5:1); --gray-700
+// used AS A LINE was never checked there, because the live app can treat it
+// as a decorative hairline (other affordances carry the boundary). A static
+// share image doesn't get that latitude, so it's lifted here the same way
+// glp-lovelace-card's _applyAccentLineContrast() lifts --glp-aline: blend
+// toward the text colour in 5% steps until the worse of the two surfaces
+// the line is drawn against (bgChart/bgCard, i.e. gray-800/gray-900) clears
+// 3:1, keeping the earliest step that passes.
+function hexToRgbArr(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function rgbArrToHex([r, g, b]) {
+    return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+}
+function relLuminance([r, g, b]) {
+    const lin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+function contrastRatio(rgbA, rgbB) {
+    const a = relLuminance(rgbA), b = relLuminance(rgbB);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+function liftLineTowardText(lineHex, worstBgHex, textHex) {
+    const bg = hexToRgbArr(worstBgHex), text = hexToRgbArr(textHex);
+    const line = hexToRgbArr(lineHex);
+    if (contrastRatio(line, bg) >= 3) return lineHex;
+    let out = line;
+    for (let t = 0.05; t <= 1.0001; t += 0.05) {
+        out = line.map((c, i) => c + (text[i] - c) * t);
+        if (contrastRatio(out, bg) >= 3) break;
+    }
+    return rgbArrToHex(out);
+}
+// Also fixes a real bug, not just a WCAG nicety: buildPalette() previously
+// set borderDim to the exact same gray[800] value as bgChart, so the legend
+// -chip stroke was stroking in the same colour as its own fill — measured
+// 1.00:1 (fully invisible) in every theme, including the frozen LEGACY_GLP
+// snapshot below (left untouched there deliberately, see its own comment).
+// border and borderDim now share this one lifted line colour.
+const LINE_COLORS = Object.fromEntries(
+    Object.entries(CARD_TOKENS.gray).map(([theme, g]) => {
+        const worstBg = contrastRatio(hexToRgbArr(g[700]), hexToRgbArr(g[800])) <=
+                         contrastRatio(hexToRgbArr(g[700]), hexToRgbArr(g[900]))
+            ? g[800] : g[900];
+        return [theme, liftLineTowardText(g[700], worstBg, g[200])];
+    })
+);
 
 // accent-from/accent-to per accent + theme (public-src/style.css
 // [data-accent=...] and [data-theme="light"][data-accent=...] blocks) — only
@@ -130,12 +232,18 @@ function buildPalette(accent, theme) {
     if (!accent && !theme) return { ...LEGACY_GLP };
     const a  = ACCENTS[accent] ? accent : 'amber';
     const th = theme === 'light' ? 'light' : 'dark';
-    const gray = GRAY_SCALES[a === 'crema' ? `${th}-crema` : th];
+    const key  = a === 'crema' ? `${th}-crema` : th;
+    const gray = GRAY_SCALES[key];
+    const line = LINE_COLORS[key];
+    const semantic = SEMANTIC_COLORS[key];
     const [accentFrom, accentTo] = ACCENTS[a][th];
     return {
         bg: gray[950], bgCard: gray[900], bgChart: gray[800],
         text: gray[200], textDim: gray[400], textMute: gray[500],
-        border: gray[700], borderDim: gray[800],
+        // #811: both drawn from the same contrast-lifted line colour — see
+        // the LINE_COLORS comment above for why raw gray[700]/[800] don't
+        // work here (and why borderDim used to equal bgChart outright).
+        border: line, borderDim: line,
         // Chart series colors are fixed across all themes/accents in the
         // live app too (public-src/views/shots/index.js dataset borderColor
         // values) — not derived from the accent.
@@ -143,6 +251,7 @@ function buildPalette(accent, theme) {
         accentFrom, accentTo,
         accentTint: `rgba(${hexToRgb(accentFrom)},`,
         star: accentFrom, starDim: gray[700],
+        ok: semantic.ok, warn: semantic.warn, err: semantic.err,
     };
 }
 
@@ -162,11 +271,27 @@ function Fs(size, bold = false) {
     return fam ? `${bold ? 'bold ' : ''}${size}px ${fam}` : F(size, bold);
 }
 
+// Matches the live UI's scoreColor() (public-src/utils.js) exactly now:
+// var(--ok) >=90 / var(--warn) >=70 / var(--err) below, the same "Score-
+// Skala bleibt: grün >= 90, gelb >= 70, rot darunter" rule the redesign plan
+// states. Previously used its own 80/60 thresholds and
+// accentFrom/textDim/textMute instead, so a shared card could tell a
+// different story about the same shot than the app that generated it.
+// GLP.ok/warn/err don't exist on the frozen LEGACY_GLP snapshot (old cached
+// card links, deliberately untouched by #811 — see its own comment above),
+// so this falls back to that snapshot's original 80/60 logic exactly when
+// they're absent, keeping every already-shared legacy image identical to
+// what it always rendered.
 function scoreColor(s, GLP) {
     if (s == null) return GLP.textMute;
-    if (s >= 80)   return GLP.accentFrom;
-    if (s >= 60)   return GLP.textDim;
-    return GLP.textMute;
+    if (!GLP.ok) {
+        if (s >= 80) return GLP.accentFrom;
+        if (s >= 60) return GLP.textDim;
+        return GLP.textMute;
+    }
+    if (s >= 90) return GLP.ok;
+    if (s >= 70) return GLP.warn;
+    return GLP.err;
 }
 
 // score >= 90 → outstanding, >= 80 → nailed it, >= 60 → solid, else → still
@@ -181,6 +306,32 @@ function scoreTierPhrase(score) {
 
 function clamp(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v));
+}
+
+// 31 characters: digits 2-9 and A-Z minus I/L/O — excludes every pair that
+// gets confused at small print sizes or on a re-photographed share card:
+// 0/O, 1/I/l (there's no lowercase on a card, but 1/I is the same problem).
+const INSTALL_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+
+// Deterministic short code for the install's kv.install_id UUID (#751,
+// lib/db.js ensureInstallId()) — always rendered on the share card (Max,
+// 13.08.), not a toggle. This derives a code from the EXISTING UUID; it is
+// not a new identity and does not touch the DB. Hashes the UUID (rather
+// than encoding its bytes directly) so the code has no structural
+// relationship to the UUID itself, and so the result is a fixed length
+// regardless of UUID format. The algorithm must never change once shipped —
+// it will already be sitting in screenshots people posted — which is why
+// test/card.test.js pins it against a fixed UUID/code pair.
+function installCodeFor(uuid) {
+    const hash = crypto.createHash('sha256').update(String(uuid)).digest();
+    const base = BigInt(INSTALL_CODE_ALPHABET.length);
+    let n = BigInt(`0x${hash.subarray(0, 8).toString('hex')}`); // 64 bits, plenty for 8 base-31 digits (31^8 ~= 8.5e11 < 2^64)
+    let chars = '';
+    for (let i = 0; i < 8; i++) {
+        chars = INSTALL_CODE_ALPHABET[Number(n % base)] + chars;
+        n /= base;
+    }
+    return `${chars.slice(0, 4)}-${chars.slice(4)}`;
 }
 
 // Looks up a bean's first resolvable coffee-growing-country code by exact
@@ -260,13 +411,16 @@ function roundRect(ctx, x, y, w, h, r) {
     ctx.closePath();
 }
 
-// Shared radius for every chip/pill/tile shape on the card — the canvas
-// equivalent of the live app's 8px --radius token (public-src/style.css),
-// scaled up for this 1080px-wide canvas. Used both by drawChip() below and
-// by the stats-grid tiles, so nothing on the card invents its own radius
-// anymore (previously: full-pill chipH/2 on the origin/legend chips and the
-// footer pill, a hardcoded 3px on the phase-duration chips). #463.
-const CHIP_R = 14;
+// Default radius for chip/pill shapes (origin chip, phase-duration chips,
+// legend chips, footer pill) — RADIUS_SM_PX, the canvas equivalent of
+// style.css's --radius-sm (controls) rather than --radius (containers), now
+// that #811 splits the two. The stats-grid tiles are containers, not
+// controls, and pass RADIUS_PX explicitly at their own drawChip() call
+// instead of taking this default. Used by drawChip() below so nothing on
+// the card invents its own radius (previously: full-pill chipH/2 on the
+// origin/legend chips and the footer pill, a hardcoded 3px on the
+// phase-duration chips). #463.
+const CHIP_R = RADIUS_SM_PX;
 
 // Fills (and optionally strokes) a rounded-rect chip/pill/tile in one call —
 // consolidates four near-identical roundRect+fill+stroke sites (origin chip,
@@ -324,6 +478,16 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     // environments, and card generation shouldn't depend on that succeeding.
     let library = null;
     try { library = require('./services/LibraryService').getLibrary(); } catch { /* ignore */ }
+
+    // Install code — always on (Max, 13.08.), not a toggle. Same defensive
+    // lazy-require pattern as LibraryService above: a share card must never
+    // fail over the install-id lookup, so a DB error just omits the code
+    // rather than throwing.
+    let installCode = null;
+    try {
+        const installId = require('./db').getInstallId();
+        if (installId) installCode = installCodeFor(installId);
+    } catch { /* ignore */ }
 
     const W = 1080;
     const H = format === 'story' ? 1920 : 1080;
@@ -437,10 +601,22 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     ctx.fillText(headerRight, W - PX, headerY + HH / 2);
     ctx.textAlign = 'left';
 
-    // ── SCORE BADGE ────────────────────────────────────────────────────────
+    // ── SCORE BADGE (legacy only) ────────────────────────────────────────────
+    // #811 "Instrument": the ring became a typographic verdict on every other
+    // surface this round touched — the live app's own .verdict-ring/.verdict-
+    // score was converted to plain type in #813 (public-src/style.css ~889-
+    // 912: "the score ring became type ... the surrounding ring, its inner
+    // disc and the 58px circle are gone"), and the Shot Card followed the
+    // same conversion. This ring survives ONLY on the frozen LEGACY_GLP
+    // snapshot (buildPalette() with no args, #462) so an already-shared/
+    // cached card link keeps rendering exactly as it always did; the current
+    // path draws the score inline with the verdict phrase further down
+    // instead (see "HERO" below). isLegacy mirrors the same GLP.ok presence
+    // check scoreColor() already uses to distinguish the two palettes.
+    const isLegacy = !GLP.ok;
     const scoreR = 74;
     const scx = W - PX - 88, scy = headerBottom + 90;
-    if (score != null) {
+    if (isLegacy && score != null) {
         // Background disc
         ctx.beginPath();
         ctx.arc(scx, scy, scoreR, 0, Math.PI * 2);
@@ -452,8 +628,9 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
         // (createConicGradient rendered near-invisible on @napi-rs/canvas —
         // stick to the linear-gradient technique proven in the approved mockup.)
         // Ring width ≈10% of the ring's own diameter and a butt (non-rounded)
-        // cap — matches the live app's .verdict-ring donut (public-src/style.css:
-        // 58px disc, 46px inner cutout → 6px ring, ~10% of diameter). #463.
+        // cap — matches the pre-#813 live app's now-retired .verdict-ring
+        // donut (58px disc, 46px inner cutout → 6px ring, ~10% of diameter),
+        // frozen here exactly as it always rendered. #463.
         const ringLW = scoreR * 0.2;
         const frac = Math.max(0, Math.min(1, score / 100));
         ctx.beginPath();
@@ -484,13 +661,17 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
         // Label
         ctx.font = F(15);
         ctx.fillStyle = GLP.textMute;
-        ctx.fillText('SCORE', scx, scy + 28);
+        ctx.fillText('Score', scx, scy + 28);
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
     }
 
     // ── HERO: bean name, origin stamp, score-tier phrase, rating, profile ──
-    const nameMaxW = W - 2 * PX - (score != null ? scoreR * 2 + 40 : 20);
+    // Only the legacy ring (see above) sits beside the headline and needs
+    // horizontal space reserved for it; the current typographic verdict sits
+    // on its own row below the headline (mirrors the prototype's <div
+    // class="verdict"> between .title-line and .band), so it needs none.
+    const nameMaxW = W - 2 * PX - (isLegacy && score != null ? scoreR * 2 + 40 : 20);
     ctx.textBaseline = 'alphabetic';
 
     const headlineBaseline = headerBottom + 54;
@@ -549,10 +730,39 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     ctx.font = Fs(52, true);
     ctx.fillText(headline, headlineX, headlineBaseline);
 
-    let cursorY = headlineBaseline + 32;
-
     const phrase = scoreTierPhrase(score);
-    if (phrase) {
+    // #811 "Instrument": on the current (non-legacy) palette the score joins
+    // the phrase into one baseline-aligned verdict line — "81 · Richtig gut
+    // getroffen" — the same line shape as the app's #verdictScoreNum/-Word
+    // and the Shot Card's .verdict-num/.verdict-sep/.verdict-word, and
+    // matching the prototype mockup's own <div class="verdict"><span
+    // class="n">81</span><span class="sep">·</span><span class="w">richtig
+    // gut getroffen</span></div>. VERDICT_NUM_SIZE (62px) reproduces the
+    // mockup's 5.8cqw number size on this fixed 1080px canvas (5.8% of 1080
+    // ≈ 62.6px) — the same weight-class the old ring's F(56, true) number
+    // used. The number keeps scoreColor(); the separator and phrase keep the
+    // muted/soft roles the phrase-only line already used.
+    const VERDICT_NUM_SIZE = 62;
+    let cursorY = headlineBaseline + (!isLegacy && score != null && phrase ? 78 : 32);
+
+    if (!isLegacy && score != null && phrase) {
+        let vx = PX;
+        ctx.textBaseline = 'alphabetic';
+        ctx.font = F(VERDICT_NUM_SIZE, true);
+        ctx.fillStyle = sColor;
+        const numText = String(score);
+        ctx.fillText(numText, vx, cursorY);
+        vx += ctx.measureText(numText).width + 14;
+
+        ctx.font = F(24);
+        ctx.fillStyle = GLP.textMute;
+        ctx.fillText('·', vx, cursorY);
+        vx += ctx.measureText('·').width + 14;
+
+        ctx.fillStyle = GLP.textDim;
+        ctx.fillText(phrase, vx, cursorY);
+        cursorY += 30;
+    } else if (phrase) {
         ctx.fillStyle = GLP.textDim;
         ctx.font = F(24);
         ctx.fillText(phrase, PX, cursorY);
@@ -592,7 +802,7 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
         const doseY = subY + 14;
         ctx.fillStyle = GLP.textMute;
         ctx.font = F(22);
-        ctx.fillText('DOSIS', PX, doseY);
+        ctx.fillText('Dosis', PX, doseY);
         ctx.fillStyle = GLP.text;
         ctx.font = F(22, true);
         ctx.fillText(doseParts.join('  '), PX + 78, doseY);
@@ -642,13 +852,29 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     const plotW  = outerW - CHART_L - CHART_R;
     const plotH  = outerH - CHART_T - CHART_B - LEGEND_H;
 
-    // Chart card background
-    roundRect(ctx, outerX, outerY, outerW, outerH, 8);
-    ctx.fillStyle = GLP.bgChart;
-    ctx.fill();
-    ctx.strokeStyle = GLP.border;
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    // #811 "Instrument": the chart loses its filled/bordered container per
+    // the prototype note ("Der Chart verliert seinen Kasten, behält Achsen
+    // und Serienfarben") — no more GLP.bgChart fill/GLP.border stroke on the
+    // current palette. Gated on isLegacy like the score badge above: LEGACY_
+    // GLP's border (gray-700, #3f3f46) was never lifted for contrast against
+    // GLP.bg (that lift only ever targeted bgChart/bgCard, see LINE_COLORS)
+    // and measures just 1.91:1 against LEGACY_GLP.bg — dropping the box
+    // there would leave the grid/axis lines failing WCAG 1.4.11 on every
+    // already-shared legacy card, so the legacy path keeps its box exactly
+    // as before. On the current palette, border/borderDim were verified to
+    // clear >=3:1 against GLP.bg for every accent/theme combo (3.44-4.29:1;
+    // see test/card.test.js "border/borderDim clear 3:1 against bgChart,
+    // bgCard and bg"), so the axis lines/labels need no new colour math.
+    // outerX/outerY/outerW/outerH stay the same coordinate box either way —
+    // axis ticks, legend and phase chips below all keep referencing them.
+    if (isLegacy) {
+        roundRect(ctx, outerX, outerY, outerW, outerH, RADIUS_PX);
+        ctx.fillStyle = GLP.bgChart;
+        ctx.fill();
+        ctx.strokeStyle = GLP.border;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    }
 
     // Y axis scales — pressure/flow keep a fixed 0-12 bar/(ml/s) scale on the
     // left axis. Weight and temperature share one right axis, 0..tempMaxScale
@@ -843,35 +1069,37 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
 
     // Build rows: [label, mainVal, subVal, special]
     // special = 'phasen' renders chips instead of text
+    // #811: labels were ALL-CAPS literals — sentence case now, same rule as
+    // the live UI ("Uppercase + letter-spacing entfällt ersatzlos").
     const leftRows = [];
     if (avgPres != null) leftRows.push([
-        'DRUCK  (Ø / MAX ZIEL)',
+        'Druck  (Ø / Max Ziel)',
         `${avgPres} bar`,
         (tgtPressVal && tgtPressVal > 0) ? `/ ${tgtPressVal} bar` : (maxPres ? `/ ${maxPres} max` : '')
     ]);
     if (avgFlow != null) leftRows.push([
-        'PUMPENFLUSS  (Ø / ZIEL)',
+        'Pumpenfluss  (Ø / Ziel)',
         `${avgFlow} ml/s`,
         (tgtFlowVal && tgtFlowVal > 0) ? `/ ${tgtFlowVal} ml/s` : ''
     ]);
     if (avgTemp != null) leftRows.push([
-        'TEMPERATUR  (Ø ±Σ / ZIEL)',
+        'Temperatur  (Ø ±Σ / Ziel)',
         `${avgTemp} °C`,
         [tempSD ? `±${tempSD}` : '', (tgtTempVal && tgtTempVal > 0) ? `/ ${tgtTempVal} °C` : ''].filter(Boolean).join('  ')
     ]);
     const rightRows = [];
     const weightVal = finalWeight ?? yieldG;
     if (weightVal != null) rightRows.push([
-        'GEWICHT  (GESAMT / FLUSS ENDE)',
+        'Gewicht  (Gesamt / Fluss Ende)',
         `${weightVal} g`,
         lastWF ? `/ ${lastWF} ml/s` : ''
     ]);
     if (avgWF != null) rightRows.push([
-        'GEWICHTSFLUSS  (Ø / MAX)',
+        'Gewichtsfluss  (Ø / Max)',
         `${avgWF} ml/s`,
         maxWF ? `/ ${maxWF} max` : ''
     ]);
-    rightRows.push(['DAUER', fmtDurSec(totalSec), '']);
+    rightRows.push(['Dauer', fmtDurSec(totalSec), '']);
 
     const nRows    = Math.max(leftRows.length, rightRows.length);
     const TILE_GAP = 14;
@@ -885,7 +1113,9 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     const drawStatsCol = (rows, tileX, textX) => {
         rows.forEach(([lbl, val, sub, special], r) => {
             const ry = statsY + r * (tileH + TILE_GAP);
-            drawChip(ctx, tileX, ry, tileW, tileH, { fill: GLP.bgCard });
+            // RADIUS_PX, not the drawChip() default (RADIUS_SM_PX): a stats
+            // tile is a small container, not a control. #811.
+            drawChip(ctx, tileX, ry, tileW, tileH, { fill: GLP.bgCard, radius: RADIUS_PX });
 
             ctx.textAlign    = 'left';
             ctx.textBaseline = 'alphabetic';
@@ -941,7 +1171,10 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     ctx.font = F(20);
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.fillText('Gaggiuino Local Profiler', PX, footY + 6);
+    // Install code always follows the app name — same "  ·  " join the
+    // header uses for shot number/date above. #811/#751.
+    const footerLeft = ['Gaggiuino Local Profiler', installCode].filter(Boolean).join('  ·  ');
+    ctx.fillText(footerLeft, PX, footY + 6);
 
     // "Made with GLP" pill — same soft-tint chip convention as the rest of the app
     const pillText = 'Made with GLP';
@@ -967,6 +1200,14 @@ module.exports = {
     isAvailable: () => createCanvas !== null,
     // Exported for unit testing of the pure logic pieces
     scoreTierPhrase,
+    scoreColor,
     resolveBeanOriginCode,
     starPoints,
+    installCodeFor,
+    INSTALL_CODE_ALPHABET,
+    CARD_TOKENS,
+    buildPalette,
+    LINE_COLORS,
+    contrastRatio,
+    hexToRgbArr,
 };

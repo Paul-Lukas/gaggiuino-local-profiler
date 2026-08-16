@@ -4,6 +4,7 @@ import { localeFor } from '../constants.js';
 import { apiFetch } from '../api.js';
 import { shareOrDownloadBlob } from '../utils.js';
 import { updateMachineBanner, updateOnboardingPanel, updateDemoBadge, updateLegacyMachineOptionsBanner } from './onboarding.js';
+import { updateApiPortClosedBanner } from './api-port-notice.js';
 import { showDevBuildBanner } from './dev-banner.js';
 import { syncInstallId } from '../views/setup-wizard.js';
 
@@ -69,9 +70,10 @@ function displaySyncCount() {
 }
 
 // #742: updates just the two DOM bits that show the shot count -- the
-// sidebar header's "(N)" text and the flap-board odometer -- without going
-// through the full renderSidebar()/loadData() cycle, which would be far too
-// expensive to run on every SYNC_PROGRESS tick (as fast as per-shot).
+// sidebar header's "(N)" text and the shot-count header text -- without
+// going through the full renderSidebar()/loadData() cycle, which would be
+// far too expensive to run on every SYNC_PROGRESS tick (as fast as
+// per-shot).
 function setShotCountDisplay(n) {
   const countEl = document.getElementById('shot-count');
   if (countEl) countEl.textContent = `(${n})`;
@@ -238,8 +240,8 @@ export async function updateStatus(machineId) {
       }
       knownShotCount = s.shotCount;
     }
-    // #729/#730/#735: shot-import progress bar next to the flap-board shot
-    // counter. Preferred path is SSE push (handleSyncProgressEvent/
+    // #729/#730/#735: shot-import progress bar next to the shot count
+    // header. Preferred path is SSE push (handleSyncProgressEvent/
     // handleSyncCompleteEvent, wired once in main.js's bootstrap,
     // independent of this poll). This polling fallback only runs when SSE
     // hasn't (yet, or ever) taken over for this session -- see
@@ -250,6 +252,15 @@ export async function updateStatus(machineId) {
       pollSyncProgressFallback(list, machineId);
     }
     // Token is no longer returned by /api/status — it comes from /api/token (initToken)
+    // #803: exposeApiPort mirrors the add-on option of the same name (default
+    // true if the field is somehow missing, e.g. an older server -- matches
+    // the option's own default). main.js's renderApiTokenCard() reads this to
+    // tell "no token because expose_api_port is off" apart from "no token yet".
+    S.apiPortExposed = s.exposeApiPort !== false;
+    // #807: the app-wide banner for that state -- re-evaluated on every poll
+    // (it removes itself again if the option is turned back on and a token
+    // arrives), same always-run/self-correct convention as the banners above.
+    updateApiPortClosedBanner();
     const dot = document.getElementById('statusDot');
     const railDot = document.getElementById('railStatusDot');
     const timeEl = document.getElementById('syncTime');
