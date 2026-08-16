@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Added
+- **The Coffee Library's bean list now shows the last grind setting you used for each bean**, right next to the existing "best combo" line — no more clicking into a bean or digging through shot history to remember it. Closes #829
+
 ## [2.34.0] – 2026-08-16
 
 ### Fixed

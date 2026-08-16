@@ -37,6 +37,33 @@ function originDisplay(bean) {
   }).join(' + ');
 }
 
+// Most recently used grind setting for a bean (#829). Deliberately reads
+// S.shots' own annotations rather than bean.knownGrindSettings: that array
+// is only written by the Guided Dial-In wizard's explicit "Save known grind"
+// button (dialin-wizard.js's dialinSaveKnownGrind, POST .../known-grind) —
+// it stays empty for the common case of a bean that's only ever been
+// annotated on normal shots, which would make "last used" silently blank
+// for most beans. Same beanId-first, name-fallback matching convention as
+// calcBestGrindCombosForBean/suggestGrindDoseForBean's preferMostRecent path
+// (#456), and the same "most recent shot for this bean" concept as that
+// function's lastForBean — just without its dose/priority-fallback logic,
+// since this only ever wants the plain last annotated grind.
+function lastUsedGrindForBean(bean, shots) {
+  const name = bean.name?.trim().toLowerCase();
+  const match = (shots || [])
+    .filter(s => {
+      const a = s.annotation || {};
+      if (!a.grinder?.trim() || !a.grindSetting) return false;
+      return bean.id != null && a.beanId != null
+        ? a.beanId === bean.id
+        : (a.coffee || '').trim().toLowerCase() === name;
+    })
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+  return match
+    ? { grinder: match.annotation.grinder.trim(), grindSetting: match.annotation.grindSetting, timestamp: match.timestamp }
+    : null;
+}
+
 // ── Library load ──────────────────────────────────────────────────────────
 export async function loadLibrary() {
   try {
@@ -238,6 +265,22 @@ export function renderBeanList() {
       <span class="lib-best-combo-score">${t('bean_best_combo_score', bestCombos[0].avgScore)}</span>
     </div>` : '';
 
+    // Last-used grind setting (#829) — separate from bestComboHtml above:
+    // that's the highest-*scoring* combo across history, this is simply
+    // whatever was dialed in most recently, which is what "what did I have
+    // this on last time" actually means when picking up a bean again.
+    const lastGrind = lastUsedGrindForBean(b, S.shots);
+    const lastGrindHtml = lastGrind ? (() => {
+      const usedAtMs = lastGrind.timestamp * 1000;
+      const ageDays = Math.floor((Date.now() - usedAtMs) / 86400000);
+      const dateStr = new Date(usedAtMs).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' });
+      return `<div class="lib-last-grind-row" title="${esc(t('bean_last_grind_tooltip', dateStr))}">
+      <span class="lib-last-grind-label">${t('bean_last_grind_label')}</span>
+      <span class="lib-last-grind-value">${esc(t('bean_best_combo_value', lastGrind.grinder, lastGrind.grindSetting))}</span>
+      <span class="lib-last-grind-ago">${t('bean_last_grind_ago', ageDays)}</span>
+    </div>`;
+    })() : '';
+
     const extraParts = [
       b.altitude_m ? t('bean_altitude_display', b.altitude_m) : '',
       b.producer, b.importer ? t('bean_importer_display', b.importer) : '',
@@ -274,6 +317,7 @@ export function renderBeanList() {
         ${brewHtml}
         ${ratingHtml}
         ${bestComboHtml}
+        ${lastGrindHtml}
         ${Array.isArray(b.flavors) && b.flavors.length ? `<div class="lib-flavor-row">${b.flavors.map(f => `<span class="flavor-chip flavor-chip-static">${esc(f)}</span>`).join('')}</div>` : ''}
         ${invHtml}
         ${frozenHtml}

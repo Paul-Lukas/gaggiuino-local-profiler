@@ -1210,6 +1210,10 @@
         .lib-best-combo-label { color: var(--gray-500); }
         .lib-best-combo-value { color: var(--gray-200); font-weight: 600; }
         .lib-best-combo-score { color: var(--ok); }
+        .lib-last-grind-row { display: flex; align-items: center; gap: var(--sp-1); margin-top: var(--sp-1); font-size: var(--fs-1); flex-wrap: wrap; }
+        .lib-last-grind-label { color: var(--gray-500); }
+        .lib-last-grind-value { color: var(--gray-200); font-weight: 600; }
+        .lib-last-grind-ago { color: var(--gray-500); }
         .lib-form-field-check { display: flex; align-items: center; padding-top: var(--sp-5); }
         .lib-check-label { display: flex; align-items: center; gap: var(--sp-2); cursor: pointer; font-size: var(--fs-2); color: var(--gray-300); }
         .lib-check-label input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--ok); cursor: pointer; }
