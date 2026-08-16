@@ -187,7 +187,7 @@ function updateMachineSwitcherIcon() {
   if (!iconEl) return;
   const machine = (S.machines || []).find(m => m.id === S.activeMachineId);
   if (!machine) { iconEl.classList.remove('visible'); iconEl.innerHTML = ''; return; }
-  iconEl.innerHTML = machineIconMiniSvg(machine.theme);
+  iconEl.innerHTML = machineIconMiniSvg(machine.theme, machine.type);
   iconEl.classList.add('visible');
 }
 
@@ -240,7 +240,7 @@ export function renderMachinesList() {
     const row = document.createElement('div');
     row.className = 'machine-row';
     row.innerHTML = `
-      <span class="machine-row-icon">${machineIconMiniSvg(m.theme)}</span>
+      <span class="machine-row-icon">${machineIconMiniSvg(m.theme, m.type)}</span>
       <span class="machine-row-name">${escapeHtml(m.name)}</span>
       <span class="machine-row-type">${m.type === 'gaggimate' ? 'GaggiMate' : 'Gaggiuino'}</span>
       <span class="machine-row-shot-count">${t('settings_machine_shot_count', shotCount)}</span>
@@ -290,7 +290,13 @@ function renderThemeSwatches() {
 function syncThemeFormUI() {
   renderThemeSwatches();
   const preview = document.getElementById('machineThemePreview');
-  if (preview) preview.innerHTML = machineIconSvg(_selectedTheme);
+  // Reads the type select directly (rather than a second module-level
+  // _selectedType) — this function already runs after openMachineForm() has
+  // set #machineFormType to the machine's own type (or the 'gaggiuino'
+  // default for a new machine), so the DOM value is always current by the
+  // time the preview is (re-)rendered.
+  const previewType = document.getElementById('machineFormType')?.value;
+  if (preview) preview.innerHTML = machineIconSvg(_selectedTheme, previewType);
   const customWrap = document.getElementById('machineThemeCustomInputs');
   const isCustom = !!(_selectedTheme && !_selectedTheme.preset);
   if (customWrap) customWrap.style.display = isCustom ? '' : 'none';
