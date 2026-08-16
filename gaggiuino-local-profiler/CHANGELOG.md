@@ -5,6 +5,7 @@
 
 ### Fixed
 - **Removed dead `getElementById('shot-count')` lookups** left over from flattening the sidebar's split-flap counter to plain text — the element they targeted no longer exists, so both were silent no-ops. Closes #775, closes #830
+- **Closed out a recurring CodeQL false-positive class and one real gap it surfaced.** Two newly re-flagged `js/xss-through-dom` alerts pointed at sinks already covered by this repo's own `esc()`/`escapeHtml()` helpers; one was confirmed safe and dismissed, but the Coffee Library's blend-origin percent field turned out to be the one interpolated value in that block CodeQL was right to flag — it reached `innerHTML` unescaped, relying entirely on upstream validation rather than escaping at the render site. Now escaped like every other field there. Closes #760
 
 ## [2.34.0] – 2026-08-16
 
