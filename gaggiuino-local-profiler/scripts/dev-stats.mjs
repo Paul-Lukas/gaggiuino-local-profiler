@@ -187,7 +187,10 @@ const SESSION_GAP_HOURS = 2;
 const SESSION_LEAD_IN_MINUTES = 30;
 
 function git(dir, args) {
-    return execSync(`git ${args}`, { cwd: dir, encoding: 'utf8' }).trim();
+    // maxBuffer bumped from Node's 1 MB default (#823-era commits have
+    // unusually long bodies; `git log --shortstat` across all repos now
+    // exceeds it and fails with ENOBUFS on some sandboxes).
+    return execSync(`git ${args}`, { cwd: dir, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim();
 }
 
 // Which history to measure. Workers branch from origin/main, but `dev` carries

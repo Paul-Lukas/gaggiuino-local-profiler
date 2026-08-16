@@ -18,8 +18,10 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
-    { version: '2.33.4', date: '2026-08-16', highlights: [
-        'Sidebar shot counter flattened from a mechanical split-flap odometer to plain text, matching the app\'s current design.',
+    { version: '2.34.0', date: '2026-08-16', highlights: [
+        '"Instrument" redesign: a cooler graphite look throughout the app, drawn icons in place of emoji, and a calmer, less boxy shot view with a guided metric line and a plain-text verdict.',
+        'Added the achievement stamp card: a browsable catalogue of 54 badges across 7 categories, unlocked automatically as you brew.',
+        'The machine icon (Settings, topbar, Live view) now draws the right body for your machine type, and toggle buttons/the sidebar shot counter got a lighter, less mechanical look.',
     ] },
     { version: '2.33.3', date: '2026-08-11', highlights: [
         'Live view updates faster on a fresh sensor reading: a WebSocket or MQTT sample now pushes to the Live tab instantly instead of waiting for the next 1-second poll.',
