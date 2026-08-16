@@ -11,8 +11,6 @@ import { resolveBeanForAnnotation } from '../views/shots/utils.js';
 export function renderSidebar() {
   const el = document.getElementById('shots');
   el.innerHTML = '';
-  const countEl = document.getElementById('shot-count');
-  if (countEl) countEl.textContent = `(${S.shots.length})`;
   updateFlapCounter(S.shots.length);
 
   const shots = sortedShots();

@@ -69,14 +69,11 @@ function displaySyncCount() {
   setShotCountDisplay((_globalBaseline ?? S.shots.length) + sum);
 }
 
-// #742: updates just the two DOM bits that show the shot count -- the
-// sidebar header's "(N)" text and the shot-count header text -- without
-// going through the full renderSidebar()/loadData() cycle, which would be
-// far too expensive to run on every SYNC_PROGRESS tick (as fast as
-// per-shot).
+// #742: updates just the sidebar's shot-count text -- since #823/#830
+// flattened it to a single element -- without going through the full
+// renderSidebar()/loadData() cycle, which would be far too expensive to run
+// on every SYNC_PROGRESS tick (as fast as per-shot).
 function setShotCountDisplay(n) {
-  const countEl = document.getElementById('shot-count');
-  if (countEl) countEl.textContent = `(${n})`;
   if (window.updateFlapCounter) window.updateFlapCounter(n);
 }
 

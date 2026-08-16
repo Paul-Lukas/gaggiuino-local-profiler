@@ -3,6 +3,9 @@
 ### Added
 - **The Coffee Library's bean list now shows the last grind setting you used for each bean**, right next to the existing "best combo" line — no more clicking into a bean or digging through shot history to remember it. Closes #829
 
+### Fixed
+- **Removed dead `getElementById('shot-count')` lookups** left over from flattening the sidebar's split-flap counter to plain text — the element they targeted no longer exists, so both were silent no-ops. Closes #775, closes #830
+
 ## [2.34.0] – 2026-08-16
 
 ### Fixed
