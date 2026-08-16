@@ -651,7 +651,7 @@
             font-size: var(--fs-1); transition: all .15s;
         }
         .analytics-filter-btn:hover { color: var(--gray-200); border-color: var(--gray-600); }
-        .analytics-filter-btn.active { background: var(--gray-700); color: var(--gray-200); border-color: var(--gray-700); }
+        .analytics-filter-btn.active { color: var(--gray-200); border-color: var(--accent-ink); font-weight: 600; }
 
         /* Calendar heatmap */
         .cal-wrapper { overflow-x: hidden; padding-bottom: var(--sp-1); }
@@ -1623,7 +1623,7 @@
             gap: var(--sp-1);
         }
         .sort-btn:hover     { color: var(--gray-200); background: rgba(255,255,255,.08); }
-        .sort-btn.active    { background: var(--gray-800); color: var(--gray-200); }
+        .sort-btn.active    { color: var(--gray-200); border-color: var(--accent-ink); font-weight: 600; }
 
         /* ── Freshness badge ── */
         .freshness-badge {
@@ -1699,7 +1699,7 @@
             display: inline-flex; align-items: center; gap: var(--sp-1);
         }
         .chart-tab:hover  { color: var(--gray-200); border-color: var(--gray-500); }
-        .chart-tab.active { background: var(--gray-800); color: var(--gray-200); border-color: var(--gray-500); }
+        .chart-tab.active { color: var(--gray-200); border-color: var(--accent-ink); font-weight: 600; }
         #expandChartBtn {
             margin-left: auto; background: transparent; color: var(--gray-600);
             border: 1px solid var(--gray-700); border-radius:var(--radius);
