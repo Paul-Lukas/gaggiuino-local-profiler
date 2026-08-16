@@ -601,10 +601,22 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     ctx.fillText(headerRight, W - PX, headerY + HH / 2);
     ctx.textAlign = 'left';
 
-    // ── SCORE BADGE ────────────────────────────────────────────────────────
+    // ── SCORE BADGE (legacy only) ────────────────────────────────────────────
+    // #811 "Instrument": the ring became a typographic verdict on every other
+    // surface this round touched — the live app's own .verdict-ring/.verdict-
+    // score was converted to plain type in #813 (public-src/style.css ~889-
+    // 912: "the score ring became type ... the surrounding ring, its inner
+    // disc and the 58px circle are gone"), and the Shot Card followed the
+    // same conversion. This ring survives ONLY on the frozen LEGACY_GLP
+    // snapshot (buildPalette() with no args, #462) so an already-shared/
+    // cached card link keeps rendering exactly as it always did; the current
+    // path draws the score inline with the verdict phrase further down
+    // instead (see "HERO" below). isLegacy mirrors the same GLP.ok presence
+    // check scoreColor() already uses to distinguish the two palettes.
+    const isLegacy = !GLP.ok;
     const scoreR = 74;
     const scx = W - PX - 88, scy = headerBottom + 90;
-    if (score != null) {
+    if (isLegacy && score != null) {
         // Background disc
         ctx.beginPath();
         ctx.arc(scx, scy, scoreR, 0, Math.PI * 2);
@@ -616,8 +628,9 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
         // (createConicGradient rendered near-invisible on @napi-rs/canvas —
         // stick to the linear-gradient technique proven in the approved mockup.)
         // Ring width ≈10% of the ring's own diameter and a butt (non-rounded)
-        // cap — matches the live app's .verdict-ring donut (public-src/style.css:
-        // 58px disc, 46px inner cutout → 6px ring, ~10% of diameter). #463.
+        // cap — matches the pre-#813 live app's now-retired .verdict-ring
+        // donut (58px disc, 46px inner cutout → 6px ring, ~10% of diameter),
+        // frozen here exactly as it always rendered. #463.
         const ringLW = scoreR * 0.2;
         const frac = Math.max(0, Math.min(1, score / 100));
         ctx.beginPath();
@@ -654,7 +667,11 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     }
 
     // ── HERO: bean name, origin stamp, score-tier phrase, rating, profile ──
-    const nameMaxW = W - 2 * PX - (score != null ? scoreR * 2 + 40 : 20);
+    // Only the legacy ring (see above) sits beside the headline and needs
+    // horizontal space reserved for it; the current typographic verdict sits
+    // on its own row below the headline (mirrors the prototype's <div
+    // class="verdict"> between .title-line and .band), so it needs none.
+    const nameMaxW = W - 2 * PX - (isLegacy && score != null ? scoreR * 2 + 40 : 20);
     ctx.textBaseline = 'alphabetic';
 
     const headlineBaseline = headerBottom + 54;
@@ -713,10 +730,39 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     ctx.font = Fs(52, true);
     ctx.fillText(headline, headlineX, headlineBaseline);
 
-    let cursorY = headlineBaseline + 32;
-
     const phrase = scoreTierPhrase(score);
-    if (phrase) {
+    // #811 "Instrument": on the current (non-legacy) palette the score joins
+    // the phrase into one baseline-aligned verdict line — "81 · Richtig gut
+    // getroffen" — the same line shape as the app's #verdictScoreNum/-Word
+    // and the Shot Card's .verdict-num/.verdict-sep/.verdict-word, and
+    // matching the prototype mockup's own <div class="verdict"><span
+    // class="n">81</span><span class="sep">·</span><span class="w">richtig
+    // gut getroffen</span></div>. VERDICT_NUM_SIZE (62px) reproduces the
+    // mockup's 5.8cqw number size on this fixed 1080px canvas (5.8% of 1080
+    // ≈ 62.6px) — the same weight-class the old ring's F(56, true) number
+    // used. The number keeps scoreColor(); the separator and phrase keep the
+    // muted/soft roles the phrase-only line already used.
+    const VERDICT_NUM_SIZE = 62;
+    let cursorY = headlineBaseline + (!isLegacy && score != null && phrase ? 78 : 32);
+
+    if (!isLegacy && score != null && phrase) {
+        let vx = PX;
+        ctx.textBaseline = 'alphabetic';
+        ctx.font = F(VERDICT_NUM_SIZE, true);
+        ctx.fillStyle = sColor;
+        const numText = String(score);
+        ctx.fillText(numText, vx, cursorY);
+        vx += ctx.measureText(numText).width + 14;
+
+        ctx.font = F(24);
+        ctx.fillStyle = GLP.textMute;
+        ctx.fillText('·', vx, cursorY);
+        vx += ctx.measureText('·').width + 14;
+
+        ctx.fillStyle = GLP.textDim;
+        ctx.fillText(phrase, vx, cursorY);
+        cursorY += 30;
+    } else if (phrase) {
         ctx.fillStyle = GLP.textDim;
         ctx.font = F(24);
         ctx.fillText(phrase, PX, cursorY);
@@ -806,15 +852,29 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     const plotW  = outerW - CHART_L - CHART_R;
     const plotH  = outerH - CHART_T - CHART_B - LEGEND_H;
 
-    // Chart card background — RADIUS_PX (container radius), not the old
-    // hardcoded 8 (a stale copy of the pre-#811 single --radius token,
-    // which is now 10 and split into --radius/--radius-sm). #811.
-    roundRect(ctx, outerX, outerY, outerW, outerH, RADIUS_PX);
-    ctx.fillStyle = GLP.bgChart;
-    ctx.fill();
-    ctx.strokeStyle = GLP.border;
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    // #811 "Instrument": the chart loses its filled/bordered container per
+    // the prototype note ("Der Chart verliert seinen Kasten, behält Achsen
+    // und Serienfarben") — no more GLP.bgChart fill/GLP.border stroke on the
+    // current palette. Gated on isLegacy like the score badge above: LEGACY_
+    // GLP's border (gray-700, #3f3f46) was never lifted for contrast against
+    // GLP.bg (that lift only ever targeted bgChart/bgCard, see LINE_COLORS)
+    // and measures just 1.91:1 against LEGACY_GLP.bg — dropping the box
+    // there would leave the grid/axis lines failing WCAG 1.4.11 on every
+    // already-shared legacy card, so the legacy path keeps its box exactly
+    // as before. On the current palette, border/borderDim were verified to
+    // clear >=3:1 against GLP.bg for every accent/theme combo (3.44-4.29:1;
+    // see test/card.test.js "border/borderDim clear 3:1 against bgChart,
+    // bgCard and bg"), so the axis lines/labels need no new colour math.
+    // outerX/outerY/outerW/outerH stay the same coordinate box either way —
+    // axis ticks, legend and phase chips below all keep referencing them.
+    if (isLegacy) {
+        roundRect(ctx, outerX, outerY, outerW, outerH, RADIUS_PX);
+        ctx.fillStyle = GLP.bgChart;
+        ctx.fill();
+        ctx.strokeStyle = GLP.border;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    }
 
     // Y axis scales — pressure/flow keep a fixed 0-12 bar/(ml/s) scale on the
     // left axis. Weight and temperature share one right axis, 0..tempMaxScale
