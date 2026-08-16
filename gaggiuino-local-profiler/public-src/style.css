@@ -342,7 +342,6 @@
 
         .shot-row  { display: flex; align-items: center; gap: var(--sp-3); width: 100%; min-width: 0; }
         .shot-text { flex: 1; min-width: 0; }
-        .shot-thumb { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--gray-800); flex-shrink: 0; }
 
         /* #412: rich 3-line card — line 1 is name (+ machine badge) flex-
            truncated with the score pinned right, line 2 is coffee + dose,
@@ -515,14 +514,25 @@
 
         .topbar-nav {
             display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0;
-            background: transparent; border: none; color: var(--gray-500);
-            border-radius: var(--radius); padding: var(--sp-2) var(--sp-3);
+            background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--gray-500);
+            /* #816: top corners only — a border-bottom on a fully rounded box
+               gets bent around the corner radius with it, rendering the
+               active underline as a curve instead of a straight 2px rule
+               (same fix glp-lovelace-card's .tab-btn already uses). */
+            border-radius: var(--radius) var(--radius) 0 0; padding: var(--sp-2) var(--sp-3);
             cursor: pointer; font-size: var(--fs-2); font-weight: 600;
             white-space: nowrap; position: relative;
-            transition: background .15s, color .15s;
+            transition: background .15s, color .15s, border-color .15s;
         }
         .topbar-nav:hover  { color: var(--gray-200); background: rgba(255,255,255,.04); }
-        .topbar-nav.active { color: var(--gray-200); background: var(--gray-800); }
+        /* #816: pill -> underline (Border-Diät). --accent-ink rather than the
+           raw --accent-from/-to gradient used for underlines elsewhere
+           (.lib-tab.active) — that gradient's weaker stop measures as low as
+           2.13:1 in the light theme for several accents (forest/ocean/ember),
+           well under the 3:1 floor for a UI line; --accent-ink is the token
+           already audited to clear 4.5:1 on every surface in every
+           theme/accent (theme-contrast.test.js), so it clears 3:1 too. */
+        .topbar-nav.active { color: var(--gray-200); border-bottom-color: var(--accent-ink); }
         .topbar-nav:disabled { opacity: .38; cursor: not-allowed; }
         .rail-icon-slot { position: relative; display: flex; flex-shrink: 0; }
         .rail-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
@@ -885,34 +895,34 @@
 
         .meta-sub   { font-size: var(--fs-2); color: var(--gray-500); font-weight: normal; margin-left: var(--sp-2); }
 
-        /* ── Verdict header (#398) ── */
+        /* ── Verdict header (#398) ── #816: de-boxed. Was a filled --gray-900
+           panel with the score as a badge beside a boxed advice line below —
+           now a plain two-line block matching the prototype's flat
+           `.verdict` markup: the verdict itself (score · advice, one line,
+           .verdict-line) and the existing metadata subline beneath it,
+           neither boxed. */
         .verdict-header {
             display: flex;
-            align-items: center;
-            gap: var(--sp-4);
-            padding: var(--sp-4) var(--sp-4);
-            background: var(--gray-900);
-            border-radius: var(--radius);
+            flex-direction: column;
+            gap: var(--sp-1);
             margin-bottom: var(--sp-5);
         }
-        /* #813: the score ring became type. --ring-color is still set inline
-           per shot (unified score scale, #397) and now colours the number
-           itself; the surrounding ring, its inner disc and the 58px circle
-           are gone. Baseline-aligned with the headline beside it rather than
-           vertically centred as a badge was. */
-        .verdict-score {
-            flex-shrink: 0;
-            display: flex; align-items: baseline; gap: var(--sp-2);
-            color: var(--ring-color, var(--gray-600));
+        .verdict-line {
+            display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-2);
         }
+        /* #813: the score ring became type — the number itself, at display
+           size and in the score colour (--ring-color, set inline per shot,
+           unified score scale #397), carries the same information with none
+           of the chrome a 58px conic-gradient ring badge used to add. */
         .verdict-score-num {
             font-size: var(--fs-5); font-weight: 700; line-height: 1;
             font-variant-numeric: tabular-nums;
+            color: var(--ring-color, var(--gray-600));
+            flex-shrink: 0;
         }
-        .verdict-score-word { font-size: var(--fs-2); font-weight: 600; }
-        .verdict-text      { min-width: 0; }
+        .verdict-sep       { font-size: var(--fs-5); font-weight: 700; line-height: 1; color: var(--gray-600); flex-shrink: 0; }
         .verdict-headline  { font-size: var(--fs-3); font-weight: 700; color: var(--gray-200); display: flex; align-items: center; gap: var(--sp-2); }
-        .verdict-subline   { font-size: var(--fs-1); color: var(--gray-500); margin-top: var(--sp-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .verdict-subline   { font-size: var(--fs-1); color: var(--gray-500); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         /* #457: bean-target score hint — muted, same tone as the subline, so
            it reads as metadata rather than another verdict judgment. */
         .verdict-bean-target-hint { display: inline-flex; margin-left: 2px; color: var(--gray-500); cursor: help; }
@@ -934,7 +944,9 @@
         .delta-chip.score-great { background: rgba(34,197,94,.15); color: var(--ok); }
         .delta-chip.score-ok    { background: rgba(234,179,8,.15); color: var(--warn); }
         .delta-chip.score-bad   { background: rgba(239,68,68,.12); color: var(--err); }
-        .verdict-text .delta-chip,
+        /* #816: inline after the verdict line, not stacked block below it —
+           the old boxed layout needed the stack, the plain line doesn't. */
+        .verdict-line .delta-chip { margin-top: 0; }
         .process-card .delta-chip { display: block; width: fit-content; }
 
         /* ── Recipe zone (#398): large cards, the values the user sets ── */
@@ -1643,17 +1655,23 @@
             background: var(--gray-800); color: var(--gray-400);
         }
 
-        /* ── Grind advice ── */
+        /* ── Grind advice ── #816: de-boxed — was a filled+bordered panel,
+           exactly the "everything is a box" pattern PLAN.md calls out. Not
+           clickable, so per Border-Diät it groups over a line instead: a
+           left accent line, no fill, matching the prototype's own .status
+           pattern (border-left + padding-left, no border-radius/background).
+           Applies to both the primary advice (if rendered standalone) and
+           #grindAdviceComparative, which shares this class family. */
         .grind-advice {
             display: flex; align-items: center; gap: var(--sp-3);
-            padding: var(--sp-3) var(--sp-4); border-radius:var(--radius); border: 1px solid;
+            padding-left: var(--sp-3); border-left: 2px solid;
             font-size: var(--fs-2); margin-top: var(--sp-4);
         }
         .grind-advice .grind-icon { font-size: var(--fs-3); flex-shrink: 0; }
-        .grind-ok      { border-color: rgba(34,197,94,.3);  background: rgba(34,197,94,.06);  color: #86efac; }
-        .grind-finer   { border-color: rgba(52,152,219,.3); background: rgba(52,152,219,.06); color: #93c5fd; }
-        .grind-coarser { border-color: rgba(243,156,18,.3); background: rgba(243,156,18,.06); color: #fcd34d; }
-        .grind-warning { border-color: rgba(239,68,68,.3);  background: rgba(239,68,68,.06);  color: #fca5a5; }
+        .grind-ok      { border-color: #22c55e; color: #86efac; }
+        .grind-finer   { border-color: #3498db; color: #93c5fd; }
+        .grind-coarser { border-color: #f39c12; color: #fcd34d; }
+        .grind-warning { border-color: #ef4444; color: #fca5a5; }
         .grind-comparative { margin-top: var(--sp-2); font-size: var(--fs-1); opacity: .9; flex-wrap: wrap; cursor: default; }
         .comp-toggle { background: none; border: none; color: inherit; font-size: var(--fs-1); cursor: pointer; padding: 0 var(--sp-2) 0 0; opacity: .7; flex-shrink: 0; display: inline-block; transition: transform .15s, opacity .15s; }
         .comp-toggle:hover { opacity: 1; }
@@ -2068,10 +2086,6 @@
                so they stack as two clean rows. */
             .sprofiler-header > div:first-child { flex: 1 1 100% !important; }
             .sprofiler-header > div:last-child   { flex: 1 1 100% !important; flex-wrap: wrap; justify-content: flex-start; }
-            .verdict-header     { padding: var(--sp-3) var(--sp-4); gap: var(--sp-3); }
-            .verdict-ring       { width: 46px; height: 46px; }
-            .verdict-ring-inner { width: 36px; height: 36px; font-size: var(--fs-2); }
-            .verdict-headline   { font-size: var(--fs-3); }
             .annotation-fields { grid-template-columns: 1fr; }
             .annotation-field.full-width { grid-column: 1; }
             .chart-container, .live-chart-container { height: clamp(300px, 50vh, 400px); }

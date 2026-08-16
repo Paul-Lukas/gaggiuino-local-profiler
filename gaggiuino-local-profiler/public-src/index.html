@@ -190,16 +190,13 @@
                 </div>
             </div>
 
-            <!-- Verdict header (#398): score ring + plain-language dial-in verdict, replaces the old green dial-in banner. -->
+            <!-- Verdict header (#398, de-boxed #816): score + plain-language dial-in advice fold into one line, replacing the old boxed banner (score badge + a second boxed advice line beneath it). -->
             <div id="verdictHeader" class="verdict-header" style="display:none">
-                <div class="verdict-score" id="verdictRing">
-                    <span class="verdict-score-num" id="verdictRingVal">–</span><span class="verdict-score-word" id="verdictScoreWord"></span>
-                </div>
-                <div class="verdict-text">
-                    <div class="verdict-headline" id="verdictHeadline">-</div>
+                <div class="verdict-line">
+                    <span class="verdict-score-num" id="verdictRingVal">–</span><span class="verdict-sep">·</span><span class="verdict-headline" id="verdictHeadline">-</span>
                     <span class="delta-chip" id="verdictDeltaChip" style="display:none"></span>
-                    <div class="verdict-subline" id="verdictSubline">-</div>
                 </div>
+                <div class="verdict-subline" id="verdictSubline">-</div>
             </div>
 
             <div id="orderedByInfo" class="ann-ordered-by" style="display:none"></div>
