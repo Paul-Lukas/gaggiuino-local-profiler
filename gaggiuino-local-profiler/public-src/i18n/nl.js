@@ -17,7 +17,6 @@ export default {
     meta_duration:'Duur', meta_ratio:'Dosis → Opbrengst · Ratio', meta_ey:'Extractie-opbrengst (EY)',
     recipe_dose_yield:'Dosis → Opbrengst', recipe_ratio:'Ratio', recipe_bean_grinder:'Bonen & Molen', recipe_grinder_grind:(g,s)=>g?`${g} · maalgraad ${s}`:`Maalgraad ${s}`,
     process_pressure:'Druk (gem / max)', process_flow:'Pompstroom (gem)', process_temp:'Temperatuur (gem ±σ)',
-    verdict_word_high:'sterk', verdict_word_mid:'goed', verdict_word_low:'zwak',
     conn_error:'Verbindingsfout',
     // #812 achievements: 48 open badges. The 6 secret ones are NOT here on
     // purpose — their copy lives encoded in lib/achievements/secrets.js and

@@ -2,8 +2,6 @@ import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { localeFor } from '../constants.js';
 import { esc, scoreClass, formatTimeLabel, groupShotsByDay } from '../utils.js';
-import { loadShotImageBlobUrl } from '../bean-image.js';
-import { openLightbox } from './lightbox.js';
 import { STAR_ICON_SVG , ICE_CUBE_ICON_SVG, CLOSE_ICON_SVG} from '../icons.js';
 import { resolveBeanForAnnotation } from '../views/shots/utils.js';
 
@@ -63,17 +61,6 @@ export function renderSidebar() {
   updateSidebarHighlighting();
   updateBeanFilterIndicator();
   if (S.currentFilter || S.beanFilter) filterShots(S.currentFilter);
-  loadShotThumbnails();
-}
-
-// Shot images need the auth token, so <img src> can't point at the API
-// directly (see bean-image.js) — set the blob-url src async after render,
-// mirroring loadBeanThumbnails() in views/library.js.
-function loadShotThumbnails() {
-  document.querySelectorAll('.shot-thumb[data-shot-id]').forEach(img => {
-    const id = parseInt(img.dataset.shotId);
-    loadShotImageBlobUrl(id).then(url => { if (url) img.src = url; });
-  });
 }
 
 function _buildShotWrapper(shot) {
@@ -115,16 +102,19 @@ function _buildShotWrapper(shot) {
     const grinderLabel = [ann.grinder, ann.grindSetting].filter(Boolean).join(' · ');
     const grinderHtml = grinderLabel ? `<span class="shot-grinder">${esc(grinderLabel)}</span>` : '';
 
-    const thumbHtml = shot.image ? `<img class="shot-thumb" data-shot-id="${shot.id}" alt="">` : '';
     // Multi-machine badge (#325): only shown in "all machines" mode with
     // more than one machine registered — a machine-scoped list already
     // implies every visible shot is from that machine, so the badge would
     // be redundant noise there.
     const machineBadge = (S.machines?.length > 1 && S.activeMachineId === 'all' && shot.machineId != null)
       ? `<span class="shot-machine-badge">${esc((S.machines.find(m => m.id === shot.machineId) || {}).name || '?')}</span>` : '';
+    // #816: the bean-photo/avatar circle (.shot-thumb) is gone — the
+    // prototype's rail-item mockup is text-only, no image or colored circle
+    // (Border-Diät extends to photos, not just boxes). The photo itself is
+    // still viewable from the annotation panel (shots/annotation.js), which
+    // is a separate, unrelated element.
     divShot.innerHTML = `
       <div class="shot-row">
-        ${thumbHtml}
         <div class="shot-text">
           <div class="shot-line1">
             <span class="shot-line1-name"><span class="profile-name-sidebar">${esc(profileName)}</span>${machineBadge}</span>
@@ -158,15 +148,6 @@ function _buildShotWrapper(shot) {
         }
       }
     };
-
-    // #367: clicking the shot photo opens it full-size (same lightbox as
-    // the annotation panel's own photo, openShotPhotoLightbox() in
-    // shots/annotation.js) instead of just selecting the row.
-    const thumbEl = divShot.querySelector('.shot-thumb');
-    if (thumbEl) {
-      thumbEl.style.cursor = 'pointer';
-      thumbEl.onclick = e => { e.stopPropagation(); if (thumbEl.src) openLightbox(thumbEl.src); };
-    }
 
     const btnCmp = document.createElement('button');
     btnCmp.className = 'compare-btn';

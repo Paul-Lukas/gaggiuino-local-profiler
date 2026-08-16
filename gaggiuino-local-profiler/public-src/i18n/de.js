@@ -17,7 +17,6 @@ export default {
     meta_duration:'Dauer', meta_ratio:'Dosis → Yield · Ratio', meta_ey:'Extraction Yield (EY)',
     recipe_dose_yield:'Dosis → Yield', recipe_ratio:'Ratio', recipe_bean_grinder:'Bohne & Mühle', recipe_grinder_grind:(g,s)=>g?`${g} · Mahlgrad ${s}`:`Mahlgrad ${s}`,
     process_pressure:'Druck (Ø / Max)', process_flow:'Pumpenfluss (Ø)', process_temp:'Temperatur (Ø ±σ)',
-    verdict_word_high:'stark', verdict_word_mid:'gut', verdict_word_low:'schwach',
     conn_error:'Verbindungsfehler',
     // #812 achievements: 48 open badges. The 6 secret ones are NOT here on
     // purpose — their copy lives encoded in lib/achievements/secrets.js and

@@ -17,7 +17,6 @@ export default {
     meta_duration:'Durée', meta_ratio:'Dose → Rendement · Ratio', meta_ey:"Taux d'extraction (EY)",
     recipe_dose_yield:'Dose → Rendement', recipe_ratio:'Ratio', recipe_bean_grinder:'Café & Moulin', recipe_grinder_grind:(g,s)=>g?`${g} · mouture ${s}`:`Mouture ${s}`,
     process_pressure:'Pression (moy / max)', process_flow:'Débit pompe (moy)', process_temp:'Température (moy ±σ)',
-    verdict_word_high:'excellent', verdict_word_mid:'bon', verdict_word_low:'faible',
     conn_error:'Erreur de connexion',
     // #812 achievements: 48 open badges. The 6 secret ones are NOT here on
     // purpose — their copy lives encoded in lib/achievements/secrets.js and
