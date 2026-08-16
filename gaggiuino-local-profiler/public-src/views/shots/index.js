@@ -10,7 +10,7 @@ import {
 } from '../../utils.js';
 import { renderSidebar }                                      from '../../components/sidebar.js';
 import { apiPortClosedHtml }                                  from '../../components/api-port-notice.js';
-import { getShotData, calcShotScore, shotUsedBeanTarget, findPreviousShot, findPreviousShotForBean, isNewestShotForBean } from './utils.js';
+import { getShotData, calcShotScore, shotUsedBeanTarget, findPreviousShot, buildGrinderGrindLabel } from './utils.js';
 import { calcGrindAdvice, calcComparativeGrindAdvice, _miniShotChart } from './grind.js';
 import { renderAnnotationPanel }                              from './annotation.js';
 import { updatePQChart }                                      from './charts.js';
@@ -332,29 +332,17 @@ export function updateView() {
   }
 
   // Bean + grinder + grind setting (#429) — the shot's own annotation,
-  // shown regardless of compare mode.
-  const grinderLabel = ann.grindSetting ? t('recipe_grinder_grind', ann.grinder || '', ann.grindSetting) : ann.grinder;
+  // shown regardless of compare mode. #838: when this is the newest shot for
+  // its bean and a previous grind setting is on record, the baseline is
+  // folded straight into this label ("Mahlgrad X (zuletzt Y)") instead of
+  // a separate chip — one place to look instead of two.
+  const grinderLabel = buildGrinderGrindLabel(S.shots, shotA, !shotB, t);
   // #635: appended only when actually set (most shots won't have either yet),
   // so this stays a no-op on mobile space until the equipment library is used.
   const basketName     = _equipmentName(S.coffeeLibrary?.baskets, ann.basketId);
   const puckScreenName = _equipmentName(S.coffeeLibrary?.puckScreens, ann.puckScreenId);
   const beanGrinder = [ann.coffee, grinderLabel, basketName, puckScreenName].filter(Boolean).join(' · ');
   document.getElementById('beanGrinderVal').textContent = beanGrinder || '–';
-
-  // Grind-setting baseline chip (#429): only while viewing the newest shot
-  // of its bean — that's the one being dialed in, so the last recorded
-  // grind setting for the same bean is the relevant reference point.
-  const grindBaselineEl = document.getElementById('grindBaselineChip');
-  if (grindBaselineEl) {
-    const prevBeanShot = !shotB && isNewestShotForBean(S.shots, shotA) ? findPreviousShotForBean(S.shots, shotA) : null;
-    const prevGrind     = prevBeanShot?.annotation?.grindSetting;
-    if (prevGrind) {
-      grindBaselineEl.textContent = t('grind_baseline_last', prevGrind);
-      grindBaselineEl.style.display = '';
-    } else {
-      grindBaselineEl.style.display = 'none';
-    }
-  }
 
   // Freshness badge
   const freshEl   = document.getElementById('freshnessBadge');
@@ -441,12 +429,13 @@ export function updateView() {
     const beanTargetHint = shotUsedBeanTarget(shotA)
       ? `<span class="verdict-bean-target-hint" title="${esc(t('verdict_bean_target_hint'))}">${TARGET_ICON_SVG}</span>` : '';
     document.getElementById('verdictHeadline').innerHTML = (advice ? `${advice.icon} ${esc(advice.text)}` : esc(t('verdict_no_data'))) + beanTargetHint;
+    // #838: duration and avg pressure dropped — they're already shown once
+    // each, in the Dauer recipe card (incl. phase breakdown) and the
+    // Process-zone pressure card, so repeating them here was pure duplication.
     document.getElementById('verdictSubline').textContent = [
       nameA,
       `Shot ${shotA.nativeId ?? shotA.id}`,
-      ann.coffee || null,
-      formatTimeLabel(totalSecs),
-      avgPressure != null ? `${avgPressure.toFixed(1)} bar Ø` : null
+      ann.coffee || null
     ].filter(Boolean).join(' · ');
     verdictHeader.style.display = '';
   } else {

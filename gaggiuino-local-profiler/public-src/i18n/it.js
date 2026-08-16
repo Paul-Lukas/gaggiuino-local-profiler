@@ -15,7 +15,7 @@ export default {
     meta_temp:'Temperatura (med ±σ / target)', meta_phases:'Fasi',
     meta_weight:'Peso (totale / fine flusso)', meta_weight_flow:'Flusso peso (med / max)',
     meta_duration:'Durata', meta_ratio:'Dose → Resa · Ratio', meta_ey:'Extraction Yield (EY)',
-    recipe_dose_yield:'Dose → Resa', recipe_ratio:'Ratio', recipe_bean_grinder:'Caffè & Mulino', recipe_grinder_grind:(g,s)=>g?`${g} · macinatura ${s}`:`Macinatura ${s}`,
+    recipe_dose_yield:'Dose → Resa', recipe_ratio:'Ratio', recipe_bean_grinder:'Caffè & Mulino', recipe_grinder_grind:(g,s)=>g?`${g} · macinatura ${s}`:`Macinatura ${s}`, recipe_grind_with_baseline:(g,s,p)=>g?`${g} · macinatura ${s} (ultima ${p})`:`Macinatura ${s} (ultima ${p})`,
     process_pressure:'Pressione (med / max)', process_flow:'Flusso pompa (med)', process_temp:'Temperatura (med ±σ)',
     conn_error:'Errore di connessione',
     // #812 achievements: 48 open badges. The 6 secret ones are NOT here on
@@ -257,7 +257,6 @@ export default {
     grind_comparative_finer:(n,s,sc)=>`${n} shot comparabili: macinatura ${s} → score ${sc} – macinare più fine`,
     grind_comparative_coarser:(n,s,sc)=>`${n} shot comparabili: macinatura ${s} → score ${sc} – macinare più grosso`,
     grind_comparative_ok:(n,s,sc)=>`${n} shot comparabili confermano la macinatura (score med. ${sc})`,
-    grind_baseline_last:(s)=>`Ultima macinatura: ${s}`,
     compare_hint:'Seleziona shot per confronto',
     compare_title:(a,b)=>`Confronto: Shot ${a} vs. Shot ${b}`,
     please_wait:'Attendere …',

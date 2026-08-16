@@ -3,6 +3,9 @@
 ### Added
 - **The Coffee Library's bean list now shows the last grind setting you used for each bean**, right next to the existing "best combo" line — no more clicking into a bean or digging through shot history to remember it. Closes #829
 
+### Changed
+- **Reduced duplicate info on the shot detail screen and sidebar.** The sidebar's grinder name moved out of the row text into a compact grind-setting badge (with the grinder name as a tooltip) so the number you actually check often stays visible at a glance; the verdict subline no longer repeats duration/avg-pressure already shown in the recipe cards; and the separate "Letzter Mahlgrad" chip is now folded into the bean/grinder line itself. Closes #831
+
 ### Fixed
 - **Removed dead `getElementById('shot-count')` lookups** left over from flattening the sidebar's split-flap counter to plain text — the element they targeted no longer exists, so both were silent no-ops. Closes #775, closes #830
 - **Closed out a recurring CodeQL false-positive class and one real gap it surfaced.** Two newly re-flagged `js/xss-through-dom` alerts pointed at sinks already covered by this repo's own `esc()`/`escapeHtml()` helpers; one was confirmed safe and dismissed, but the Coffee Library's blend-origin percent field turned out to be the one interpolated value in that block CodeQL was right to flag — it reached `innerHTML` unescaped, relying entirely on upstream validation rather than escaping at the render site. Now escaped like every other field there. Closes #760

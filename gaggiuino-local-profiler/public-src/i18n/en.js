@@ -15,7 +15,7 @@ export default {
     meta_temp:'Temperature (avg ±σ / target)', meta_phases:'Phases',
     meta_weight:'Weight (total / end flow)', meta_weight_flow:'Weight flow (avg / max)',
     meta_duration:'Duration', meta_ratio:'Dose → Yield · Ratio', meta_ey:'Extraction Yield (EY)',
-    recipe_dose_yield:'Dose → Yield', recipe_ratio:'Ratio', recipe_bean_grinder:'Bean & Grinder', recipe_grinder_grind:(g,s)=>g?`${g} · grind ${s}`:`Grind ${s}`,
+    recipe_dose_yield:'Dose → Yield', recipe_ratio:'Ratio', recipe_bean_grinder:'Bean & Grinder', recipe_grinder_grind:(g,s)=>g?`${g} · grind ${s}`:`Grind ${s}`, recipe_grind_with_baseline:(g,s,p)=>g?`${g} · grind ${s} (last ${p})`:`Grind ${s} (last ${p})`,
     process_pressure:'Pressure (avg / max)', process_flow:'Pump flow (avg)', process_temp:'Temperature (avg ±σ)',
     conn_error:'Connection error',
     // #812 achievements: 48 open badges. The 6 secret ones are NOT here on
@@ -257,7 +257,6 @@ export default {
     grind_comparative_finer:(n,s,sc)=>`${n} comparable shots: grind ${s} → score ${sc} — grind finer`,
     grind_comparative_coarser:(n,s,sc)=>`${n} comparable shots: grind ${s} → score ${sc} — grind coarser`,
     grind_comparative_ok:(n,s,sc)=>`${n} comparable shots confirm your grind setting (avg score ${sc})`,
-    grind_baseline_last:(s)=>`Last grind setting: ${s}`,
     compare_hint:'Select shot for comparison',
     compare_title:(a,b)=>`Compare: Shot ${a} vs. Shot ${b}`,
     please_wait:'Waiting …',

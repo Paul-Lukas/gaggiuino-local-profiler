@@ -15,7 +15,7 @@ export default {
     meta_temp:'Temperatuur (gem ±σ / doel)', meta_phases:'Fasen',
     meta_weight:'Gewicht (totaal / einde stroom)', meta_weight_flow:'Gewichtsstroom (gem / max)',
     meta_duration:'Duur', meta_ratio:'Dosis → Opbrengst · Ratio', meta_ey:'Extractie-opbrengst (EY)',
-    recipe_dose_yield:'Dosis → Opbrengst', recipe_ratio:'Ratio', recipe_bean_grinder:'Bonen & Molen', recipe_grinder_grind:(g,s)=>g?`${g} · maalgraad ${s}`:`Maalgraad ${s}`,
+    recipe_dose_yield:'Dosis → Opbrengst', recipe_ratio:'Ratio', recipe_bean_grinder:'Bonen & Molen', recipe_grinder_grind:(g,s)=>g?`${g} · maalgraad ${s}`:`Maalgraad ${s}`, recipe_grind_with_baseline:(g,s,p)=>g?`${g} · maalgraad ${s} (laatst ${p})`:`Maalgraad ${s} (laatst ${p})`,
     process_pressure:'Druk (gem / max)', process_flow:'Pompstroom (gem)', process_temp:'Temperatuur (gem ±σ)',
     conn_error:'Verbindingsfout',
     // #812 achievements: 48 open badges. The 6 secret ones are NOT here on
@@ -257,7 +257,6 @@ export default {
     grind_comparative_finer:(n,s,sc)=>`${n} vergelijkbare shots: maalgraad ${s} → score ${sc} — fijner malen`,
     grind_comparative_coarser:(n,s,sc)=>`${n} vergelijkbare shots: maalgraad ${s} → score ${sc} — grover malen`,
     grind_comparative_ok:(n,s,sc)=>`${n} vergelijkbare shots bevestigen je maalgraad (gem. score ${sc})`,
-    grind_baseline_last:(s)=>`Laatste maalgraad: ${s}`,
     compare_hint:'Selecteer shot voor vergelijking',
     compare_title:(a,b)=>`Vergelijking: Shot ${a} vs. Shot ${b}`,
     please_wait:'Wachten …',

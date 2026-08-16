@@ -1597,6 +1597,20 @@
             margin-left: var(--sp-2);
             vertical-align: middle;
         }
+        /* #838: compact grind-setting badge, line 1 — bare number, no border
+           (Border-Diät: no border on non-clickable elements), grinder name
+           lives in its title tooltip instead of taking up row space. */
+        .sidebar-grind-badge {
+            font-size: var(--fs-1);
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            border-radius: var(--radius);
+            padding: 1px var(--sp-2);
+            margin-left: var(--sp-2);
+            vertical-align: middle;
+            background: var(--gray-800);
+            color: var(--gray-400);
+        }
         /* #397: unified 3-tier score scale (green >=90 / yellow >=70 / red
            below) — same classes as .score-* below, one color source. */
         .ss-great { background: rgba(34,197,94,.15);  color: var(--ok); }
@@ -1647,16 +1661,6 @@
             width: 22px; height: 22px; border-radius: 50%; object-fit: cover;
             vertical-align: middle; margin-left: var(--sp-2); cursor: pointer;
             background: var(--gray-800);
-        }
-
-        /* Grind-setting baseline chip (#429) — sits between the recipe zone
-           and the grind advice so the last-used setting and the current
-           advice read together as baseline + correction. */
-        .grind-baseline-chip {
-            display: inline-block; margin-top: var(--sp-3);
-            font-size: var(--fs-1); font-weight: 600; font-variant-numeric: tabular-nums;
-            padding: var(--sp-1) var(--sp-3); border-radius: var(--radius);
-            background: var(--gray-800); color: var(--gray-400);
         }
 
         /* ── Grind advice ── #816: de-boxed — was a filled+bordered panel,

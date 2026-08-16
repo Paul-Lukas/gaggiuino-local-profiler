@@ -15,7 +15,7 @@ export default {
     meta_temp:'Temperatur (Ø ±σ / Ziel)', meta_phases:'Phasen',
     meta_weight:'Gewicht (Gesamt / Fluss Ende)', meta_weight_flow:'Gewichtsfluss (Ø / Max)',
     meta_duration:'Dauer', meta_ratio:'Dosis → Yield · Ratio', meta_ey:'Extraction Yield (EY)',
-    recipe_dose_yield:'Dosis → Yield', recipe_ratio:'Ratio', recipe_bean_grinder:'Bohne & Mühle', recipe_grinder_grind:(g,s)=>g?`${g} · Mahlgrad ${s}`:`Mahlgrad ${s}`,
+    recipe_dose_yield:'Dosis → Yield', recipe_ratio:'Ratio', recipe_bean_grinder:'Bohne & Mühle', recipe_grinder_grind:(g,s)=>g?`${g} · Mahlgrad ${s}`:`Mahlgrad ${s}`, recipe_grind_with_baseline:(g,s,p)=>g?`${g} · Mahlgrad ${s} (zuletzt ${p})`:`Mahlgrad ${s} (zuletzt ${p})`,
     process_pressure:'Druck (Ø / Max)', process_flow:'Pumpenfluss (Ø)', process_temp:'Temperatur (Ø ±σ)',
     conn_error:'Verbindungsfehler',
     // #812 achievements: 48 open badges. The 6 secret ones are NOT here on
@@ -257,7 +257,6 @@ export default {
     grind_comparative_finer:(n,s,sc)=>`${n} Vergleichsshots: Mahlgrad ${s} → Score ${sc} – feiner mahlen`,
     grind_comparative_coarser:(n,s,sc)=>`${n} Vergleichsshots: Mahlgrad ${s} → Score ${sc} – gröber mahlen`,
     grind_comparative_ok:(n,s,sc)=>`${n} Vergleichsshots bestätigen deinen Mahlgrad (Ø Score ${sc})`,
-    grind_baseline_last:(s)=>`Letzter Mahlgrad: ${s}`,
     compare_hint:'Shot für Vergleich wählen',
     compare_title:(a,b)=>`Vergleich: Shot ${a} vs. Shot ${b}`,
     please_wait:'Warten …',
