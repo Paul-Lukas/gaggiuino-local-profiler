@@ -43,6 +43,8 @@ jobs:
   # (publish-manifest job) always agree on the exact same value.
   prep:
     name: Compute dev build version
+    # Gitea Actions also auto-detects .github/workflows — skip there, GitHub-only.
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -58,6 +60,8 @@ jobs:
   build-amd64:
     name: Build amd64
     needs: prep
+    # Gitea Actions also auto-detects .github/workflows — skip there, GitHub-only.
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -149,6 +153,8 @@ jobs:
   build-other-archs:
     name: Build ${{ matrix.arch }}
     needs: prep
+    # Gitea Actions also auto-detects .github/workflows — skip there, GitHub-only.
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -252,6 +258,8 @@ jobs:
   publish-manifest:
     name: Point dev manifest at the new build
     needs: [prep, build-amd64]
+    # Gitea Actions also auto-detects .github/workflows — skip there, GitHub-only.
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     steps:
       # Checked out under its own path (not $GITHUB_WORKSPACE root) since the

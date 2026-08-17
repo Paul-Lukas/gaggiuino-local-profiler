@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Fixed
+- **GitHub-only CI workflows (build, CodeQL, dependency review, scorecard, dev-image publish, release-drift check) no longer auto-run against the local Gitea mirror.** Gitea Actions picks up `.github/workflows` automatically, so registering the local runner re-ran all of them there too — one accidental run already fired a real CodeQL job. Each now skips outside `github.com`; the `test.yaml` lint/test gate is unaffected and runs on both. Closes #834
+
 ### Added
 - **The Coffee Library's bean list now shows the last grind setting you used for each bean**, right next to the existing "best combo" line — no more clicking into a bean or digging through shot history to remember it. Closes #829
 
