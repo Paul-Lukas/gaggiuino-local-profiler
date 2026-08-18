@@ -1705,7 +1705,7 @@
             display: none;
             float: right;
             width: 280px; height: 280px;
-            object-fit: cover; border-radius: var(--radius);
+            object-fit: cover; border-radius: 50%;
             margin: 0 0 var(--sp-4) var(--sp-4);
             background: var(--gray-800);
             cursor: pointer;
