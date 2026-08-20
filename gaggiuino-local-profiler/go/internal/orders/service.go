@@ -1,6 +1,7 @@
 package orders
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"math/rand"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ha"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
@@ -32,20 +34,59 @@ func randomToken(n int) string {
 const defaultPrepTime = 4.0
 
 // Service composes Repository with the shots/library/machines repositories
-// OrderService.js's lifecycle methods cross-call.
+// OrderService.js's lifecycle methods cross-call, plus the HA client the
+// customer status-change notification (notifyOrderStatus below) needs.
 type Service struct {
 	repo      *Repository
 	shotsRepo *shots.Repository
 	libRepo   *library.Repository
 	registry  *machines.Registry
+	ha        *ha.Client
 }
 
 // NewService wires repo against the cross-domain repositories every
 // lifecycle method needs: shotsRepo (fulfillment shot matching + bean-stock
 // math), libRepo (bean/milk resolution + stock deduction), registry
-// (machine name -> id resolution).
-func NewService(repo *Repository, shotsRepo *shots.Repository, libRepo *library.Repository, registry *machines.Registry) *Service {
-	return &Service{repo: repo, shotsRepo: shotsRepo, libRepo: libRepo, registry: registry}
+// (machine name -> id resolution), haClient (the customer accept/complete/
+// decline notification every consumer of AcceptOrder/CompleteOrder/
+// DeclineOrder gets for free — #901 code review: this used to be a private
+// method on internal/orders' own REST *Handlers, which meant
+// internal/web's separate *OrdersHandlers had no way to call it and
+// silently shipped without customer notifications).
+func NewService(repo *Repository, shotsRepo *shots.Repository, libRepo *library.Repository, registry *machines.Registry, haClient *ha.Client) *Service {
+	return &Service{repo: repo, shotsRepo: shotsRepo, libRepo: libRepo, registry: registry, ha: haClient}
+}
+
+// notifyOrderStatus ports routes/orders.js's _notifyOrderStatus: shared by
+// AcceptOrder/CompleteOrder/DeclineOrder below, gated by the single
+// notify_order_status toggle (#603). Best-effort — fired in a goroutine,
+// matching Node's fire-and-forget sendHaNotify() (no caller awaits it
+// either). Lives on Service (not the REST-only *Handlers it used to be a
+// method of) so every caller of these three lifecycle methods — the REST
+// API and internal/web's htmx queue actions alike — gets the same customer
+// notification without having to remember to trigger it separately.
+func (s *Service) notifyOrderStatus(order Order, title, body string) {
+	if s.ha == nil {
+		return
+	}
+	settings, err := s.repo.GetSettings()
+	if err != nil {
+		return
+	}
+	if v, ok := settings["notify_order_status"].(bool); ok && !v {
+		return
+	}
+	svc, _ := order["notifyService"].(string)
+	if svc == "" {
+		mapping, err := s.repo.GetNotifyMapping()
+		if err != nil {
+			return
+		}
+		haUserID, _ := order["haUserId"].(string)
+		svc = mapping[haUserID]
+	}
+	id, _ := order["id"].(string)
+	go s.ha.SendNotify(context.Background(), svc, title, body, id)
 }
 
 // OrderError carries an HTTP status the way ShotService's ErrShotNotFound /
@@ -367,6 +408,8 @@ func (s *Service) AcceptOrder(id string, rawEta any) (Order, error) {
 	if err := s.repo.Save(order); err != nil {
 		return nil, err
 	}
+	item, _ := order["item"].(string)
+	s.notifyOrderStatus(order, "☕ "+item+" wird zubereitet", "Fertig in ~"+strconv.FormatInt(eta, 10)+" Min!")
 	return order, nil
 }
 
@@ -420,6 +463,8 @@ func (s *Service) CompleteOrder(id string) (Order, error) {
 	if err := s.repo.Save(order); err != nil {
 		return nil, err
 	}
+	item, _ := order["item"].(string)
+	s.notifyOrderStatus(order, "✓ "+item+" ist fertig!", "Hol dir deinen "+item+" ab — guten Genuss!")
 	return order, nil
 }
 
@@ -442,6 +487,13 @@ func (s *Service) DeclineOrder(id string, rawReason string) (Order, error) {
 	if err := s.repo.Save(order); err != nil {
 		return nil, err
 	}
+	item, _ := order["item"].(string)
+	declineReason, _ := order["declineReason"].(string)
+	msg := "Deine Bestellung wurde leider abgelehnt."
+	if declineReason != "" {
+		msg = "Grund: " + declineReason
+	}
+	s.notifyOrderStatus(order, "✕ "+item+" abgelehnt", msg)
 	return order, nil
 }
 

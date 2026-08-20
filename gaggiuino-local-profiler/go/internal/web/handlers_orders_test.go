@@ -1,15 +1,19 @@
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ha"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/orders"
@@ -36,8 +40,9 @@ func newTestOrdersServer(t *testing.T) (*http.ServeMux, *orders.Repository, *lib
 	shotsRepo := shots.NewRepository(sqlDB)
 	libRepo := library.NewRepository(sqlDB)
 	registry := machines.NewRegistry(sqlDB)
+	haClient := ha.NewClientFromEnv() // no SUPERVISOR_TOKEN/GLP_HA_URL in test env -> disabled, no real HTTP calls
 
-	h := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry)
+	h := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	return mux, ordersRepo, libRepo
@@ -197,6 +202,175 @@ func TestOrderActions_FeatureDisabled(t *testing.T) {
 			t.Errorf("POST %s with orders disabled: status = %d, want 404", path, rec.Code)
 		}
 	}
+}
+
+// capturedNotify is one notify.<service> call the fake HA server below
+// recorded, keyed by its tag (SendNotify's 4th argument — internal/orders'
+// Service.notifyOrderStatus always passes the order id).
+type capturedNotify struct{ title, message string }
+
+// newFakeHAServer starts an httptest.Server standing in for Home Assistant's
+// REST API, recording every notify.<service> call's title/message by its
+// "tag" (same pattern as internal/orders/broadcast_test.go's haSrv). Also
+// sets the env vars ha.NewClientFromEnv() needs to actually target it.
+func newFakeHAServer(t *testing.T) (getNotify func(tag string) (capturedNotify, bool)) {
+	t.Helper()
+	var mu sync.Mutex
+	got := map[string]capturedNotify{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/services/notify/") {
+			var body map[string]any
+			json.NewDecoder(r.Body).Decode(&body)
+			title, _ := body["title"].(string)
+			message, _ := body["message"].(string)
+			var tag string
+			if data, ok := body["data"].(map[string]any); ok {
+				tag, _ = data["tag"].(string)
+			}
+			mu.Lock()
+			got[tag] = capturedNotify{title: title, message: message}
+			mu.Unlock()
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("SUPERVISOR_TOKEN", "")
+	t.Setenv("GLP_HA_URL", srv.URL)
+	t.Setenv("GLP_HA_TOKEN", "test-token")
+
+	return func(tag string) (capturedNotify, bool) {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			mu.Lock()
+			n, ok := got[tag]
+			mu.Unlock()
+			if ok {
+				return n, true
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		return capturedNotify{}, false
+	}
+}
+
+// TestOrderActions_SendSameCustomerNotificationAsRESTAPI proves the #901
+// code-review finding stays fixed: internal/web's OrdersHandlers (the new
+// /orders queue's htmx accept/complete/decline actions) must trigger the
+// exact same customer HA notification internal/orders' REST API
+// (POST /api/orders/{id}/accept|complete|decline) does, since both now call
+// the same orders.Service.AcceptOrder/CompleteOrder/DeclineOrder methods —
+// see internal/orders/service.go's notifyOrderStatus. Before that fix, this
+// package built its own *orders.Service with no *ha.Client of its own, so
+// the web queue's actions never notified customers at all.
+func TestOrderActions_SendSameCustomerNotificationAsRESTAPI(t *testing.T) {
+	getNotify := newFakeHAServer(t)
+	t.Setenv("GLP_ENABLE_ORDERS", "true")
+
+	dbPath := filepath.Join(t.TempDir(), "glp.db")
+	sqlDB, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { sqlDB.Close() })
+
+	ordersRepo := orders.NewRepository(sqlDB)
+	shotsRepo := shots.NewRepository(sqlDB)
+	libRepo := library.NewRepository(sqlDB)
+	registry := machines.NewRegistry(sqlDB)
+	haClient := ha.NewClientFromEnv()
+
+	restHandlers := orders.NewHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
+	restMux := http.NewServeMux()
+	restHandlers.RegisterRoutes(restMux)
+
+	webHandlers := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
+	webMux := http.NewServeMux()
+	webHandlers.RegisterRoutes(webMux)
+
+	// Both orders carry a directly-set notifyService (rather than relying on
+	// the haUserId->notify-mapping lookup) so notifyOrderStatus has an HA
+	// service to actually call — see seedOrder's callers elsewhere in this
+	// file, which don't set it and so never provoke a real HA call.
+	newOrder := func(id string) orders.Order {
+		return orders.Order{
+			"id": id, "item": "Espresso", "customer": "Alice", "status": "pending",
+			"createdAt": int64(1_700_000_000_000), "machineId": int64(1),
+			"notifyService": "notify.mobile_app_test",
+		}
+	}
+	for _, id := range []string{"ord_rest_accept", "ord_web_accept", "ord_rest_complete", "ord_web_complete", "ord_rest_decline", "ord_web_decline"} {
+		if err := ordersRepo.Save(newOrder(id)); err != nil {
+			t.Fatalf("seeding %s: %v", id, err)
+		}
+	}
+
+	// Accept
+	if rec := doRestRequest(restMux, "/api/orders/ord_rest_accept/accept"); rec.Code != http.StatusOK {
+		t.Fatalf("REST accept: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec := doRequest(t, webMux, "POST", "/orders/ord_web_accept/accept"); rec.Code != http.StatusOK {
+		t.Fatalf("web accept: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	restAccept, ok := getNotify("ord_rest_accept")
+	if !ok {
+		t.Fatal("REST accept: expected a customer HA notification, got none")
+	}
+	webAccept, ok := getNotify("ord_web_accept")
+	if !ok {
+		t.Fatal("web accept: expected a customer HA notification, got none — the new /orders queue action must notify the customer exactly like the REST API does (#901)")
+	}
+	if restAccept != webAccept {
+		t.Errorf("accept notification mismatch: REST = %+v, web = %+v, want identical", restAccept, webAccept)
+	}
+
+	// Complete
+	if rec := doRestRequest(restMux, "/api/orders/ord_rest_complete/complete"); rec.Code != http.StatusOK {
+		t.Fatalf("REST complete: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec := doRequest(t, webMux, "POST", "/orders/ord_web_complete/complete"); rec.Code != http.StatusOK {
+		t.Fatalf("web complete: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	restComplete, ok := getNotify("ord_rest_complete")
+	if !ok {
+		t.Fatal("REST complete: expected a customer HA notification, got none")
+	}
+	webComplete, ok := getNotify("ord_web_complete")
+	if !ok {
+		t.Fatal("web complete: expected a customer HA notification, got none — regression against #901's fix")
+	}
+	if restComplete != webComplete {
+		t.Errorf("complete notification mismatch: REST = %+v, web = %+v, want identical", restComplete, webComplete)
+	}
+
+	// Decline
+	if rec := doRestRequest(restMux, "/api/orders/ord_rest_decline/decline"); rec.Code != http.StatusOK {
+		t.Fatalf("REST decline: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if rec := doRequest(t, webMux, "POST", "/orders/ord_web_decline/decline"); rec.Code != http.StatusOK {
+		t.Fatalf("web decline: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	restDecline, ok := getNotify("ord_rest_decline")
+	if !ok {
+		t.Fatal("REST decline: expected a customer HA notification, got none")
+	}
+	webDecline, ok := getNotify("ord_web_decline")
+	if !ok {
+		t.Fatal("web decline: expected a customer HA notification, got none — regression against #901's fix")
+	}
+	if restDecline != webDecline {
+		t.Errorf("decline notification mismatch: REST = %+v, web = %+v, want identical", restDecline, webDecline)
+	}
+}
+
+// doRestRequest POSTs a nil-body request against restMux — internal/orders'
+// own REST accept/complete/decline handlers all accept an absent JSON body
+// (decodeOptionalJSONBody), the same way POST /orders/{id}/accept etc.
+// (this package's doRequest) do.
+func doRestRequest(restMux *http.ServeMux, path string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, path, nil)
+	rec := httptest.NewRecorder()
+	restMux.ServeHTTP(rec, req)
+	return rec
 }
 
 // ── Customer menu ──────────────────────────────────────────────────────
@@ -368,9 +542,10 @@ func TestOrdersMenuPagesRequireAuthBehindRequireToken(t *testing.T) {
 	shotsRepo := shots.NewRepository(sqlDB)
 	libRepo := library.NewRepository(sqlDB)
 	registry := machines.NewRegistry(sqlDB)
+	haClient := ha.NewClientFromEnv()
 	seedOrder(t, ordersRepo, "ord_1", "Espresso", "Alice", "pending", 1_700_000_000_000)
 
-	h := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry)
+	h := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	handler := auth.RequireToken(testToken)(mux)

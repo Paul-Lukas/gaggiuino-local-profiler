@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ha"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/httputil"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
@@ -28,11 +29,16 @@ import (
 // same dependencies internal/orders' own REST handlers.go calls — never
 // internal/orders' JSON handlers themselves, mirroring every earlier
 // Phase-2 page's convention (see internal/web/doc.go). This package builds
-// its own *orders.Service instance around the same repo dependencies
-// cmd/server already shares with internal/orders' REST Handlers, rather than
-// reaching into that struct's unexported service field — the same
-// convention web.NewHandlers (shots) and web.NewMachinesHandlers already
-// established.
+// its own *orders.Service instance around the same repo + HA-client
+// dependencies cmd/server already shares with internal/orders' REST
+// Handlers, rather than reaching into that struct's unexported service
+// field — the same convention web.NewHandlers (shots) and
+// web.NewMachinesHandlers already established. Sharing haClient (not just
+// the repos) matters here specifically: Service.AcceptOrder/CompleteOrder/
+// DeclineOrder send the customer's HA status-change notification themselves
+// (#901 code review — it used to be a private method on internal/orders'
+// REST *Handlers that this package's own *orders.Service instance had no
+// way to reach, so the web queue silently never notified customers).
 type OrdersHandlers struct {
 	repo      *orders.Repository
 	service   *orders.Service
@@ -42,17 +48,18 @@ type OrdersHandlers struct {
 }
 
 // NewOrdersHandlers builds OrdersHandlers around the same *orders.Repository/
-// *shots.Repository/*library.Repository/*machines.Registry cmd/server already
-// constructs once and shares with internal/orders' own REST handlers. rl is
-// this page's own rate limiter for POST /menu/order — separate from
-// internal/orders.Handlers' own "orders:"+ip-keyed one (internal/orders/handlers.go's
-// placeOrder), since this page bypasses that REST handler entirely and calls
-// Service.PlaceOrder directly; without its own limiter this form would have
-// no rate protection at all, unlike every other path to placing an order.
-func NewOrdersHandlers(repo *orders.Repository, shotsRepo *shots.Repository, libRepo *library.Repository, registry *machines.Registry) *OrdersHandlers {
+// *shots.Repository/*library.Repository/*machines.Registry/*ha.Client
+// cmd/server already constructs once and shares with internal/orders' own
+// REST handlers. rl is this page's own rate limiter for POST /menu/order —
+// separate from internal/orders.Handlers' own "orders:"+ip-keyed one
+// (internal/orders/handlers.go's placeOrder), since this page bypasses that
+// REST handler entirely and calls Service.PlaceOrder directly; without its
+// own limiter this form would have no rate protection at all, unlike every
+// other path to placing an order.
+func NewOrdersHandlers(repo *orders.Repository, shotsRepo *shots.Repository, libRepo *library.Repository, registry *machines.Registry, haClient *ha.Client) *OrdersHandlers {
 	return &OrdersHandlers{
 		repo:      repo,
-		service:   orders.NewService(repo, shotsRepo, libRepo, registry),
+		service:   orders.NewService(repo, shotsRepo, libRepo, registry, haClient),
 		libRepo:   libRepo,
 		shotsRepo: shotsRepo,
 		rl:        ratelimit.NewKeyed(),

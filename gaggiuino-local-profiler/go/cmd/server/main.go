@@ -130,7 +130,7 @@ func main() {
 	// internal/web/handlers_orders.go's own doc comment for why a second
 	// instance, not ordersHandlers' internal one). Same
 	// registration-outside-/api/ auth model as every other web.*Handlers.
-	webOrdersHandlers := web.NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry)
+	webOrdersHandlers := web.NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
 	webOrdersHandlers.RegisterRoutes(mux)
 
 	// Phase 1g (#901): the background polling loop that backs

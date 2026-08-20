@@ -61,7 +61,7 @@ type Handlers struct {
 // main.go); haClient is internal/ha.NewClientFromEnv()'s result.
 func NewHandlers(repo *Repository, shotsRepo *shots.Repository, libRepo *library.Repository, registry *machines.Registry, haClient *ha.Client) *Handlers {
 	return &Handlers{
-		service:  NewService(repo, shotsRepo, libRepo, registry),
+		service:  NewService(repo, shotsRepo, libRepo, registry, haClient),
 		repo:     repo,
 		registry: registry,
 		ha:       haClient,
@@ -1008,31 +1008,12 @@ func (h *Handlers) placeOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── Order actions ────────────────────────────────────────────────────────
-
-// notifyOrderStatus ports routes/orders.js's _notifyOrderStatus: shared by
-// accept/complete/decline, gated by the single notify_order_status toggle
-// (#603). Best-effort — fired in a goroutine, matching Node's fire-and-
-// forget sendHaNotify() (no route awaits it either).
-func (h *Handlers) notifyOrderStatus(order Order, title, body string) {
-	settings, err := h.repo.GetSettings()
-	if err != nil {
-		return
-	}
-	if v, ok := settings["notify_order_status"].(bool); ok && !v {
-		return
-	}
-	svc, _ := order["notifyService"].(string)
-	if svc == "" {
-		mapping, err := h.repo.GetNotifyMapping()
-		if err != nil {
-			return
-		}
-		haUserID, _ := order["haUserId"].(string)
-		svc = mapping[haUserID]
-	}
-	id, _ := order["id"].(string)
-	go h.ha.SendNotify(context.Background(), svc, title, body, id)
-}
+//
+// accept/complete/decline no longer build and send the customer HA
+// notification themselves — that now lives on Service.AcceptOrder/
+// CompleteOrder/DeclineOrder (internal/orders/service.go's
+// notifyOrderStatus), so every caller of those three methods gets it,
+// including internal/web's htmx queue actions (#901 code review).
 
 func (h *Handlers) accept(w http.ResponseWriter, r *http.Request) {
 	body, ok := decodeOptionalJSONBody(w, r)
@@ -1044,9 +1025,6 @@ func (h *Handlers) accept(w http.ResponseWriter, r *http.Request) {
 		writeOrderError(w, err)
 		return
 	}
-	item, _ := order["item"].(string)
-	eta, _ := order["eta"].(int64)
-	h.notifyOrderStatus(order, "☕ "+item+" wird zubereitet", "Fertig in ~"+strconv.FormatInt(eta, 10)+" Min!")
 	writeJSON(w, http.StatusOK, order)
 }
 
@@ -1056,8 +1034,6 @@ func (h *Handlers) complete(w http.ResponseWriter, r *http.Request) {
 		writeOrderError(w, err)
 		return
 	}
-	item, _ := order["item"].(string)
-	h.notifyOrderStatus(order, "✓ "+item+" ist fertig!", "Hol dir deinen "+item+" ab — guten Genuss!")
 	writeJSON(w, http.StatusOK, order)
 }
 
@@ -1072,13 +1048,6 @@ func (h *Handlers) decline(w http.ResponseWriter, r *http.Request) {
 		writeOrderError(w, err)
 		return
 	}
-	item, _ := order["item"].(string)
-	declineReason, _ := order["declineReason"].(string)
-	msg := "Deine Bestellung wurde leider abgelehnt."
-	if declineReason != "" {
-		msg = "Grund: " + declineReason
-	}
-	h.notifyOrderStatus(order, "✕ "+item+" abgelehnt", msg)
 	writeJSON(w, http.StatusOK, order)
 }
 
