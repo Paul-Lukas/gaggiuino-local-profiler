@@ -83,6 +83,19 @@ module.exports = [
     rules: commonRules,
   },
   {
+    // go/internal/web/static/**: unlike the rest of go/**/*.js above, these
+    // ship to and run in the browser (embedded via internal/web/assets.go,
+    // loaded from templates/layout.templ) — same runtime as public-src/,
+    // hence the same browser globals, overriding the broader go/**/*.js
+    // Node-globals block above (later config wins on a matching, narrower
+    // `files` glob).
+    files: ['go/internal/web/static/**/*.js'],
+    languageOptions: {
+      globals: globals.browser,
+    },
+    rules: commonRules,
+  },
+  {
     files: ['lib/**/*.js', 'routes/**/*.js', 'server.js'],
     ignores: ['lib/machines/registry.js', 'lib/data.js', 'lib/machines/options-adoption.js'],
     languageOptions: {

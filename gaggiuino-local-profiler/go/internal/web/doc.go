@@ -11,11 +11,12 @@
 // File layout:
 //
 //	doc.go            this file
-//	assets.go         embed.FS for static/ (vendored htmx/Alpine, style.css)
+//	assets.go         embed.FS for static/ (vendored htmx/Alpine, style.css,
+//	                  glp-token.js)
 //	view.go            shots.Shot -> templates.ShotRow projection
 //	handlers.go        GET /shots + the two htmx trash/restore actions
 //	templates/         .templ sources (own package; see templates/layout.templ)
-//	static/            vendored JS/CSS served at /web/static/*
+//	static/            vendored + first-party JS/CSS served at /web/static/*
 //
 // # Auth model
 //
@@ -39,15 +40,30 @@
 // has to either arrive through genuine HA Ingress (RequireToken's
 // IsIngressRequest bypass, which applies before the GET/HEAD check and
 // covers the add-on's primary access path unconditionally) or carry a
-// valid X-GLP-Token header, exactly like the JSON API. Neither templ
-// template attaches that header today (see templates/shots.templ's
-// hx-post buttons) — standalone-mode (non-Ingress) use of the Trash/Restore
-// buttons will 401 until a future page wires the token into htmx (e.g. via
-// hx-headers sourced from GET /api/token, the way public-src/api.js's
-// initToken() does for the SPA's own fetches). Not fixed here: this
-// binary isn't wired into production yet (see cmd/server/main.go and
-// go/README.md), and Ingress — the primary intended access path — is
-// unaffected.
+// valid X-GLP-Token header, exactly like the JSON API.
+//
+// That header is wired in structurally, for every current and future
+// Phase-2 page, not per-button: templates/layout.templ loads
+// static/glp-token.js once, globally, in <head>. That script fetches the
+// token from the already-public GET /api/token (mirroring
+// public-src/api.js's initToken() for the existing SPA) and attaches it as
+// X-GLP-Token to every htmx request via htmx's htmx:configRequest event —
+// see glp-token.js's own doc comment for the full mechanism and why
+// fetch-and-attach was chosen over baking the token into GET /shots' own
+// HTML (that page is itself unauthenticated per the paragraph above, so an
+// SSR-embedded token would hand it to a caller who couldn't otherwise get
+// it — GET /api/token carries no such risk, since it's already exactly as
+// reachable to that same caller). Standalone mode with expose_api_port
+// explicitly set to false denies GET /api/token to a non-Ingress caller
+// (see internal/system/handlers.go's getToken), so glp-token.js's fetch
+// comes back empty and the Trash/Restore buttons 401 in that
+// configuration — not a new failure mode, the same one
+// isApiPortBlocked()/api.js's initToken() already describe for the SPA
+// today, and out of scope for this package to change.
+// TestBrowserFlow_FetchedTokenAuthorizesTrash in handlers_test.go drives
+// this end to end through the real auth.RequireToken stack: fetch GET
+// /api/token, then use the token it returns to authorize
+// POST /shots/{id}/trash.
 //
 // # CSP
 //

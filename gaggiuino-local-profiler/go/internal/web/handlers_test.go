@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/system"
 )
 
 // newTestServer opens a throwaway on-disk SQLite DB (same pattern as
@@ -289,6 +291,101 @@ func TestTrashRestore_RequireAuthBehindRequireToken(t *testing.T) {
 	}
 }
 
+// TestListPage_LoadsTokenScript pins that GET /shots actually ships
+// glp-token.js — the follow-up fix to the CSRF gap
+// TestTrashRestore_RequireAuthBehindRequireToken above pins server-side.
+// Without this <script> tag present in the rendered page, a real browser
+// would never run the code that fetches a token and attaches it to htmx's
+// write requests, and the Trash/Restore buttons would 401 exactly like
+// they did before this fix (see static/glp-token.js's own doc comment and
+// templates/layout.templ).
+func TestListPage_LoadsTokenScript(t *testing.T) {
+	mux, _ := newTestServer(t)
+	rec := doRequest(t, mux, "GET", "/shots")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /shots: status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `src="/web/static/glp-token.js"`) {
+		t.Errorf("GET /shots body missing glp-token.js <script> tag\nbody:\n%s", rec.Body.String())
+	}
+}
+
+// TestBrowserFlow_FetchedTokenAuthorizesTrash simulates the actual browser
+// sequence glp-token.js drives end to end through the real
+// auth.RequireToken middleware stack, the same pattern
+// TestTrashRestore_RequireAuthBehindRequireToken above established but
+// carried one step further: instead of a token the test already knows,
+// this fetches GET /api/token — the exact request glp-token.js's
+// fetchToken() issues on page load — through internal/system's real
+// handler, and then uses whatever token that endpoint actually returned to
+// authorize the htmx:configRequest-attached POST /shots/{id}/trash — the
+// exact request glp-token.js's htmx:configRequest listener produces for a
+// browser's Trash click. If RegisterRoutes ever registered a route under a
+// different token, or getToken and RequireToken ever fell out of sync,
+// this (unlike a test with a hardcoded shared token) would catch it.
+func TestBrowserFlow_FetchedTokenAuthorizesTrash(t *testing.T) {
+	const testToken = "test-fixture-token-not-a-real-secret"
+	const remoteAddr = "192.168.1.50:1234" // LAN, not Ingress/Supervisor
+
+	dbPath := filepath.Join(t.TempDir(), "glp.db")
+	sqlDB, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { sqlDB.Close() })
+
+	repo := shots.NewRepository(sqlDB)
+	upsertTestShot(t, repo, 1, 1_700_000_000, "Espresso Classic", nil)
+
+	mux := http.NewServeMux()
+	NewHandlers(shots.NewService(repo)).RegisterRoutes(mux)
+	// getToken (called below) only reads h.token/h.rl, never poller/demo —
+	// nil is safe for a token-only test, and keeps this test from having
+	// to fake an HA adapter just to exercise an unrelated handler.
+	system.NewHandlers(nil, nil, testToken).RegisterRoutes(mux)
+	handler := auth.RequireToken(testToken)(mux)
+
+	// Step 1: page load. A real browser would run glp-token.js from here
+	// (TestListPage_LoadsTokenScript above pins that it's actually linked).
+	pageReq := httptest.NewRequest(http.MethodGet, "/shots", nil)
+	pageReq.RemoteAddr = remoteAddr
+	pageRec := httptest.NewRecorder()
+	handler.ServeHTTP(pageRec, pageReq)
+	if pageRec.Code != http.StatusOK {
+		t.Fatalf("GET /shots: status = %d, want 200", pageRec.Code)
+	}
+
+	// Step 2: glp-token.js's fetchToken() — GET /api/token, no header yet
+	// (fresh page load, no token cached).
+	tokenReq := httptest.NewRequest(http.MethodGet, "/api/token", nil)
+	tokenReq.RemoteAddr = remoteAddr
+	tokenRec := httptest.NewRecorder()
+	handler.ServeHTTP(tokenRec, tokenReq)
+	if tokenRec.Code != http.StatusOK {
+		t.Fatalf("GET /api/token: status = %d, want 200, body = %s", tokenRec.Code, tokenRec.Body.String())
+	}
+	var tokenBody struct {
+		APIToken string `json:"apiToken"`
+	}
+	if err := json.Unmarshal(tokenRec.Body.Bytes(), &tokenBody); err != nil {
+		t.Fatalf("decoding GET /api/token body: %v (body = %s)", err, tokenRec.Body.String())
+	}
+	if tokenBody.APIToken == "" {
+		t.Fatalf("GET /api/token returned an empty apiToken")
+	}
+
+	// Step 3: htmx:configRequest attaches the fetched token as
+	// X-GLP-Token to the Trash button's POST.
+	trashReq := httptest.NewRequest(http.MethodPost, "/shots/1/trash", nil)
+	trashReq.RemoteAddr = remoteAddr
+	trashReq.Header.Set("X-GLP-Token", tokenBody.APIToken)
+	trashRec := httptest.NewRecorder()
+	handler.ServeHTTP(trashRec, trashReq)
+	if trashRec.Code != http.StatusOK {
+		t.Errorf("POST /shots/1/trash with the fetched token: status = %d, want 200, body = %s", trashRec.Code, trashRec.Body.String())
+	}
+}
+
 // TestStaticAssets_Served verifies the vendored htmx/Alpine files are
 // reachable at /web/static/ — a build-time embed.FS wiring bug would 404
 // here even though `go build` itself stays green.
@@ -298,6 +395,7 @@ func TestStaticAssets_Served(t *testing.T) {
 		"/web/static/style.css",
 		"/web/static/vendor/htmx-2.0.10.min.js",
 		"/web/static/vendor/alpine-csp-3.16.2.min.js",
+		"/web/static/glp-token.js",
 	} {
 		rec := doRequest(t, mux, "GET", path)
 		if rec.Code != http.StatusOK {

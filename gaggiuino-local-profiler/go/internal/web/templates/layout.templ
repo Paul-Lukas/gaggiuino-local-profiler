@@ -15,6 +15,14 @@ package templates
 // 'unsafe-inline'/'unsafe-eval'; style-src allows 'unsafe-inline', but
 // nothing here relies on that either) unmodified; see that middleware's
 // doc comment for the exact policy this must keep satisfying.
+//
+// /web/static/glp-token.js is loaded here, globally, once — not per page
+// — so every current and future Phase-2 page's hx-post/hx-put/hx-delete
+// automatically carries X-GLP-Token without that page's own .templ having
+// to know anything about auth. See that file's own doc comment for the
+// full mechanism and why it fetches-and-attaches instead of an SSR meta
+// tag, and internal/web/doc.go's "Auth model" section for the write-route
+// CSRF requirement this satisfies.
 templ Layout(title string) {
 	<!DOCTYPE html>
 	<html lang="en" data-theme="dark">
@@ -26,6 +34,7 @@ templ Layout(title string) {
 			<script src="/web/static/vendor/htmx-2.0.10.min.js"></script>
 			<script src="/web/static/vendor/htmx-sse-ext-2.0.10.js"></script>
 			<script defer src="/web/static/vendor/alpine-csp-3.16.2.min.js"></script>
+			<script defer src="/web/static/glp-token.js"></script>
 		</head>
 		<body hx-ext="sse">
 			<nav class="topnav">

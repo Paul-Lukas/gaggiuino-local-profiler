@@ -6,10 +6,11 @@ import (
 	"net/http"
 )
 
-// staticFS embeds static/ (vendored htmx/Alpine, style.css) into the
-// binary — no separate asset directory needs to ship alongside it at
-// runtime, matching go/README.md's "single static Go binary" goal. See
-// static/vendor/NOTICE.md for exactly what's vendored and why.
+// staticFS embeds static/ (vendored htmx/Alpine, style.css, first-party
+// glp-token.js) into the binary — no separate asset directory needs to
+// ship alongside it at runtime, matching go/README.md's "single static Go
+// binary" goal. See static/vendor/NOTICE.md for exactly what's vendored
+// and why.
 //
 //go:embed static
 var staticFS embed.FS

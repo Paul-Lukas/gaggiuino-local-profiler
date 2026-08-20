@@ -357,13 +357,13 @@ needs a separate manual step.
 **Assets:** `internal/web/static/` holds the vendored, unmodified htmx +
 htmx-SSE-extension + Alpine files (see
 `internal/web/static/vendor/NOTICE.md` for exact versions/licenses/sources)
-plus `style.css`, all embedded into the binary via `embed.FS`
-(`internal/web/assets.go`) and served at `/web/static/*` — no separate
-asset directory needs to ship alongside the binary at runtime. Alpine is
-vendored as `@alpinejs/csp`, not plain `alpinejs`: core Alpine's expression
-evaluator needs `script-src 'unsafe-eval'`, which
-`internal/auth.SecurityHeaders`'s CSP intentionally doesn't grant — see
-that NOTICE.md for the full reasoning.
+plus `style.css` and `glp-token.js` (first-party, see "Auth model" below),
+all embedded into the binary via `embed.FS` (`internal/web/assets.go`) and
+served at `/web/static/*` — no separate asset directory needs to ship
+alongside the binary at runtime. Alpine is vendored as `@alpinejs/csp`, not
+plain `alpinejs`: core Alpine's expression evaluator needs `script-src
+'unsafe-eval'`, which `internal/auth.SecurityHeaders`'s CSP intentionally
+doesn't grant — see that NOTICE.md for the full reasoning.
 
 **Auth model:** `GET /shots` (and `/web/static/*`) are registered outside
 `/api/`, so they fall through `internal/auth.RequireToken`'s bypass for
@@ -375,11 +375,22 @@ NOT get that bypass — `RequireToken` scopes it to GET/HEAD specifically (a
 #901 code-review fix; it originally matched any non-`/api/` path
 regardless of method, which let any page in the user's browser trigger
 these writes with a plain unauthenticated POST — a CSRF hole), so they
-require the same `X-GLP-Token`/Ingress trust the JSON API does. See
-`internal/web/doc.go`'s "Auth model" section for the full reasoning,
-including the known follow-up: neither template attaches a token to its
-`hx-post` yet, so standalone-mode (non-Ingress) use of Trash/Restore 401s
-until a later page wires that in.
+require the same `X-GLP-Token`/Ingress trust the JSON API does.
+
+That header is wired into htmx structurally, not per button:
+`templates/layout.templ` loads `static/glp-token.js` once, globally, for
+every current and future Phase-2 page. It fetches the token from the
+already-public `GET /api/token` (mirroring `public-src/api.js`'s
+`initToken()` for the existing SPA) and attaches it as `X-GLP-Token` to
+every htmx request via htmx's `htmx:configRequest` event — no per-page
+wiring, no SSR-embedded token in `GET /shots`' own (deliberately
+unauthenticated) HTML. See `internal/web/doc.go`'s "Auth model" section and
+`glp-token.js`'s own doc comment for the full reasoning, including why
+fetch-and-attach was chosen over an SSR meta tag. Standalone mode with
+`expose_api_port` explicitly set to `false` still 401s a non-Ingress
+Trash/Restore click — `GET /api/token` itself refuses that caller — but
+that's the same `isApiPortBlocked()` state the SPA already surfaces today,
+not a new gap.
 
 ## Contract
 
