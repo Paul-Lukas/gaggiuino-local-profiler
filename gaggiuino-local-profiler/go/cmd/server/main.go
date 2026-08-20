@@ -1,15 +1,17 @@
 // Command server is the Go rewrite's HTTP bootstrap: it wires internal/db,
-// internal/auth, internal/ratelimit, internal/sse and (Phase 1c, issue
-// #901) internal/shots together into a real net/http server, in the same
-// middleware order server.js actually registers its own (read that file,
-// not a paraphrase of it — see the comment on the handler chain below).
+// internal/auth, internal/ratelimit, internal/sse, internal/shots (Phase
+// 1c) and (Phase 1d, issue #901) internal/library together into a real
+// net/http server, in the same middleware order server.js actually
+// registers its own (read that file, not a paraphrase of it — see the
+// comment on the handler chain below).
 //
-// GET /api/events (Phase 1b) plus the full /shots.json + /api/shots/*
-// domain (Phase 1c) are registered. Every other REST domain (library,
-// machines, orders, maintenance, backup) is still unrouted — those come in
-// later packages. This binary is not wired into the Docker image, CI, or
-// the running add-on; the Node app (server.js) remains the sole shipping
-// entrypoint until the rollout plan in go/README.md says otherwise.
+// GET /api/events (Phase 1b), the full /shots.json + /api/shots/* domain
+// (Phase 1c), and the full /api/library/* domain (Phase 1d) are registered.
+// Every other REST domain (machines, orders, maintenance, backup) is still
+// unrouted — those come in later packages. This binary is not wired into
+// the Docker image, CI, or the running add-on; the Node app (server.js)
+// remains the sole shipping entrypoint until the rollout plan in
+// go/README.md says otherwise.
 package main
 
 import (
@@ -23,6 +25,7 @@ import (
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ratelimit"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
@@ -62,8 +65,12 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/api/events", sseHandler)
 
-	shotsHandlers := shots.NewHandlers(shots.NewRepository(sqlDB))
+	shotsRepo := shots.NewRepository(sqlDB)
+	shotsHandlers := shots.NewHandlers(shotsRepo)
 	shotsHandlers.RegisterRoutes(mux)
+
+	libraryHandlers := library.NewHandlers(library.NewRepository(sqlDB), shotsRepo)
+	libraryHandlers.RegisterRoutes(mux)
 
 	limiter := ratelimit.New(rateLimitWindow, rateLimitMax)
 

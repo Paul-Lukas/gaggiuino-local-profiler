@@ -1,0 +1,221 @@
+package library
+
+import "net/http"
+
+// This file ports routes/library/baskets.js (#635).
+
+var basketWallTypes = map[string]bool{"pressurized": true, "single-wall": true, "precision-machined": true, "high-flow": true}
+var basketShapes = map[string]bool{"straight": true, "tapered": true}
+
+func findBasketIndex(lib Library, id int64) int {
+	for i, b := range lib.Baskets {
+		if bid, ok := idOf(b, "id"); ok && bid == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// listBaskets ports GET /api/library/baskets.
+func (h *Handlers) listBaskets(w http.ResponseWriter, r *http.Request) {
+	lib, err := h.repo.GetLibrary()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, lib.Baskets)
+}
+
+// createBasket ports POST /api/library/basket.
+func (h *Handlers) createBasket(w http.ResponseWriter, r *http.Request) {
+	if !h.rateLimitCreate(w, r) {
+		return
+	}
+	body, ok := decodeJSONBody(w, r)
+	if !ok {
+		return
+	}
+	if trimMax(body["name"], 200) == "" {
+		writeError(w, http.StatusBadRequest, "name required")
+		return
+	}
+	wallType, _ := body["wallType"].(string)
+	if wallType != "" && !basketWallTypes[wallType] {
+		writeError(w, http.StatusBadRequest, "invalid wallType")
+		return
+	}
+	shape, _ := body["shape"].(string)
+	if shape != "" && !basketShapes[shape] {
+		writeError(w, http.StatusBadRequest, "invalid shape")
+		return
+	}
+	lib, err := h.repo.GetLibrary()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	basket := Entity{
+		"id": newID(), "name": trimMax(body["name"], 200), "doseCapacity": trimMax(body["doseCapacity"], 50),
+		"wallType": wallType, "shape": shape,
+		"holeCount": trimMax(body["holeCount"], 50), "notes": trimMax(body["notes"], 1000),
+		"updatedAt": newID(),
+	}
+	lib.Baskets = append(lib.Baskets, basket)
+	if err := h.repo.SaveLibrary(lib); err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, basket)
+}
+
+// updateBasket ports PUT /api/library/basket/:id.
+func (h *Handlers) updateBasket(w http.ResponseWriter, r *http.Request) {
+	id, noMatch := parseIDParam(r.PathValue("id"))
+	body, ok := decodeJSONBody(w, r)
+	if !ok {
+		return
+	}
+	lib, err := h.repo.GetLibrary()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	idx := -1
+	if !noMatch {
+		idx = findBasketIndex(lib, id)
+	}
+	if idx == -1 {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if v, present := body["wallType"]; present {
+		s, _ := v.(string)
+		if s != "" && !basketWallTypes[s] {
+			writeError(w, http.StatusBadRequest, "invalid wallType")
+			return
+		}
+	}
+	if v, present := body["shape"]; present {
+		s, _ := v.(string)
+		if s != "" && !basketShapes[s] {
+			writeError(w, http.StatusBadRequest, "invalid shape")
+			return
+		}
+	}
+	basket := lib.Baskets[idx]
+	if v, present := trimMaxOrUndefined(body, "name", 200); present {
+		if v != "" {
+			basket["name"] = v
+		}
+	}
+	if v, present := trimMaxOrUndefined(body, "doseCapacity", 50); present {
+		basket["doseCapacity"] = v
+	}
+	if v, present := body["wallType"]; present {
+		s, _ := v.(string)
+		basket["wallType"] = s
+	}
+	if v, present := body["shape"]; present {
+		s, _ := v.(string)
+		basket["shape"] = s
+	}
+	if v, present := trimMaxOrUndefined(body, "holeCount", 50); present {
+		basket["holeCount"] = v
+	}
+	if v, present := trimMaxOrUndefined(body, "notes", 1000); present {
+		basket["notes"] = v
+	}
+	basket["updatedAt"] = newID()
+	lib.Baskets[idx] = basket
+	if err := h.repo.SaveLibrary(lib); err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, basket)
+}
+
+// deleteBasket ports DELETE /api/library/basket/:id.
+func (h *Handlers) deleteBasket(w http.ResponseWriter, r *http.Request) {
+	id, noMatch := parseIDParam(r.PathValue("id"))
+	lib, err := h.repo.GetLibrary()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if !noMatch {
+		if idx := findBasketIndex(lib, id); idx != -1 {
+			if ext, _ := lib.Baskets[idx]["image"].(string); ext != "" {
+				deleteImage(h.imageDir, id, ext, "basket-")
+			}
+		}
+	}
+	filtered := make([]Entity, 0, len(lib.Baskets))
+	for _, b := range lib.Baskets {
+		bid, ok := idOf(b, "id")
+		if !noMatch && ok && bid == id {
+			continue
+		}
+		filtered = append(filtered, b)
+	}
+	lib.Baskets = filtered
+	if err := h.repo.SaveLibrary(lib); err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// getBasketImage ports GET /api/library/basket/:id/image.
+func (h *Handlers) getBasketImage(w http.ResponseWriter, r *http.Request) {
+	id, noMatch := parseIDParam(r.PathValue("id"))
+	lib, err := h.repo.GetLibrary()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	ext := ""
+	if !noMatch {
+		if idx := findBasketIndex(lib, id); idx != -1 {
+			ext, _ = lib.Baskets[idx]["image"].(string)
+		}
+	}
+	h.serveImage(w, r, ext, "basket-", id)
+}
+
+// postBasketImage ports POST /api/library/basket/:id/image.
+func (h *Handlers) postBasketImage(w http.ResponseWriter, r *http.Request) {
+	id, noMatch := parseIDParam(r.PathValue("id"))
+	lib, err := h.repo.GetLibrary()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	idx := -1
+	if !noMatch {
+		idx = findBasketIndex(lib, id)
+	}
+	if idx == -1 {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	data, contentType, ok := readUploadedImage(w, r)
+	if !ok {
+		return
+	}
+	ext, ok := saveUploadedImage(h.imageDir, "basket-", id, data, contentType)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "unsupported image")
+		return
+	}
+	basket := lib.Baskets[idx]
+	if oldExt, _ := basket["image"].(string); oldExt != "" && oldExt != ext {
+		deleteImage(h.imageDir, id, oldExt, "basket-")
+	}
+	basket["image"] = ext
+	lib.Baskets[idx] = basket
+	if err := h.repo.SaveLibrary(lib); err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, basket)
+}

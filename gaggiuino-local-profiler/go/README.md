@@ -6,14 +6,15 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 1c (shots domain — first full REST domain)
+## Status: Phase 1d (library domain — largest REST domain so far)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
 packages everything else builds on. Phase 1b added a real, listening HTTP
 server plus the `/api/events` SSE endpoint. Phase 1c (issue #901) ports
 `routes/shots.js` — the first REST domain to go the full HTTP-request →
 handler → `internal/db` → response path, establishing the pattern every
-later domain package follows:
+later domain package follows. Phase 1d (issue #901) ports the coffee
+library domain on top of that same pattern:
 
 - `internal/db` — real SQLite schema init + migrations on
   `modernc.org/sqlite`, verified against a fixture generated from
@@ -40,19 +41,37 @@ later domain package follows:
   stubbed at 501 — see `internal/shots/doc.go` for exactly what that
   endpoint and the `#450`/`#456` library-dependent scoring/notification
   paths defer to the not-yet-ported Library phase.
+- `internal/library` (Phase 1d, new) — the full coffee-library REST domain:
+  `GET /api/library` (grinders enriched with a computed `wear` field),
+  `GET /api/library/beans-info`, full CRUD + bag/frozen-portion lifecycle +
+  known-grind + image upload/serve for beans, full CRUD + burr-wear/reset +
+  image for grinders, full CRUD + image for baskets/puck screens, full CRUD
+  + stock-deduct for milks, full CRUD for recipes, and the SSRF-guarded
+  `GET /api/library/scan/:barcode` Open Food Facts proxy — `LibraryService`'s
+  `getBeansInfo`/`computeGrinderWearStats`/`upsertKnownGrindSetting`/
+  `setBeanImage`, `LibraryRepository`'s `getLibrary`/`saveLibrary`, and
+  `lib/ssrf-guard.js`'s `assertPublicHost` DNS-rebinding guard, all ported.
+  Deliberately NOT ported: the five one-time `migrateX()` startup
+  migrations (data already migrated on any install this binary can run
+  against — none turned out to be live business logic on inspection);
+  `geocodeBean` (external geocoding provider, out of this phase's scope);
+  and the maintenance-domain cross-call grinder delete would otherwise make
+  (`internal/maintenance` is still Phase 0) — see `internal/library/doc.go`
+  for exactly what each deferral does and doesn't change, including the one
+  genuine (if minor) behavior gap: deleting a grinder through the Go server
+  doesn't clean up its stale `maintenance` table row the way Node does.
 - `cmd/server` — `main.go` opens the DB, loads/creates the API token, and
   wires the above into a real `net/http` server listening on port 8099
   (same port as Node), with the same middleware order server.js actually
   registers (security headers → rate limiter → token auth), verified by
   manually booting the binary and curling it end-to-end (401
   unauthenticated; working `/api/events` stream and the full `/api/shots/*`
-  surface with a valid token).
+  + `/api/library/*` surface with a valid token).
 
-Every other package under `internal/` (`system`, `library`, `machines`,
-`orders`, `maintenance`, `backup`) is still a Phase 0 `doc.go` placeholder —
-no REST routes exist for those domains yet. `go build ./...`,
-`go vet ./...`, `gofmt -l .`, and `go test ./...` (including `-race`) are
-all green.
+Every other package under `internal/` (`system`, `machines`, `orders`,
+`maintenance`, `backup`) is still a Phase 0 `doc.go` placeholder — no REST
+routes exist for those domains yet. `go build ./...`, `go vet ./...`,
+`gofmt -l .`, and `go test ./...` (including `-race`) are all green.
 
 ## Why
 
@@ -95,17 +114,17 @@ go/
     system/                routes/system.js's status/live/preheat endpoints + lib/poll.js
     sse/                   routes/sse.js — /api/events (implemented, Phase 1b)
     shots/                 routes/shots.js + ShotService/ShotRepository (implemented, Phase 1c)
-    library/               routes/library/*.js + LibraryService
+    library/               routes/library/*.js + LibraryService (implemented, Phase 1d)
     machines/              routes/machines.js + machine-control.js + lib/machines/*
     orders/                routes/orders.js + OrderService
     maintenance/           routes/maintenance.js
     backup/                routes/backup.js
 ```
 
-The still-unimplemented packages (`system`, `library`, `machines`,
-`orders`, `maintenance`, `backup`) currently contain only a `doc.go`
-package comment pointing at their Node source of truth. See each one for
-exactly which file(s) it will absorb.
+The still-unimplemented packages (`system`, `machines`, `orders`,
+`maintenance`, `backup`) currently contain only a `doc.go` package comment
+pointing at their Node source of truth. See each one for exactly which
+file(s) it will absorb.
 
 ## Contract
 
