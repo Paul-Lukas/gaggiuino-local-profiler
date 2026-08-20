@@ -1,0 +1,138 @@
+package machines
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// httpClient is package-level (not http.DefaultClient directly) so tests
+// can point it at an httptest.Server's transport if ever needed; kept as
+// the zero-value *http.Client (Go's own sane defaults) otherwise.
+var httpClient = &http.Client{}
+
+// httpGetBytes issues a GET request and returns the raw response body
+// bytes — deliberately not JSON-decoded-then-re-encoded anywhere along
+// settings-proxy paths (see gaggiuino_adapter.go's GetSettings/
+// UpdateSettings), so a field's exact on-wire JSON representation (e.g.
+// the machine's bool-as-string settings quirk, see doc.go) survives the
+// round trip byte-for-byte.
+func httpGetBytes(ctx context.Context, url string, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("machine responded %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return body, nil
+}
+
+// httpPostBytes issues a POST request with an already-JSON-encoded body
+// and returns the raw response body bytes, for the same byte-preservation
+// reason httpGetBytes documents. An empty body posts `{}` (net/http.Post's
+// convention for "no body" doesn't apply to a JSON API that expects an
+// object, matching every axios.post(url, {}, ...) call site this ports).
+func httpPostBytes(ctx context.Context, url string, body []byte, timeout time.Duration) ([]byte, error) {
+	if len(body) == 0 {
+		body = []byte("{}")
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("machine responded %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	return respBody, nil
+}
+
+// ── loose value coercion, mirroring JS's parseFloat/parseInt/!!/||null
+// conventions on an untyped JSON-decoded value (used by GetStatus, whose
+// source field types vary — the machine's REST status can carry numbers
+// or numeric strings) ────────────────────────────────────────────────────
+
+func looseFloat(v any) float64 {
+	switch t := v.(type) {
+	case float64:
+		return t
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(t), 64)
+		if err != nil {
+			return 0
+		}
+		return f
+	default:
+		return 0
+	}
+}
+
+func looseTruthy(v any) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case float64:
+		return t != 0
+	case string:
+		return t != ""
+	case nil:
+		return false
+	default:
+		return true
+	}
+}
+
+func looseIntPtr(v any) *int {
+	switch t := v.(type) {
+	case float64:
+		n := int(t)
+		return &n
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return nil
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return nil
+		}
+		return &n
+	default:
+		return nil
+	}
+}
+
+func looseStringPtr(v any) *string {
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return nil
+	}
+	return &s
+}

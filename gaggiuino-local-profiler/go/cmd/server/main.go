@@ -1,17 +1,20 @@
 // Command server is the Go rewrite's HTTP bootstrap: it wires internal/db,
 // internal/auth, internal/ratelimit, internal/sse, internal/shots (Phase
-// 1c) and (Phase 1d, issue #901) internal/library together into a real
-// net/http server, in the same middleware order server.js actually
-// registers its own (read that file, not a paraphrase of it — see the
-// comment on the handler chain below).
+// 1c), internal/library (Phase 1d), and (Phase 1e, issue #901)
+// internal/machines together into a real net/http server, in the same
+// middleware order server.js actually registers its own (read that file,
+// not a paraphrase of it — see the comment on the handler chain below).
 //
 // GET /api/events (Phase 1b), the full /shots.json + /api/shots/* domain
-// (Phase 1c), and the full /api/library/* domain (Phase 1d) are registered.
-// Every other REST domain (machines, orders, maintenance, backup) is still
-// unrouted — those come in later packages. This binary is not wired into
-// the Docker image, CI, or the running add-on; the Node app (server.js)
-// remains the sole shipping entrypoint until the rollout plan in
-// go/README.md says otherwise.
+// (Phase 1c), the full /api/library/* domain (Phase 1d), and the machine-
+// registry + machine-control + machine-profile domain (Phase 1e:
+// /api/machines*, /api/machine/{settings,opmode,tare,service-test,
+// profile/save,firmware/*,live,profiles,profile*}) are registered. Every
+// other REST domain (orders, maintenance, backup) is still unrouted —
+// those come in later packages. This binary is not wired into the Docker
+// image, CI, or the running add-on; the Node app (server.js) remains the
+// sole shipping entrypoint until the rollout plan in go/README.md says
+// otherwise.
 package main
 
 import (
@@ -26,6 +29,7 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ratelimit"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
@@ -71,6 +75,9 @@ func main() {
 
 	libraryHandlers := library.NewHandlers(library.NewRepository(sqlDB), shotsRepo)
 	libraryHandlers.RegisterRoutes(mux)
+
+	machinesHandlers := machines.NewHandlers(machines.NewRegistry(sqlDB), hub)
+	machinesHandlers.RegisterRoutes(mux)
 
 	limiter := ratelimit.New(rateLimitWindow, rateLimitMax)
 

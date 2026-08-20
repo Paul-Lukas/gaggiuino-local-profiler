@@ -6,7 +6,7 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 1d (library domain — largest REST domain so far)
+## Status: Phase 1e (machines domain — registry, adapters, WebSocket client)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
 packages everything else builds on. Phase 1b added a real, listening HTTP
@@ -68,10 +68,48 @@ library domain on top of that same pattern:
   unauthenticated; working `/api/events` stream and the full `/api/shots/*`
   + `/api/library/*` surface with a valid token).
 
-Every other package under `internal/` (`system`, `machines`, `orders`,
-`maintenance`, `backup`) is still a Phase 0 `doc.go` placeholder — no REST
-routes exist for those domains yet. `go build ./...`, `go vet ./...`,
-`gofmt -l .`, and `go test ./...` (including `-race`) are all green.
+- `internal/machines` (Phase 1e, new) — the full machine-registry +
+  machine-control + machine-profile domain: `GET|POST /api/machines`,
+  `PUT|DELETE /api/machines/:id`, `.../default`, `.../test`; the #597
+  Gaggiuino settings/control proxy (`/api/machine/{settings,
+  settings/save, settings/:category, opmode, tare, service-test,
+  profile/save, firmware/progress, firmware/update, firmware/version,
+  live}`); and the machine-profile CRUD (`GET /api/machine/profiles`,
+  `POST /api/machine/profile/set`, `GET|POST|PUT|DELETE
+  /api/machine/profile[/:id]`). Ports `lib/machines/registry.js`
+  (`Registry`), the `adapter-base.js` contract as a real Go interface with
+  two implementations (`GaggiuinoAdapter`, `GaggiMateAdapter`), and both
+  machines' WebSocket clients — Gaggiuino's binary protobuf protocol
+  (`internal/machines/proto`, a from-scratch hand-written wire codec since
+  no `.proto` sources exist anywhere for this firmware, cross-validated
+  field-for-field against `lib/gaggiuino-proto.js`'s real
+  `@protobuf-ts/runtime` output) over `nhooyr.io/websocket`, plus
+  GaggiMate's JSON WebSocket protocol. `internal/sse.Hub` now has a real
+  producer: `live.go`'s persistent Gaggiuino WS session publishes every
+  live sensor/system-state push as an `EventLiveSnapshot`. The Gaggiuino
+  REST API's settings bool-as-string quirk (some boolean fields are JSON
+  *strings* `"true"`/`"false"`, not real booleans — see
+  `internal/machines/doc.go`) is preserved byte-for-byte end to end by
+  treating every settings payload as opaque bytes, never a typed struct.
+  Deliberately NOT ported in this phase: `GET /api/machine/status` +
+  `/api/preheat*` + `/api/live/data` (all four depend on `lib/poll.js`'s
+  background polling loop — `system` domain, still Phase 0); the default
+  machine's on-disk profiles-cache persistence; GaggiMate's binary shot-
+  history parsing; MQTT live-data transport; and backup/restore — see
+  `internal/machines/doc.go` for the full list and rationale. A standalone
+  CLI, `cmd/gaggiuino-ws-probe`, exists so the protobuf decoder can be
+  verified against a real machine's live traffic once one is reachable
+  (no network access to real hardware was available while this package
+  was built).
+- `cmd/gaggiuino-ws-probe` — manual verification tool for
+  `internal/machines/proto`'s decoder: connects to a real machine and
+  dumps every decoded WS frame, or replays one recorded hex frame offline.
+  Not part of the server binary or any test suite.
+
+Every other package under `internal/` (`system`, `orders`, `maintenance`,
+`backup`) is still a Phase 0 `doc.go` placeholder — no REST routes exist
+for those domains yet. `go build ./...`, `go vet ./...`, `gofmt -l .`, and
+`go test ./...` (including `-race`) are all green.
 
 ## Why
 
@@ -106,7 +144,8 @@ go/
   README.md              — this file
   RESEARCH.md             — Phase 0 research spikes (protobuf sources, image/QR libs)
   cmd/
-    server/                main.go — HTTP bootstrap: db + auth + sse + shots wiring
+    server/                main.go — HTTP bootstrap: db + auth + sse + shots + library + machines wiring
+    gaggiuino-ws-probe/     manual protobuf-decoder verification tool (not part of the server binary)
   internal/
     db/                    lib/db.js — schema + migrations
     auth/                  server.js's ingress-trust + token-auth
@@ -115,16 +154,17 @@ go/
     sse/                   routes/sse.js — /api/events (implemented, Phase 1b)
     shots/                 routes/shots.js + ShotService/ShotRepository (implemented, Phase 1c)
     library/               routes/library/*.js + LibraryService (implemented, Phase 1d)
-    machines/              routes/machines.js + machine-control.js + lib/machines/*
+    machines/              routes/machines.js + machine-control.js + lib/machines/* (implemented, Phase 1e)
+    machines/proto/         Gaggiuino's binary protobuf schema (implemented, Phase 1e)
     orders/                routes/orders.js + OrderService
     maintenance/           routes/maintenance.js
     backup/                routes/backup.js
 ```
 
-The still-unimplemented packages (`system`, `machines`, `orders`,
-`maintenance`, `backup`) currently contain only a `doc.go` package comment
-pointing at their Node source of truth. See each one for exactly which
-file(s) it will absorb.
+The still-unimplemented packages (`system`, `orders`, `maintenance`,
+`backup`) currently contain only a `doc.go` package comment pointing at
+their Node source of truth. See each one for exactly which file(s) it
+will absorb.
 
 ## Contract
 
