@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	golang.org/x/time v0.15.0
 	modernc.org/sqlite v1.57.0
+	nhooyr.io/websocket v1.8.17
 )
 
 require (
