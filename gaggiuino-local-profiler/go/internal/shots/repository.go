@@ -58,26 +58,41 @@ func (r *Repository) FindAllExcludingTrash() ([]Shot, error) {
 	return out, rows.Err()
 }
 
-// TrashIDs ports the id-extraction half of ShotRepository.js's getTrash()
-// (`Object.keys(trash).map(Number)`) — ShotService.getTrash() is what pairs
-// this with FindByID per id; the deleted_at timestamps getTrash()'s map
-// also carries aren't read by that caller, so this returns bare ids.
-func (r *Repository) TrashIDs() ([]int64, error) {
-	rows, err := r.db.Query(`SELECT shot_id FROM trash`)
+// FindTrashed ports ShotRepository.js's getTrash() paired with
+// ShotService.getTrash()'s per-id findById hydration — but as one joined
+// query instead of a TrashIDs()-then-FindByID(id)-per-id round trip: the
+// naive port issued 1+N queries (one to list trash ids, one more per id,
+// each re-running selectBase's shots<->annotations join), which scales
+// linearly with trash size. Driving the join FROM trash instead of shots
+// keeps the same "only rows with a live shots record" semantics
+// ShotService.getTrash()'s `.filter(Boolean)` had (an INNER JOIN silently
+// drops a trash entry whose shot row is somehow already gone, same as a nil
+// FindByID result did), and ordering by t.shot_id makes the result
+// deterministic (trash's shot_id is its INTEGER PRIMARY KEY, so this matches
+// the rowid-order SQLite returned for the old unordered `SELECT shot_id FROM
+// trash` in practice).
+func (r *Repository) FindTrashed() ([]Shot, error) {
+	rows, err := r.db.Query(`
+		SELECT s.id, s.timestamp, s.duration, s.profile_name, s.data, s.machine_id, a.data AS ann_data
+		FROM trash t
+		JOIN shots s ON s.id = t.shot_id
+		LEFT JOIN annotations a ON a.shot_id = s.id
+		ORDER BY t.shot_id ASC
+	`)
 	if err != nil {
 		return nil, fmt.Errorf("shots: listing trash: %w", err)
 	}
 	defer rows.Close()
 
-	var ids []int64
+	var out []Shot
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("shots: scanning trash id: %w", err)
+		shot, err := hydrateRow(rows)
+		if err != nil {
+			return nil, err
 		}
-		ids = append(ids, id)
+		out = append(out, shot)
 	}
-	return ids, rows.Err()
+	return out, rows.Err()
 }
 
 // FindPreviousByProfile ports ShotRepository.js's findPreviousByProfile
@@ -270,6 +285,25 @@ func (r *Repository) SaveBlocklist(list []string) error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("shots: committing blocklist save: %w", err)
+	}
+	return nil
+}
+
+// AppendToBlocklist atomically adds a single value to the blocklist without
+// the read-then-replace round trip SaveBlocklist requires for a
+// single-id add. Node's saveBlocklist(list) has no concurrency issue
+// (single-threaded event loop, so a route handler's read-modify-write
+// always runs to completion before the next request starts), but Go's
+// handlers run concurrently: two overlapping DELETE /api/shots/{id}/delete
+// requests can each read the same blocklist snapshot via GetBlocklist,
+// append their own id, and then SaveBlocklist — whose DELETE+re-INSERT
+// replaces the whole table — so the second write silently drops the first
+// request's id (#901). blocklist.value has a UNIQUE constraint (see
+// internal/db/db.go), so INSERT OR IGNORE is a single atomic statement with
+// no read step and therefore no lost-update window.
+func (r *Repository) AppendToBlocklist(value string) error {
+	if _, err := r.db.Exec(`INSERT OR IGNORE INTO blocklist (value) VALUES (?)`, value); err != nil {
+		return fmt.Errorf("shots: appending blocklist entry %q: %w", value, err)
 	}
 	return nil
 }

@@ -392,6 +392,10 @@ func (h *Handlers) restore(w http.ResponseWriter, r *http.Request) {
 
 // delete ports POST /api/shots/:id/delete: permanently deletes and adds
 // the id to the blocklist so a later re-import/re-sync never resurrects it.
+// The blocklist add goes through AppendToBlocklist's atomic INSERT OR
+// IGNORE rather than a GetBlocklist+SaveBlocklist read-modify-write — see
+// Repository.AppendToBlocklist's doc comment for why the latter loses
+// updates under concurrent deletes (#901).
 func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(r.PathValue("id"))
 	if !ok {
@@ -411,24 +415,9 @@ func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
-	blocklist, err := h.service.GetBlocklist()
-	if err != nil {
+	if err := h.service.AppendToBlocklist(strconv.FormatInt(id, 10)); err != nil {
 		writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
-	}
-	idStr := strconv.FormatInt(id, 10)
-	found := false
-	for _, v := range blocklist {
-		if v == idStr {
-			found = true
-			break
-		}
-	}
-	if !found {
-		if err := h.service.SaveBlocklist(append(blocklist, idStr)); err != nil {
-			writeError(w, http.StatusInternalServerError, "Internal server error")
-			return
-		}
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

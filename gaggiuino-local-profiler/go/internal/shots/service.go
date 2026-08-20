@@ -36,24 +36,12 @@ func (s *Service) GetByID(id int64) (Shot, error) {
 	return s.repo.FindByID(id)
 }
 
-// GetTrash ports ShotService.js's getTrash(): every trashed shot,
-// hydrated, skipping any id whose shot row is somehow already gone.
+// GetTrash ports ShotService.js's getTrash(): every trashed shot, hydrated,
+// skipping any id whose shot row is somehow already gone. See
+// Repository.FindTrashed's doc comment for why this is one joined query
+// instead of a per-id FindByID loop.
 func (s *Service) GetTrash() ([]Shot, error) {
-	ids, err := s.repo.TrashIDs()
-	if err != nil {
-		return nil, err
-	}
-	var out []Shot
-	for _, id := range ids {
-		shot, err := s.repo.FindByID(id)
-		if err != nil {
-			return nil, err
-		}
-		if shot != nil {
-			out = append(out, shot)
-		}
-	}
-	return out, nil
+	return s.repo.FindTrashed()
 }
 
 // GetPreviousByProfile ports ShotService.js's getPreviousByProfile (#402).
@@ -118,6 +106,13 @@ func (s *Service) GetBlocklist() ([]string, error) {
 // SaveBlocklist ports ShotService.js's saveBlocklist.
 func (s *Service) SaveBlocklist(list []string) error {
 	return s.repo.SaveBlocklist(list)
+}
+
+// AppendToBlocklist atomically adds a single value to the blocklist — see
+// Repository.AppendToBlocklist's doc comment for why the delete handler
+// uses this instead of a GetBlocklist+SaveBlocklist read-modify-write.
+func (s *Service) AppendToBlocklist(value string) error {
+	return s.repo.AppendToBlocklist(value)
 }
 
 // ComputeScoreDetail ports ShotService.js's computeScoreDetail (#457).
