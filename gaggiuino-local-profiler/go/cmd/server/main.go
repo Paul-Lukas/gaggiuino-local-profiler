@@ -166,6 +166,19 @@ func main() {
 	webMachinesHandlers := web.NewMachinesHandlers(registry, poller)
 	webMachinesHandlers.RegisterRoutes(mux)
 
+	// Phase 2e (#901): GET /settings, the default machine's Gaggiuino
+	// settings categories (read-only boiler/led/scales/system, editable
+	// display), built on machines.Adapter's GetSettings/UpdateSettings via
+	// machinesHandlers.GetAdapter — the same *machines.Handlers instance
+	// internal/system's poller (above) already shares, not a second one.
+	// Same registration-outside-/api/ auth model as every other
+	// web.*Handlers. See internal/web/handlers_settings.go's own doc
+	// comment for the full scope (one editable category, no per-machine
+	// switcher, raw-JSON round trip to preserve the settings bool-as-string
+	// quirk unchanged).
+	webSettingsHandlers := web.NewSettingsHandlers(registry, machinesHandlers)
+	webSettingsHandlers.RegisterRoutes(mux)
+
 	// routes/sse.js primes a newly-connected client with the current
 	// preheat/live snapshot before subscribing it to future pushes — see
 	// the Prime field's doc comment above.
@@ -185,6 +198,16 @@ func main() {
 	// import) since internal/maintenance already imports internal/library.
 	libraryHandlers.SetOnGrinderDeleted(maintenanceRepo.DeleteGrinderTask)
 
+	// Phase 2e (#901): the Maintenance domain's Go frontend page —
+	// GET /maintenance (per-machine task list + a machine switcher) plus
+	// its one htmx write action, "mark done", built on
+	// maintenance.MarkTaskDone (service.go) — the same function
+	// maintenanceHandlers' own REST taskDone handler now calls too, so both
+	// paths write the identical maintenance_log side effect. Same
+	// registration-outside-/api/ auth model as every other web.*Handlers.
+	webMaintenanceHandlers := web.NewMaintenanceHandlers(maintenanceRepo, shotsRepo, libRepo, registry)
+	webMaintenanceHandlers.RegisterRoutes(mux)
+
 	backupHandlers := backup.NewHandlers(backup.Dependencies{
 		DB:              sqlDB,
 		ShotsRepo:       shotsRepo,
@@ -199,6 +222,15 @@ func main() {
 		TokenFile: tokenPath,
 	})
 	backupHandlers.RegisterRoutes(mux)
+
+	// Phase 2e (#901): GET /backup — a download link for the GET /api/backup
+	// export above, plus an explicit note that restore isn't built into
+	// this page yet. No dependencies: this page only links to the existing
+	// backup REST handler, it doesn't call into internal/backup itself. See
+	// internal/web/handlers_backup.go's own doc comment for why a full
+	// upload+restore UI is deliberately out of this phase's scope.
+	webBackupHandlers := web.NewBackupHandlers()
+	webBackupHandlers.RegisterRoutes(mux)
 
 	limiter := ratelimit.New(rateLimitWindow, rateLimitMax)
 

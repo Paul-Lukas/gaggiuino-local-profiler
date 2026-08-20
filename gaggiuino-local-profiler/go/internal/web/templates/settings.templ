@@ -1,0 +1,102 @@
+package templates
+
+import "strings"
+
+// This file is Phase 2e's (#901) Settings-domain page: GET /settings shows
+// the default machine's Gaggiuino settings categories (boiler/led/scales/
+// system read-only, display editable) via internal/machines.Adapter's
+// GetSettings/UpdateSettings — the exact same #597 settings/control proxy
+// GET/POST /api/machine/settings(/save|/{category}) uses (see
+// go/internal/web/handlers_settings.go's own doc comment).
+//
+// Every category is round-tripped as opaque JSON text, never parsed into
+// typed Go fields: internal/machines/doc.go's "bool-as-string quirk"
+// section documents several Gaggiuino settings fields that are the JSON
+// *strings* "true"/"false" rather than real booleans, and the adapter layer
+// already preserves that quirk end to end by treating a settings payload as
+// raw bytes throughout (json.RawMessage in, json.RawMessage out — see
+// gaggiuino_adapter.go's GetSettings/UpdateSettings). A pretty-printed
+// <textarea> round trip keeps this page in that same discipline: it never
+// decodes a category into a typed struct or a generic form-field set, so
+// there's no risk of this page's own code re-encoding a quoted "true"
+// string as an unquoted boolean (or vice versa) the way a naive per-field
+// form would have to explicitly guard against. Editing four other
+// categories (boiler/led/scales/system) the same way, and a friendlier
+// typed form for "display" specifically, are both left to a later phase —
+// see handlers_settings.go's doc comment for the explicit scope call.
+
+// SettingsCategory is one category block — either read-only or (for
+// EditableCategory) an editable form. JSON is the pretty-printed raw
+// settings payload; FetchError is set instead when GetSettings itself
+// failed (e.g. the machine is unreachable), in which case JSON is empty.
+type SettingsCategory struct {
+	Name       string
+	JSON       string
+	FetchError string
+}
+
+// SettingsPage is GET /settings. supported is false when the default
+// machine's adapter doesn't implement the settings/control proxy at all
+// (GaggiMate — see internal/machines.Capabilities.SettingsProxy), in which
+// case machineName is still shown but no category is fetched.
+templ SettingsPage(supported bool, machineName string, readOnly []SettingsCategory, editable SettingsCategory, saveError string) {
+	@Layout("Settings") {
+		<h1 class="page-title">Settings</h1>
+		<div class="item-meta">{ machineName }</div>
+		if !supported {
+			<div class="empty-state">This machine type does not support the settings proxy.</div>
+		} else {
+			<div id="settings-editable">
+				@settingsEditableBlock(editable, saveError)
+			</div>
+			for _, c := range readOnly {
+				@settingsReadOnlyBlock(c)
+			}
+		}
+	}
+}
+
+// SettingsEditableFragment is the htmx response the "display" category's
+// save action answers with — just that one block, re-fetched from the
+// machine after a successful save so the textarea reflects whatever the
+// machine actually persisted (which can differ from what was submitted —
+// the machine's own settings endpoint is the source of truth, not this
+// page's form).
+templ SettingsEditableFragment(editable SettingsCategory, saveError string) {
+	@settingsEditableBlock(editable, saveError)
+}
+
+templ settingsEditableBlock(c SettingsCategory, saveError string) {
+	<section class="settings-block" id="settings-editable">
+		<h2 class="trash-heading">{ titleCase(c.Name) } (editable)</h2>
+		if c.FetchError != "" {
+			<div class="badge badge-err">{ c.FetchError }</div>
+		} else {
+			if saveError != "" {
+				<div class="badge badge-err">{ saveError }</div>
+			}
+			<form class="order-form" hx-post={ "/settings/" + c.Name } hx-target="#settings-editable" hx-swap="outerHTML">
+				<textarea class="filter-input settings-textarea" name="raw" rows="12">{ c.JSON }</textarea>
+				<button type="submit" class="btn">Save</button>
+			</form>
+		}
+	</section>
+}
+
+templ settingsReadOnlyBlock(c SettingsCategory) {
+	<section class="settings-block">
+		<h2 class="trash-heading">{ titleCase(c.Name) }</h2>
+		if c.FetchError != "" {
+			<div class="badge badge-err">{ c.FetchError }</div>
+		} else {
+			<pre class="settings-json">{ c.JSON }</pre>
+		}
+	</section>
+}
+
+func titleCase(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}

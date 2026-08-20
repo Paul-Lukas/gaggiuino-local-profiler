@@ -4,12 +4,55 @@ import (
 	"errors"
 	"time"
 
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 )
 
 // This file ports LibraryService.js's computeMaintenanceStats and
 // routes/maintenance.js's computeAllMachinesMaintenance.
+
+// ErrUnknownTask is MarkTaskDone's error for a task name that doesn't
+// canonicalize (see canonicalTask in model.go) — a static task typo, or a
+// grinder_<id> for an id that isn't currently a real grinder.
+var ErrUnknownTask = errors.New("unknown maintenance task")
+
+// MarkTaskDone ports routes/maintenance.js's POST /api/maintenance/:task/done
+// business logic (handlers.go's taskDone, which is now a thin wrapper around
+// this): validate the task, stamp lastDate, persist it, and add a
+// maintenance_log entry — then return the freshly recomputed stats for
+// machineID. Extracted into this service-layer function, not left as a
+// REST-handler-only private method, specifically so internal/web's
+// maintenance page (#901 Phase 2e) gets the exact same maintenance_log side
+// effect the REST path does instead of silently missing it — the same
+// service-layer-extraction fix Phase 2d already applied to
+// internal/orders' AcceptOrder/CompleteOrder/DeclineOrder (see that
+// package's service.go) after the web queue was found to skip the
+// customer HA-notify side effect a REST-handler-only method held.
+func MarkTaskDone(repo *Repository, shotsRepo *shots.Repository, libRepo *library.Repository, registry *machines.Registry, rawTask, notes string, machineID int64) (map[string]Stat, error) {
+	task, valid := canonicalTask(libRepo, rawTask)
+	if !valid {
+		return nil, ErrUnknownTask
+	}
+	maint, err := repo.GetMaintenance(machineID)
+	if err != nil {
+		return nil, err
+	}
+	t := maint[task]
+	if t == nil {
+		t = Task{}
+	}
+	// new Date().toISOString() — millisecond-precision UTC timestamp.
+	t["lastDate"] = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	maint[task] = t
+	if err := repo.SaveMaintenance(maint, machineID); err != nil {
+		return nil, err
+	}
+	if _, err := repo.AddMaintenanceLogEntry(task, notes, machineHostname(registry), shotCountFor(shotsRepo, task, machineID), machineID); err != nil {
+		return nil, err
+	}
+	return ComputeMaintenanceStats(shotsRepo, maint, machineID)
+}
 
 // Stat is one task's computed maintenance-due state — Task's fields plus
 // daysSince/shotsSince/pct/status, mirroring

@@ -6,7 +6,7 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 2d (Go frontend — templ+htmx+Alpine tooling, base layout, Shots, the Library domain's pages, Machines + the live shot chart, and now the Orders domain's barista queue + customer ordering form, on top of Phase 3b's complete backend)
+## Status: Phase 2 complete (Go frontend — templ+htmx+Alpine tooling covering every frontend domain: Shots, the Library domain's pages, Machines + the live shot chart, Orders' barista queue + customer ordering form, and now Maintenance, Settings, and Backup, on top of Phase 3b's complete backend)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
 packages everything else builds on. Phase 1b added a real, listening HTTP
@@ -278,9 +278,30 @@ upgrade — either patching the vendored extension or teaching `sse.Handler`
 to pass a pre-rendered HTML payload through unmarshaled for one event type —
 is a legitimate follow-up, deliberately not attempted half-done in this
 phase; see `templates/orders.templ`'s own doc comment for the same
-reasoning in-code. Every other page (maintenance) is still served by the
-untouched Node frontend (`public-src/`) — see "Frontend" for exactly what
-is and isn't cut over yet.
+reasoning in-code. Phase 2e (#901) closes out the frontend migration plan's
+last domain gap: `GET /maintenance` (per-machine task tracking —
+descaling/backflush/grouphead/gaskets/waterfilter plus one entry per
+currently registered grinder — with a "mark done" htmx action built on a
+new `maintenance.MarkTaskDone` service-layer function, not a duplicate of
+`internal/maintenance`'s own REST `taskDone` handler's logic; that REST
+handler is now a thin wrapper around the same function, closing the class
+of gap Phase 2d found the hard way — see that function's own doc comment),
+`GET /settings` (the default machine's Gaggiuino settings categories —
+boiler/led/scales/system read-only, display editable via a raw-JSON
+`<textarea>` round trip that preserves the bool-as-string quirk
+byte-for-byte, the same opaque-bytes discipline `internal/machines`'
+adapter layer already holds end to end — built on `machines.Adapter`'s
+`GetSettings`/`UpdateSettings` via a small `AdapterProvider` interface seam
+mirroring `internal/system/poll.go`'s own), and `GET /backup` (a download
+link for the existing `GET /api/backup` export). Backup restore is a
+deliberate, documented scope cut for this phase — no `<input type=file>`
+upload UI, only a pointer at `POST /api/restore`'s JSON API — see
+`handlers_backup.go`'s own doc comment for the two concrete reasons (the
+endpoint's header/body shape doesn't fit a plain HTML form, and a real
+restore needs a dry-run preview step to be safe to expose at all, which is
+its own follow-up-sized piece of work). Every frontend domain the original
+migration plan named now has a page — see "Frontend" below for the
+complete list.
 
 ## Why
 
@@ -331,7 +352,7 @@ go/
     backup/                routes/backup.js + lib/backup-crypto.js (implemented, Phase 1f)
     ha/                    lib/ha.js — SendNotify/GetNotifyServices/GetPersons/GetSwitchState/CallHaService/GetHaLanguage (implemented, Phase 1f, extended Phase 1g)
     system/                routes/system.js's token/status/live/preheat/version/demo endpoints + lib/poll.js + lib/preheat.js (implemented, Phase 1g; token/status added Phase 3b)
-    web/                   templ+htmx+Alpine frontend: GET /shots (Phase 2a) + the Library domain's pages (Phase 2b) + Machines/Live (Phase 2c) + Orders/Menu (Phase 2d)
+    web/                   templ+htmx+Alpine frontend: GET /shots (Phase 2a) + the Library domain's pages (Phase 2b) + Machines/Live (Phase 2c) + Orders/Menu (Phase 2d) + Maintenance/Settings/Backup (Phase 2e)
       templates/             .templ sources (own package — see internal/web/doc.go)
       static/                vendored htmx/Alpine/Chart.js + style.css + live.js, embedded via embed.FS
   Makefile                 `make generate`/`build`/`vet`/`test`/`fmt-check` — templ codegen first, every target (Phase 2a)
@@ -339,11 +360,15 @@ go/
 
 Every backend package under `internal/` is implemented — see
 `go/internal/system/doc.go` for the small, deliberate set of
-`routes/system.js` routes it doesn't route. `internal/web` is the one
-package still growing (Phase 2a/2b/2c/2d together cover Shots, the Library
-domain's six pages, Machines, the live shot chart, and now the Orders
-domain's barista queue + customer ordering form; maintenance remains to be
-ported in a later phase).
+`routes/system.js` routes it doesn't route. `internal/web` now covers every
+frontend domain the migration plan named: Shots, the Library domain's six
+pages, Machines, the live shot chart, the Orders domain's barista queue +
+customer ordering form, and (Phase 2e) Maintenance's per-machine task
+tracking, Settings' machine-settings categories, and a Backup download
+page — see "Frontend" below for what's deliberately still read-only or
+deferred within each (per-task threshold editing and the maintenance log,
+four of five settings categories, and backup restore's own upload UI all
+stay JSON-API-only pending a follow-up phase).
 
 ## Frontend
 
@@ -363,8 +388,8 @@ the Docker image (build or runtime); the only external browser runtime is
 htmx (~50 KB) plus Alpine (~54 KB) plus, on the one page that needs it,
 Chart.js (~200 KB), all vendored locally, never loaded from a CDN.
 
-**Status (Phase 2a/2b/2c/2d, #901):** the tooling foundation plus four
-domains' pages. Phase 2a's `GET /shots` is a shot-history list built on
+**Status (Phase 2a-2e, #901, complete):** the tooling foundation plus every
+frontend domain's pages. Phase 2a's `GET /shots` is a shot-history list built on
 `internal/shots`' existing Phase 1c service layer (not its REST handlers —
 see `internal/web/doc.go`); it supports trashing a shot (with an Alpine
 confirm step before the destructive htmx POST) and restoring one from the
@@ -387,11 +412,23 @@ action `POST /menu/order` built on `PlaceOrder`) — the first pages in this
 package to poll (`hx-trigger="every 10s"`) rather than either the plain
 htmx-fragment pattern or Phase 2c's vanilla-JS SSE consumer; see the
 "Status" section above for exactly why SSE was evaluated and deferred
-rather than half-wired. Together Phase 2a/2b's pages are the *template*
-every later page follows, the same role `internal/shots` played for the
-REST domain packages; `public-src/`'s Node-served SPA remains the only
-frontend Home Assistant or a standalone install actually sees until a later
-phase flips that switch — none of Phase 2a/2b/2c/2d is itself a cutover.
+rather than half-wired. Phase 2e adds the last three pages: `GET /maintenance`
+(per-machine task tracking, with a "mark done" htmx action built on the new
+`maintenance.MarkTaskDone` service-layer function — see that function's own
+doc comment for why REST handler and web page now share it rather than the
+web page duplicating a private REST-handler method, the same class of gap
+Phase 2d found and fixed for orders' HA-notify side effect), `GET /settings`
+(the default machine's Gaggiuino settings categories, one — "display" —
+editable via a raw-JSON `<textarea>` round trip chosen specifically to
+preserve the settings bool-as-string quirk without any new per-field
+parsing logic), and `GET /backup` (a download link only; restore stays
+JSON-API-only, a documented scope cut — see `handlers_backup.go`'s doc
+comment). Together Phase 2a/2b's pages are the *template* every later page
+follows, the same role `internal/shots` played for the REST domain
+packages; `public-src/`'s Node-served SPA remains the only frontend Home
+Assistant or a standalone install actually sees until a later phase flips
+that switch — none of Phase 2a-2e is itself a cutover, only the frontend
+migration plan's page-by-page groundwork for one.
 
 **Codegen:** `.templ` sources live under `internal/web/templates/` and are
 NOT valid Go until `templ generate` runs, which writes a `_templ.go` next

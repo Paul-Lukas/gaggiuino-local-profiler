@@ -39,17 +39,26 @@ templ Layout(title string) {
 		<body hx-ext="sse">
 			<nav class="topnav">
 				<a class="topnav-brand" href="/shots">GLP</a>
-				<a class="topnav-link" href="/live">Live</a>
-				<a class="topnav-link" href="/shots">Shots</a>
-				<a class="topnav-link" href="/machines">Machines</a>
-				<a class="topnav-link" href="/orders">Orders</a>
-				<a class="topnav-link" href="/menu">Menu</a>
-				<a class="topnav-link" href="/beans">Beans</a>
-				<a class="topnav-link" href="/grinders">Grinders</a>
-				<a class="topnav-link" href="/baskets">Baskets</a>
-				<a class="topnav-link" href="/puckscreens">Puck Screens</a>
-				<a class="topnav-link" href="/milks">Milks</a>
-				<a class="topnav-link" href="/recipes">Recipes</a>
+				<div class="topnav-group">
+					<a class="topnav-link" href="/live">Live</a>
+					<a class="topnav-link" href="/shots">Shots</a>
+					<a class="topnav-link" href="/orders">Orders</a>
+					<a class="topnav-link" href="/menu">Menu</a>
+				</div>
+				<div class="topnav-group">
+					<a class="topnav-link" href="/machines">Machines</a>
+					<a class="topnav-link" href="/maintenance">Maintenance</a>
+					<a class="topnav-link" href="/settings">Settings</a>
+					<a class="topnav-link" href="/backup">Backup</a>
+				</div>
+				<div class="topnav-group">
+					<a class="topnav-link" href="/beans">Beans</a>
+					<a class="topnav-link" href="/grinders">Grinders</a>
+					<a class="topnav-link" href="/baskets">Baskets</a>
+					<a class="topnav-link" href="/puckscreens">Puck Screens</a>
+					<a class="topnav-link" href="/milks">Milks</a>
+					<a class="topnav-link" href="/recipes">Recipes</a>
+				</div>
 			</nav>
 			<main class="page">
 				{ children... }

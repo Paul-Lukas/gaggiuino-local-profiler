@@ -1,12 +1,12 @@
 package maintenance
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/httputil"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
@@ -78,8 +78,12 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request) (map[string]any, boo
 // (registry.hostFor()): the default machine's host, as a bare hostname,
 // falling back to "gaggiuino" on any error — cosmetic display/log text
 // stored on newly-written maintenance_log rows, no behavior depends on it.
-func (h *Handlers) machineHostname() string {
-	m, err := h.registry.GetDefaultMachine()
+// A standalone function (not a *Handlers method) so service.go's
+// MarkTaskDone — shared by this REST handler and internal/web's
+// maintenance page (#901 Phase 2e) — can call it without needing a
+// *Handlers instance.
+func machineHostname(registry *machines.Registry) string {
+	m, err := registry.GetDefaultMachine()
 	if err != nil || m == nil || m.Host == "" {
 		return "gaggiuino"
 	}
@@ -142,40 +146,24 @@ func (h *Handlers) getMaintenance(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stats)
 }
 
+// taskDone ports POST /api/maintenance/:task/done — thin wrapper around
+// MarkTaskDone (service.go), the same business logic internal/web's
+// maintenance page (#901 Phase 2e) calls directly rather than through this
+// REST handler, mirroring internal/orders' AcceptOrder/CompleteOrder/
+// DeclineOrder service-layer extraction.
 func (h *Handlers) taskDone(w http.ResponseWriter, r *http.Request) {
 	body, ok := decodeJSONBody(w, r)
 	if !ok {
 		return
 	}
-	task, valid := canonicalTask(h.libRepo, r.PathValue("task"))
-	if !valid {
-		writeError(w, http.StatusNotFound, "Unknown task")
-		return
-	}
-	machineID := activeMachineID(r)
-	maint, err := h.repo.GetMaintenance(machineID)
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	t := maint[task]
-	if t == nil {
-		t = Task{}
-	}
-	// new Date().toISOString() — millisecond-precision UTC timestamp.
-	t["lastDate"] = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	maint[task] = t
-	if err := h.repo.SaveMaintenance(maint, machineID); err != nil {
-		internalError(w, err)
-		return
-	}
 	notes, _ := body["notes"].(string)
-	if _, err := h.repo.AddMaintenanceLogEntry(task, notes, h.machineHostname(), shotCountFor(h, task, machineID), machineID); err != nil {
-		internalError(w, err)
-		return
-	}
-	stats, err := ComputeMaintenanceStats(h.shotsRepo, maint, machineID)
+	machineID := activeMachineID(r)
+	stats, err := MarkTaskDone(h.repo, h.shotsRepo, h.libRepo, h.registry, r.PathValue("task"), notes, machineID)
 	if err != nil {
+		if errors.Is(err, ErrUnknownTask) {
+			writeError(w, http.StatusNotFound, "Unknown task")
+			return
+		}
 		internalError(w, err)
 		return
 	}
@@ -184,14 +172,16 @@ func (h *Handlers) taskDone(w http.ResponseWriter, r *http.Request) {
 
 // shotCountFor ports LibraryService.js's addMaintenanceLogEntry's shotCount
 // computation: waterfilter/grinder_* (shared equipment) count shots across
-// every machine, everything else scopes to the active machine.
-func shotCountFor(h *Handlers, task string, machineID int64) int64 {
+// every machine, everything else scopes to the active machine. A standalone
+// function (not a *Handlers method) for the same reason machineHostname is
+// above — MarkTaskDone (service.go) needs it without a *Handlers instance.
+func shotCountFor(shotsRepo *shots.Repository, task string, machineID int64) int64 {
 	var list []shots.Shot
 	var err error
 	if isGlobalMaintenanceTask(task) {
-		list, err = h.shotsRepo.FindAll()
+		list, err = shotsRepo.FindAll()
 	} else {
-		list, err = findAllByMachine(h.shotsRepo, machineID)
+		list, err = findAllByMachine(shotsRepo, machineID)
 	}
 	if err != nil {
 		return 0
@@ -325,7 +315,7 @@ func (h *Handlers) postLog(w http.ResponseWriter, r *http.Request) {
 		notes = notes[:500]
 	}
 	machineID := activeMachineID(r)
-	entry, err := h.repo.AddMaintenanceLogEntry(task, notes, h.machineHostname(), shotCountFor(h, task, machineID), machineID)
+	entry, err := h.repo.AddMaintenanceLogEntry(task, notes, machineHostname(h.registry), shotCountFor(h.shotsRepo, task, machineID), machineID)
 	if err != nil {
 		internalError(w, err)
 		return

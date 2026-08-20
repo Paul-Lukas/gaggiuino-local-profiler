@@ -27,6 +27,20 @@
 //	handlers_orders.go   (Phase 2d) GET /orders (barista queue) + its
 //	                    accept/complete/decline htmx actions, plus GET /menu
 //	                    (customer ordering form) + POST /menu/order
+//	view_maintenance.go   (Phase 2e) maintenance.Stat -> templates.MaintTile
+//	handlers_maintenance.go (Phase 2e) GET /maintenance (per-machine task
+//	                    list) + the "mark done" htmx action, built on
+//	                    maintenance.MarkTaskDone (a service-layer function
+//	                    added this phase — see that function's own doc
+//	                    comment for why, the same Phase-2d lesson repeated)
+//	handlers_settings.go (Phase 2e) GET /settings (default machine's
+//	                    Gaggiuino settings categories) + the one editable
+//	                    category's save action, built on machines.Adapter's
+//	                    GetSettings/UpdateSettings via an AdapterProvider seam
+//	handlers_backup.go   (Phase 2e) GET /backup — a download link for the
+//	                    existing GET /api/backup export; no write action
+//	                    (restore stays JSON-API-only this phase, see that
+//	                    file's own doc comment)
 //	templates/          .templ sources (own package; see templates/layout.templ)
 //	static/             vendored + first-party JS/CSS served at /web/static/*
 //	                    (Phase 2c adds live.js and vendored Chart.js)
@@ -46,8 +60,10 @@
 // The htmx write actions — POST /shots/{id}/trash, POST /shots/{id}/restore,
 // (Phase 2b) POST /beans/{id}/toggle-active in handlers_library.go,
 // (Phase 2c) POST /machines/{id}/default and POST /machines/{id}/delete in
-// handlers_machines.go, and (Phase 2d) POST /orders/{id}/{accept,complete,
-// decline} and POST /menu/order in handlers_orders.go — are NOT part of
+// handlers_machines.go, (Phase 2d) POST /orders/{id}/{accept,complete,
+// decline} and POST /menu/order in handlers_orders.go, and (Phase 2e)
+// POST /maintenance/{task}/done in handlers_maintenance.go and
+// POST /settings/display in handlers_settings.go — are NOT part of
 // that carve-out: RequireToken's bypass in
 // internal/auth/auth.go is scoped to GET/HEAD requests specifically (a #901
 // code-review fix — it originally matched any non-/api/ path regardless of

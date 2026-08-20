@@ -58,7 +58,8 @@ body {
 .topnav {
   display: flex;
   align-items: center;
-  gap: var(--sp-4);
+  flex-wrap: wrap;
+  gap: var(--sp-4) var(--sp-3);
   padding: var(--sp-3) var(--sp-5);
   border-bottom: 1px solid var(--gray-700);
 }
@@ -313,4 +314,63 @@ body {
 .order-form .btn {
   margin-top: var(--sp-2);
   align-self: flex-start;
+}
+
+/* Phase 2e (#901) — Maintenance/Backup/Settings pages, and the nav grouping
+ * added alongside them once the top nav grew past a dozen links. */
+.topnav-group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding-right: var(--sp-4);
+  border-right: 1px solid var(--gray-700);
+}
+
+.topnav-group:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+.badge-warn { color: var(--warn); border-color: var(--warn); }
+
+.btn-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.maint-switcher { margin-bottom: var(--sp-4); flex-wrap: wrap; }
+
+.maint-bar {
+  height: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--gray-700);
+  overflow: hidden;
+  margin-top: var(--sp-1);
+}
+
+.maint-bar-fill { height: 100%; }
+.maint-bar-fill.ok   { background: var(--ok); }
+.maint-bar-fill.soon { background: var(--warn); }
+.maint-bar-fill.due  { background: var(--err); }
+
+.settings-block {
+  margin-bottom: var(--sp-5);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--gray-700);
+}
+
+.settings-json {
+  background: var(--raised);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-3);
+  font-size: var(--fs-1);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.settings-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  min-height: 200px;
+  resize: vertical;
 }
