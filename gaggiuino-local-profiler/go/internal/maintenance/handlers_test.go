@@ -70,6 +70,24 @@ func TestTaskDone_MarksLastDateAndLogs(t *testing.T) {
 	}
 }
 
+// TestTaskDone_NoBodyIsNotAnError guards against a Go-migration regression
+// (#901) found verifying glp-integration against a standalone Go backend:
+// its maintenance_done HA service posts with no body at all (unlike its
+// other write calls, which all send at least `json={}`), and
+// routes/maintenance.js already tolerates that via req.body's optional
+// chaining default (empty string).
+// decodeJSONBody must treat a genuinely empty body as {} (io.EOF), not a
+// 400 "Invalid JSON body".
+func TestTaskDone_NoBodyIsNotAnError(t *testing.T) {
+	h, _, _, _ := newTestHandlers(t)
+	mux := newMux(h)
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/maintenance/descaling/done", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 for a bodyless request; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestTaskThreshold_ClampsAndRejectsOutOfRange(t *testing.T) {
 	h, _, _, _ := newTestHandlers(t)
 	mux := newMux(h)

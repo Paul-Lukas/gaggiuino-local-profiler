@@ -3,6 +3,7 @@ package maintenance
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -62,6 +63,18 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request) (map[string]any, boo
 	r.Body = http.MaxBytesReader(w, r.Body, jsonBodyLimit)
 	var body map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		// A genuinely empty body (no Content-Length/no bytes at all) isn't
+		// malformed JSON, it's simply "no body" -- openapi.yaml doesn't mark
+		// this endpoint's requestBody required, and routes/maintenance.js's
+		// `req.body?.notes || ''` already tolerates it via Express's
+		// body-parser defaulting req.body to {}. glp-integration's own
+		// maintenance_done service call (__init__.py) sends no body at all
+		// (unlike its other POST calls, which all pass `json={}` /
+		// `json={...}` explicitly), so this must degrade to {} here too
+		// instead of 400ing every maintenance-done button press (#901).
+		if errors.Is(err, io.EOF) {
+			return map[string]any{}, true
+		}
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
 			writeError(w, http.StatusRequestEntityTooLarge, "request entity too large")
