@@ -6,7 +6,7 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 2b (Go frontend — templ+htmx+Alpine tooling, base layout, Shots, and the Library domain's pages, on top of Phase 3b's complete backend)
+## Status: Phase 2c (Go frontend — templ+htmx+Alpine tooling, base layout, Shots, the Library domain's pages, and now Machines + the live shot chart, on top of Phase 3b's complete backend)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
 packages everything else builds on. Phase 1b added a real, listening HTTP
@@ -232,8 +232,27 @@ toggle-active) and read-only list pages for Grinders, Baskets, Puck
 Screens, Milks, and Recipes, all built on `internal/library`'s existing
 Repository/service functions (`ComputeGrinderWearStats`,
 `ComputeBeanRemaining`, the now-exported `ToggleBeanActive`) rather than
-its REST handlers. Every other page (machines, orders, maintenance, the
-live shot chart) is still served by the untouched Node frontend
+its REST handlers. Phase 2c (#901) follows the same template for the
+Machines domain: `GET /machines` (the registry list, with set-default and
+delete htmx actions — the latter behind an Alpine confirm step, delete
+guarded server-side by `internal/machines`'s own
+`ErrCannotDeleteDefault`/`ErrCannotDeleteLastMachine`) and `GET /live`, the
+live shot chart page. `GET /live` is the one page in this rewrite that
+does NOT follow the templ+htmx fragment-swap pattern: pressure/flow/
+weight/temperature update several times a second over SSE during a pull,
+so a server round trip per animation frame is the wrong tool for that job
+(see the already-agreed frontend-stack decision in "Frontend" below). Its
+templ template renders only static chrome (current machine name, DOM ids
+for everything else); the actual chart is `static/live.js`, a largely
+unchanged, standalone port of `public-src/views/live.js`'s Chart.js
+line-chart + SSE-consumption logic (see that file's own header comment for
+exactly what carried over — the core chart/status-badge/preheat-widget/
+readouts logic and the #655 machineReachable-wins-over-isLive precedence —
+and what deliberately didn't: the reference-shot overlay, the animated
+per-machine SVG icon, multi-machine live-capability gating, and i18n).
+Chart.js itself is now vendored unmodified alongside htmx/Alpine
+(`static/vendor/`, see that directory's NOTICE.md). Every other page
+(orders, maintenance) is still served by the untouched Node frontend
 (`public-src/`) — see "Frontend" for exactly what is and isn't cut over
 yet.
 
@@ -286,18 +305,18 @@ go/
     backup/                routes/backup.js + lib/backup-crypto.js (implemented, Phase 1f)
     ha/                    lib/ha.js — SendNotify/GetNotifyServices/GetPersons/GetSwitchState/CallHaService/GetHaLanguage (implemented, Phase 1f, extended Phase 1g)
     system/                routes/system.js's token/status/live/preheat/version/demo endpoints + lib/poll.js + lib/preheat.js (implemented, Phase 1g; token/status added Phase 3b)
-    web/                   templ+htmx+Alpine frontend: GET /shots (Phase 2a) + the Library domain's pages (Phase 2b)
+    web/                   templ+htmx+Alpine frontend: GET /shots (Phase 2a) + the Library domain's pages (Phase 2b) + Machines/Live (Phase 2c)
       templates/             .templ sources (own package — see internal/web/doc.go)
-      static/                vendored htmx/Alpine + style.css, embedded via embed.FS
+      static/                vendored htmx/Alpine/Chart.js + style.css + live.js, embedded via embed.FS
   Makefile                 `make generate`/`build`/`vet`/`test`/`fmt-check` — templ codegen first, every target (Phase 2a)
 ```
 
 Every backend package under `internal/` is implemented — see
 `go/internal/system/doc.go` for the small, deliberate set of
 `routes/system.js` routes it doesn't route. `internal/web` is the one
-package still growing (Phase 2a/2b together cover Shots and the Library
-domain's six pages; machines/orders/maintenance/the live shot chart remain
-to be ported in later phases).
+package still growing (Phase 2a/2b/2c together cover Shots, the Library
+domain's six pages, Machines, and the live shot chart; orders/maintenance
+remain to be ported in a later phase).
 
 ## Frontend
 
@@ -307,17 +326,18 @@ templates) + [htmx](https://htmx.org) (server-driven fragment swaps for
 CRUD/navigation/forms, including the htmx SSE extension for non-high-
 frequency live updates) + [Alpine.js](https://alpinejs.dev) (declarative
 local UI interactivity — dropdowns, modals, filters — no bespoke JS for
-that). The one deliberate exception, not yet built: the live shot chart
-(pressure/flow during a pull, several updates a second over SSE) keeps a
-thin vanilla-JS canvas component consuming SSE directly, because
-server-round-tripping every animation frame is the wrong tool for that one
-job — see the Migrationsplan's frontend-stack rationale. Goal: no Node/npm
-anywhere in the Docker image (build or runtime); the only external browser
-runtime is htmx (~50 KB) plus Alpine (~54 KB), both vendored locally, never
-loaded from a CDN.
+that). The one deliberate exception, now built (Phase 2c): the live shot
+chart (pressure/flow during a pull, several updates a second over SSE)
+keeps a thin vanilla-JS canvas component (`static/live.js`, Chart.js under
+the hood) consuming SSE directly, because server-round-tripping every
+animation frame is the wrong tool for that one job — see the
+Migrationsplan's frontend-stack rationale. Goal: no Node/npm anywhere in
+the Docker image (build or runtime); the only external browser runtime is
+htmx (~50 KB) plus Alpine (~54 KB) plus, on the one page that needs it,
+Chart.js (~200 KB), all vendored locally, never loaded from a CDN.
 
-**Status (Phase 2a/2b, #901):** the tooling foundation plus two domains'
-pages. Phase 2a's `GET /shots` is a shot-history list built on
+**Status (Phase 2a/2b/2c, #901):** the tooling foundation plus three
+domains' pages. Phase 2a's `GET /shots` is a shot-history list built on
 `internal/shots`' existing Phase 1c service layer (not its REST handlers —
 see `internal/web/doc.go`); it supports trashing a shot (with an Alpine
 confirm step before the destructive htmx POST) and restoring one from the
@@ -327,11 +347,16 @@ toggle-active, ported onto `internal/library`'s now-exported
 `ToggleBeanActive`) and read-only list pages for Grinders (with computed
 wear stats via `ComputeGrinderWearStats`), Baskets, Puck Screens, Milks,
 and Recipes — a full CRUD UI for the non-Beans entities is deferred to a
-later phase. Together these are the *template* for every later page, the
-same role `internal/shots` played for the REST domain packages — none of
-this is itself a cutover: `public-src/`'s Node-served SPA remains the only
-frontend Home Assistant or a standalone install actually sees until a
-later phase flips that switch.
+later phase. Phase 2c adds the Machines domain: `GET /machines` (with
+set-default and Alpine-confirmed delete htmx actions, built on
+`internal/machines.Registry` directly) and `GET /live`, the live shot chart
+— the one page that breaks from the htmx-fragment-swap pattern the other
+pages establish, per the paragraph above. Together Phase 2a/2b's pages are
+the *template* every later page follows, the same role `internal/shots`
+played for the REST domain packages; `public-src/`'s Node-served SPA
+remains the only frontend Home Assistant or a standalone install actually
+sees until a later phase flips that switch — none of Phase 2a/2b/2c is
+itself a cutover.
 
 **Codegen:** `.templ` sources live under `internal/web/templates/` and are
 NOT valid Go until `templ generate` runs, which writes a `_templ.go` next

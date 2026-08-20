@@ -142,6 +142,19 @@ func main() {
 	systemHandlers := system.NewHandlers(poller, demoService, token)
 	systemHandlers.RegisterRoutes(mux)
 
+	// Phase 2c (#901): the Machines domain's Go frontend pages — the
+	// machines list (default/reachable badges, set-default and delete htmx
+	// actions) plus GET /live, the live shot chart page whose actual chart
+	// is a standalone vanilla-JS SSE consumer (static/live.js), not an htmx
+	// fragment page — see internal/web/handlers_machines.go and
+	// templates/live.templ's own doc comments. poller is passed so the
+	// machines list can show the default machine's live reachable status
+	// (internal/system.Poller.StatusInfo) and GET /live can name the
+	// current default machine. Same registration-outside-/api/ auth model
+	// as every other web.*Handlers above.
+	webMachinesHandlers := web.NewMachinesHandlers(registry, poller)
+	webMachinesHandlers.RegisterRoutes(mux)
+
 	// routes/sse.js primes a newly-connected client with the current
 	// preheat/live snapshot before subscribing it to future pushes — see
 	// the Prime field's doc comment above.

@@ -18,8 +18,14 @@
 //	view_library.go     (Phase 2b) library.Entity -> templates' *Row projections
 //	handlers_library.go (Phase 2b) GET /beans,/grinders,/baskets,/puckscreens,
 //	                    /milks,/recipes + the toggle-active htmx action
+//	view_machines.go     (Phase 2c) machines.Machine -> templates.MachineRow
+//	handlers_machines.go (Phase 2c) GET /machines + set-default/delete htmx
+//	                    actions, plus GET /live (static chrome only — the
+//	                    live chart itself is static/live.js, not server-
+//	                    rendered; see that file's own doc comment)
 //	templates/          .templ sources (own package; see templates/layout.templ)
 //	static/             vendored + first-party JS/CSS served at /web/static/*
+//	                    (Phase 2c adds live.js and vendored Chart.js)
 //
 // # Auth model
 //
@@ -34,8 +40,10 @@
 // the exposed port in standalone mode.
 //
 // The htmx write actions — POST /shots/{id}/trash, POST /shots/{id}/restore,
-// and (Phase 2b) POST /beans/{id}/toggle-active in handlers_library.go —
-// are NOT part of that carve-out: RequireToken's bypass in
+// (Phase 2b) POST /beans/{id}/toggle-active in handlers_library.go, and
+// (Phase 2c) POST /machines/{id}/default and POST /machines/{id}/delete in
+// handlers_machines.go — are NOT part of that carve-out: RequireToken's
+// bypass in
 // internal/auth/auth.go is scoped to GET/HEAD requests specifically (a #901
 // code-review fix — it originally matched any non-/api/ path regardless of
 // method, which let any third-party page in the user's browser trigger

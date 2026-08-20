@@ -204,6 +204,89 @@ body {
 
 .badge-speciality { color: var(--accent); border-color: var(--accent); }
 
+.badge-ok  { color: var(--ok);  border-color: var(--ok); }
+.badge-err { color: var(--err); border-color: var(--err); }
+
+/* Phase 2c (#901) — Live page (templates/live.templ + static/live.js): the
+ * status badge/preheat widget/readouts/chart wrap static/live.js binds to
+ * and drives client-side (see that file's own header comment for why this
+ * page isn't htmx-driven like every other one). */
+.live-meta-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+}
+
+.live-machine-name { font-weight: 600; }
+
+.live-status-badge {
+  font-size: var(--fs-1);
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--gray-700);
+  color: var(--gray-500);
+}
+
+.live-status-badge.brewing     { color: var(--accent); border-color: var(--accent); }
+.live-status-badge.ready,
+.live-status-badge.idle        { color: var(--ok);     border-color: var(--ok); }
+.live-status-badge.unreachable { color: var(--err);    border-color: var(--err); }
+
+.preheat-warming {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0;
+}
+
+.preheat-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--gray-700);
+  overflow: hidden;
+}
+
+.preheat-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+}
+
+.live-idle {
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-5);
+  text-align: center;
+  color: var(--gray-500);
+}
+
+.live-readouts {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--sp-3);
+  margin: var(--sp-4) 0;
+}
+
+.live-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2);
+  background: var(--raised);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+.live-chart-wrap {
+  position: relative;
+  height: 360px;
+  background: var(--raised);
+  border-radius: var(--radius);
+  padding: var(--sp-3);
+}
+
 .trash-section {
   margin-top: var(--sp-5);
   padding-top: var(--sp-4);
