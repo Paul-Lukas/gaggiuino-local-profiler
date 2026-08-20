@@ -2,6 +2,7 @@ package web
 
 import (
 	"html"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -64,8 +65,12 @@ func (h *Handlers) listPage(w http.ResponseWriter, r *http.Request) {
 		// Render can only fail after writing has already started (a
 		// broken client connection, mid-stream), so there's no valid
 		// status code left to send — log and stop, matching net/http's
-		// own convention for a write-time failure.
-		httputil.InternalError(w, "web", err)
+		// own convention for a write-time failure. httputil.InternalError
+		// would be wrong here (a #901 code-review finding): it calls
+		// WriteHeader(500) and writes a JSON error body, which after a
+		// partial HTML write only produces a "superfluous WriteHeader"
+		// warning plus a JSON blob appended straight after truncated HTML.
+		log.Printf("web: rendering /shots: %v", err)
 	}
 }
 

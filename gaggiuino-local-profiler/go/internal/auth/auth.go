@@ -165,13 +165,24 @@ func SecurityHeaders(next http.Handler) http.Handler {
 }
 
 // RequireToken returns middleware porting server.js's API-token-auth
-// app.use block verbatim (the req.glpAuthenticated / req.glpIsIngress
-// computation and the five-way if-chain that follows it, lines ~143-173):
-// same checks, same order, so the same requests pass or fail under both
-// implementations. It must run behind SecurityHeaders and ahead of any
-// route — see cmd/server's middleware chain, whose ordering follows
-// server.js's actual app.use() registration order (security headers, then
-// the rate limiter, then this), not a paraphrase of it.
+// app.use block (the req.glpAuthenticated / req.glpIsIngress computation
+// and the five-way if-chain that follows it, lines ~143-173): same checks,
+// same order, so the same requests pass or fail under both implementations
+// — with one deliberate divergence, not a paraphrase of the rest: the
+// non-/api/ bypass below is scoped to GET/HEAD, where server.js's
+// equivalent line (`if (!req.path.startsWith('/api/') && req.path !==
+// '/shots.json') return next();`) has no method check at all. That's safe
+// in server.js only because no write route is ever registered outside
+// /api/ there (routes/*.js's mutating endpoints all live under /api/,
+// static files/index.html are the only non-/api/ surface) — a precondition
+// that stopped holding once internal/web (#901, Phase 2a) registered POST
+// /shots/{id}/trash and .../restore outside /api/. Scoping the bypass to
+// GET/HEAD here closes that CSRF hole for those two routes and any future
+// one like them, without having to special-case each route individually.
+// It must run behind SecurityHeaders and ahead of any route — see
+// cmd/server's middleware chain, whose ordering follows server.js's actual
+// app.use() registration order (security headers, then the rate limiter,
+// then this), not a paraphrase of it.
 func RequireToken(token string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -213,7 +224,21 @@ func RequireToken(token string) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if !strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/shots.json" {
+			// #901 code review: this bypass must stay scoped to read-only
+			// requests. It was originally "any non-/api/ path", which also
+			// let through htmx's POST /shots/{id}/trash and .../restore —
+			// removing the token/CSRF protection those write actions need
+			// (see internal/web/doc.go's "Auth model" section, updated
+			// alongside this fix). GET and HEAD carry no writable HTTP
+			// semantics (net/http.ServeMux itself routes HEAD to a
+			// registered GET handler, so both must bypass identically —
+			// see internal/web.Handlers.RegisterRoutes' "GET /shots"
+			// pattern), so scoping the bypass to those two methods keeps
+			// today's unauthenticated static/page reads working while
+			// automatically gating any future write route registered
+			// outside /api/, without needing a per-route opt-in.
+			if (r.Method == http.MethodGet || r.Method == http.MethodHead) &&
+				!strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/shots.json" {
 				next.ServeHTTP(w, r)
 				return
 			}

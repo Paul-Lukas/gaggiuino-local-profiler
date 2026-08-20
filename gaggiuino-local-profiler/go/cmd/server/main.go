@@ -91,10 +91,12 @@ func main() {
 	// Phase 2a (#901): the Go frontend foundation — GET /shots plus its two
 	// htmx trash/restore actions, built on the same shots.Service the JSON
 	// API above uses. Not yet reachable in production (this binary isn't
-	// wired into the Docker image/CI — see go/README.md), and deliberately
-	// registered outside /api/ so it falls through auth.RequireToken's
-	// existing static-asset bypass rather than needing a new auth path —
-	// see internal/web/doc.go's "Auth model" section.
+	// wired into the Docker image/CI — see go/README.md). Registered
+	// outside /api/ so the read-only GET falls through auth.RequireToken's
+	// static-asset bypass; the two POST actions do NOT get that bypass
+	// (RequireToken scopes it to GET/HEAD) and require the same
+	// token/Ingress trust the JSON API does — see internal/web/doc.go's
+	// "Auth model" section.
 	webHandlers := web.NewHandlers(shots.NewService(shotsRepo))
 	webHandlers.RegisterRoutes(mux)
 

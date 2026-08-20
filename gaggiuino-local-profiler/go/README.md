@@ -324,7 +324,25 @@ actually sees until a later phase flips that switch.
 NOT valid Go until `templ generate` runs, which writes a `_templ.go` next
 to each `.templ` file. Those generated files are git-ignored (see the
 repo-root `.gitignore`'s `gaggiuino-local-profiler/go/**/*_templ.go` entry)
-— run codegen before building/testing:
+— run codegen before building/testing.
+
+`templ generate` is a separate CLI binary, not something `go.mod`/`go.sum`
+pull in on their own (those only give you the `github.com/a-h/templ`
+*runtime library* `internal/web/templates` imports, not the codegen tool).
+Install it once per machine/CI runner before running `make generate` or
+`go generate ./...`:
+
+```
+go install github.com/a-h/templ/cmd/templ@latest
+```
+
+(`$(go env GOPATH)/bin` — where that installs `templ` — needs to be on
+`PATH`, same as any other `go install`ed tool.) Without this step, `make
+generate`/`go generate ./...` fails with `templ: command not found` even
+though `go.mod`/`go.sum` look complete. `go/Makefile`'s `generate` target
+also auto-installs `templ` via the same command if it isn't already on
+`PATH`, so this manual step is a fallback for anyone invoking `templ`
+directly rather than through `make`.
 
 ```
 cd go
@@ -347,16 +365,21 @@ evaluator needs `script-src 'unsafe-eval'`, which
 `internal/auth.SecurityHeaders`'s CSP intentionally doesn't grant — see
 that NOTICE.md for the full reasoning.
 
-**Auth model:** `GET /shots` and its two htmx action routes
-(`POST /shots/{id}/trash`, `POST /shots/{id}/restore`) are registered
-outside `/api/`, so they fall through `internal/auth.RequireToken`'s
-existing bypass for non-API paths — the same trust boundary
-`public-src/`'s static HTML/JS/CSS already relies on today (HA Ingress's
-own auth, or LAN/port access in standalone mode), not a new session/cookie
-scheme. See `internal/web/doc.go`'s "Auth model" section for the full
-reasoning; this was the one open architecture question the Phase 2a brief
-flagged, resolved pragmatically for this first page rather than left
-blocking.
+**Auth model:** `GET /shots` (and `/web/static/*`) are registered outside
+`/api/`, so they fall through `internal/auth.RequireToken`'s bypass for
+non-API GET/HEAD requests — the same trust boundary `public-src/`'s static
+HTML/JS/CSS already relies on today (HA Ingress's own auth, or LAN/port
+access in standalone mode), not a new session/cookie scheme. The two htmx
+write actions (`POST /shots/{id}/trash`, `POST /shots/{id}/restore`) do
+NOT get that bypass — `RequireToken` scopes it to GET/HEAD specifically (a
+#901 code-review fix; it originally matched any non-`/api/` path
+regardless of method, which let any page in the user's browser trigger
+these writes with a plain unauthenticated POST — a CSRF hole), so they
+require the same `X-GLP-Token`/Ingress trust the JSON API does. See
+`internal/web/doc.go`'s "Auth model" section for the full reasoning,
+including the known follow-up: neither template attaches a token to its
+`hx-post` yet, so standalone-mode (non-Ingress) use of Trash/Restore 401s
+until a later page wires that in.
 
 ## Contract
 
@@ -371,5 +394,8 @@ contract tests against recorded Node traffic (Phase 0/1, not yet built).
 ```
 cd go
 make generate   # templ codegen — required before build/vet/test, see "Frontend"
+                # (needs the `templ` CLI on PATH; `make generate` auto-installs
+                # it via `go install github.com/a-h/templ/cmd/templ@latest`
+                # if missing — see "Frontend"'s "Codegen" section)
 go build ./...
 ```

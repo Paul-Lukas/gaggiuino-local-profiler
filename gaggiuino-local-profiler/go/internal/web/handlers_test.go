@@ -1,12 +1,14 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 )
@@ -106,6 +108,72 @@ func TestListPage_Empty(t *testing.T) {
 	}
 }
 
+// failingResponseWriter simulates a client connection that breaks partway
+// through the response: its Write only ever accepts half of what it's
+// given before returning an error, mimicking templ's bufio-buffered
+// Render flushing the fully-rendered HTML in one big underlying Write that
+// itself only partially lands on the wire. It records every WriteHeader/
+// Write call so a test can assert nothing was attempted after the failure.
+type failingResponseWriter struct {
+	header           http.Header
+	writeHeaderCalls []int
+	body             strings.Builder
+	writeCalls       int
+}
+
+func (f *failingResponseWriter) Header() http.Header {
+	if f.header == nil {
+		f.header = make(http.Header)
+	}
+	return f.header
+}
+
+func (f *failingResponseWriter) WriteHeader(status int) {
+	f.writeHeaderCalls = append(f.writeHeaderCalls, status)
+}
+
+func (f *failingResponseWriter) Write(p []byte) (int, error) {
+	f.writeCalls++
+	n := len(p) / 2
+	f.body.Write(p[:n])
+	return n, errors.New("simulated broken connection")
+}
+
+// TestListPage_RenderFailureOnlyLogs pins the #901 code-review fix: when
+// templates.ShotsPage.Render fails after output has already started
+// (this handler's own comment says exactly that — a broken client
+// connection mid-stream), the handler must only log, never attempt a
+// WriteHeader/Write afterward. The previous code called
+// httputil.InternalError there, which did both — producing a "superfluous
+// WriteHeader" plus a JSON error blob appended straight after the
+// truncated HTML, contradicting its own comment.
+func TestListPage_RenderFailureOnlyLogs(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "glp.db")
+	sqlDB, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { sqlDB.Close() })
+	repo := shots.NewRepository(sqlDB)
+	upsertTestShot(t, repo, 1, 1_700_000_000, "Espresso Classic", nil)
+
+	h := NewHandlers(shots.NewService(repo))
+	fw := &failingResponseWriter{}
+	req := httptest.NewRequest(http.MethodGet, "/shots", nil)
+
+	h.listPage(fw, req)
+
+	if len(fw.writeHeaderCalls) != 0 {
+		t.Errorf("WriteHeader called %d time(s) after a render failure, want 0: %v", len(fw.writeHeaderCalls), fw.writeHeaderCalls)
+	}
+	if fw.writeCalls != 1 {
+		t.Errorf("Write called %d time(s) after a render failure, want exactly 1 (the failing flush itself)", fw.writeCalls)
+	}
+	if strings.Contains(fw.body.String(), `"error"`) {
+		t.Errorf("response body contains a JSON error blob appended after partial HTML: %q", fw.body.String())
+	}
+}
+
 // TestTrashAndRestore_RoundTrip drives the two htmx actions end to end:
 // trashing a shot moves it out of the live list and into the trash
 // section, and restoring it moves it back — exercising the same
@@ -165,6 +233,59 @@ func TestTrashAction_NotFound(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "Shot not found") {
 		t.Errorf("POST /shots/999/trash body = %q, want it to mention 'Shot not found'", rec.Body.String())
+	}
+}
+
+// TestTrashRestore_RequireAuthBehindRequireToken wires this package's
+// routes behind auth.RequireToken the same way cmd/server actually does
+// (unlike newTestServer's bare mux above, which never applies auth
+// middleware and so can't exercise this) and confirms the #901 code-review
+// CSRF fix end to end: the two write actions 401 without a token, while
+// GET /shots stays reachable without one — see internal/web/doc.go's
+// "Auth model" section.
+func TestTrashRestore_RequireAuthBehindRequireToken(t *testing.T) {
+	const testToken = "test-fixture-token-not-a-real-secret"
+
+	dbPath := filepath.Join(t.TempDir(), "glp.db")
+	sqlDB, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { sqlDB.Close() })
+
+	repo := shots.NewRepository(sqlDB)
+	upsertTestShot(t, repo, 1, 1_700_000_000, "Espresso Classic", nil)
+
+	h := NewHandlers(shots.NewService(repo))
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	handler := auth.RequireToken(testToken)(mux)
+
+	doAuthedRequest := func(method, path, token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, nil)
+		req.RemoteAddr = "192.168.1.50:1234" // LAN, not Ingress/Supervisor
+		if token != "" {
+			req.Header.Set("X-GLP-Token", token)
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := doAuthedRequest("GET", "/shots", ""); rec.Code != http.StatusOK {
+		t.Errorf("GET /shots without a token: status = %d, want 200", rec.Code)
+	}
+	if rec := doAuthedRequest("POST", "/shots/1/trash", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("POST /shots/1/trash without a token: status = %d, want 401", rec.Code)
+	}
+	if rec := doAuthedRequest("POST", "/shots/1/restore", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("POST /shots/1/restore without a token: status = %d, want 401", rec.Code)
+	}
+	if rec := doAuthedRequest("POST", "/shots/1/trash", testToken); rec.Code != http.StatusOK {
+		t.Errorf("POST /shots/1/trash with a valid token: status = %d, want 200", rec.Code)
+	}
+	if rec := doAuthedRequest("POST", "/shots/1/restore", testToken); rec.Code != http.StatusOK {
+		t.Errorf("POST /shots/1/restore with a valid token: status = %d, want 200", rec.Code)
 	}
 }
 

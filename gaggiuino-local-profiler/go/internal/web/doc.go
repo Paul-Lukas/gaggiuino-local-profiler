@@ -19,27 +19,35 @@
 //
 // # Auth model
 //
-// HTML pages under this package are deliberately NOT gated by
+// GET /shots and /web/static/* are deliberately NOT gated by
 // internal/auth.RequireToken's X-GLP-Token check — same as every static
-// asset the Node app serves today. That middleware's own bypass list
-// already carves this out: `if !strings.HasPrefix(r.URL.Path, "/api/") &&
-// r.URL.Path != "/shots.json" { next.ServeHTTP(w, r); return }` (see
-// internal/auth/auth.go) — the token gate only ever covered the JSON API
-// surface, never the SPA's static HTML/JS/CSS, because server.js's
-// public-src frontend fetches its own token via GET /api/token and attaches
-// it to its own XHR calls (see public-src/api.js's initToken()); the
-// static shell that bootstraps that fetch was never itself gated. Routes
-// under /shots and /web/static/ replicate exactly that: the pages (and the
-// htmx actions they trigger, since neither is prefixed with /api/) reach
-// this package's handlers unauthenticated, protected the same way the rest
-// of the static frontend already is — HA Ingress's own auth in front of
-// the add-on, or physical/LAN access to the exposed port in standalone
-// mode. This is a pragmatic decision for this first template page, not a
-// new auth scheme: it reuses the one Node already ships, rather than
-// inventing a session/cookie model the dispatch brief explicitly said not
-// to invent. A future page that needs the JSON API's stricter guarantee
-// can still call through fetch() with a token the way the SPA does today;
-// nothing here forecloses that.
+// asset the Node app serves today. server.js's public-src frontend fetches
+// its own token via GET /api/token and attaches it to its own XHR calls
+// (see public-src/api.js's initToken()); the static shell that bootstraps
+// that fetch was never itself gated, and neither is this package's read-only
+// page. Protected the same way the rest of the static frontend already is
+// — HA Ingress's own auth in front of the add-on, or physical/LAN access to
+// the exposed port in standalone mode.
+//
+// The two htmx write actions (POST /shots/{id}/trash, POST
+// /shots/{id}/restore) are NOT part of that carve-out: RequireToken's
+// bypass in internal/auth/auth.go is scoped to GET/HEAD requests
+// specifically (a #901 code-review fix — it originally matched any
+// non-/api/ path regardless of method, which let any third-party page in
+// the user's browser trigger these writes with a plain unauthenticated
+// POST, no token or custom header required — a CSRF hole). A POST here now
+// has to either arrive through genuine HA Ingress (RequireToken's
+// IsIngressRequest bypass, which applies before the GET/HEAD check and
+// covers the add-on's primary access path unconditionally) or carry a
+// valid X-GLP-Token header, exactly like the JSON API. Neither templ
+// template attaches that header today (see templates/shots.templ's
+// hx-post buttons) — standalone-mode (non-Ingress) use of the Trash/Restore
+// buttons will 401 until a future page wires the token into htmx (e.g. via
+// hx-headers sourced from GET /api/token, the way public-src/api.js's
+// initToken() does for the SPA's own fetches). Not fixed here: this
+// binary isn't wired into production yet (see cmd/server/main.go and
+// go/README.md), and Ingress — the primary intended access path — is
+// unaffected.
 //
 // # CSP
 //

@@ -113,6 +113,65 @@ func TestRequireToken_NonAPIPathBypassesAuth(t *testing.T) {
 	}
 }
 
+// TestRequireToken_NonAPIWritePathRequiresAuth pins the #901 code-review
+// fix: the non-/api/ bypass must not swallow write methods. Before the
+// fix, any POST/PUT/DELETE to a path outside /api/ (e.g. the htmx write
+// actions internal/web registers at /shots/{id}/trash) sailed through
+// unauthenticated — a CSRF hole, since no token/custom header was needed.
+func TestRequireToken_NonAPIWritePathRequiresAuth(t *testing.T) {
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		req := httptest.NewRequest(method, "/shots/1/trash", nil)
+		req.RemoteAddr = "192.168.1.50:1234"
+		rec := httptest.NewRecorder()
+		newAuthedHandler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s /shots/1/trash without a token: status = %d, want 401", method, rec.Code)
+		}
+	}
+}
+
+// TestRequireToken_NonAPIWritePathWithTokenPasses is the flip side: a
+// write to a non-/api/ path DOES pass once a valid X-GLP-Token is
+// attached, the same way the JSON API already works.
+func TestRequireToken_NonAPIWritePathWithTokenPasses(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/shots/1/trash", nil)
+	req.RemoteAddr = "192.168.1.50:1234"
+	req.Header.Set("X-GLP-Token", testToken)
+	rec := httptest.NewRecorder()
+	newAuthedHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /shots/1/trash with a valid token: status = %d, want 200", rec.Code)
+	}
+}
+
+// TestRequireToken_NonAPIWritePathIngressBypass confirms genuine Ingress
+// requests still bypass auth for write methods too — IsIngressRequest is
+// checked ahead of (and independently of) the GET/HEAD-scoped bypass, so
+// the add-on's primary access path is unaffected by this fix.
+func TestRequireToken_NonAPIWritePathIngressBypass(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/shots/1/trash", nil)
+	req.RemoteAddr = "172.30.1.5:1234"
+	req.Header.Set("X-Ingress-Path", "/api/hassio_ingress/abc123")
+	rec := httptest.NewRecorder()
+	newAuthedHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /shots/1/trash via genuine Ingress: status = %d, want 200", rec.Code)
+	}
+}
+
+// TestRequireToken_HeadRequestBypassesAuth verifies HEAD gets the same
+// bypass as GET — net/http.ServeMux itself routes HEAD to a "GET ..."
+// registered pattern, so the two need identical auth treatment.
+func TestRequireToken_HeadRequestBypassesAuth(t *testing.T) {
+	req := httptest.NewRequest(http.MethodHead, "/shots", nil)
+	req.RemoteAddr = "192.168.1.50:1234"
+	rec := httptest.NewRecorder()
+	newAuthedHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HEAD /shots without a token: status = %d, want 200", rec.Code)
+	}
+}
+
 func TestRequireToken_ShotsJSONRequiresAuth(t *testing.T) {
 	// Explicit carve-out in server.js: /shots.json is the one non-/api/
 	// path that still requires a token.
