@@ -6,22 +6,41 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 1a (db + auth)
+## Status: Phase 1b (SSE + rate limiting + server bootstrap)
 
-Phase 0 was scaffolding only. Phase 1a ports the first two foundational
-packages everything else builds on:
+Phase 0 was scaffolding only. Phase 1a ported the first two foundational
+packages everything else builds on. Phase 1b adds a real, listening HTTP
+server on top of them, with one working endpoint:
 
 - `internal/db` — real SQLite schema init + migrations on
   `modernc.org/sqlite`, verified against a fixture generated from
   `lib/db.js`'s own code (see `internal/db/doc.go`).
 - `internal/auth` — real ingress-trust checks, constant-time token
-  comparison, token file persistence, and the security-header middleware
-  (see `internal/auth/doc.go`).
+  comparison, token file persistence, the security-header middleware, and
+  (Phase 1b) `RequireToken`, the full API-token-auth middleware ported from
+  server.js's `app.use` block (see `internal/auth/doc.go`).
+- `internal/ratelimit` (Phase 1b, new package) — the app-level rate limiter
+  ported from `lib/middleware/rateLimit.js` onto `golang.org/x/time/rate`:
+  600 req/min per socket address, `/assets/*` exempt (see
+  `internal/ratelimit/doc.go`).
+- `internal/sse` (Phase 1b) — the `/api/events` Server-Sent Events endpoint
+  ported from `routes/sse.js`: same headers, same 2048-byte Ingress-buffering
+  padding comment, same connect-time priming, same 20s keepalive, same
+  event multiplexing, plus a Go-channel pub/sub (`Hub`) Phase 1c's domain
+  packages will publish onto (see `internal/sse/doc.go`).
+- `cmd/server` (Phase 1b, new) — a minimal `main.go` that opens the DB,
+  loads/creates the API token, and wires the above into a real `net/http`
+  server listening on port 8099 (same port as Node), with the same
+  middleware order server.js actually registers (security headers → rate
+  limiter → token auth), verified by manually booting the binary and
+  curling it end-to-end (401 unauthenticated, working `/api/events` stream
+  with a valid token).
 
-Every other package under `internal/` is still a Phase 0 `doc.go`
-placeholder. **There is still no HTTP server or routes** — these two
-packages are library code only, not yet wired to anything that listens on a
-port. `go build ./...`, `go vet ./...`, and `go test ./...` are all green.
+Every other package under `internal/` (`system`, `shots`, `library`,
+`machines`, `orders`, `maintenance`, `backup`) is still a Phase 0 `doc.go`
+placeholder — **no REST domain routes exist yet**, only `/api/events`.
+`go build ./...`, `go vet ./...`, and `go test ./...` (including `-race`)
+are all green.
 
 ## Why
 
@@ -55,11 +74,14 @@ go/
   go.mod
   README.md              — this file
   RESEARCH.md             — Phase 0 research spikes (protobuf sources, image/QR libs)
+  cmd/
+    server/                main.go — HTTP bootstrap (Phase 1b): db + auth + sse wiring, no domain routes yet
   internal/
     db/                    lib/db.js — schema + migrations
-    auth/                  server.js's ingress-trust + token-auth + rate-limit
+    auth/                  server.js's ingress-trust + token-auth
+    ratelimit/              lib/middleware/rateLimit.js — app-level rate limiter
     system/                routes/system.js's status/live/preheat endpoints + lib/poll.js
-    sse/                   routes/sse.js — /api/events
+    sse/                   routes/sse.js — /api/events (implemented, Phase 1b)
     shots/                 routes/shots.js + ShotService/ShotRepository
     library/               routes/library/*.js + LibraryService
     machines/              routes/machines.js + machine-control.js + lib/machines/*

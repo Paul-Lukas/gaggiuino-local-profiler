@@ -2,7 +2,10 @@ module github.com/mxkissnr/gaggiuino-local-profiler/go
 
 go 1.25.0
 
-require modernc.org/sqlite v1.57.0
+require (
+	golang.org/x/time v0.15.0
+	modernc.org/sqlite v1.57.0
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect

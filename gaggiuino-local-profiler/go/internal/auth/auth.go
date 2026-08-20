@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -161,4 +162,74 @@ func SecurityHeaders(next http.Handler) http.Handler {
 				"connect-src 'self';")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// RequireToken returns middleware porting server.js's API-token-auth
+// app.use block verbatim (the req.glpAuthenticated / req.glpIsIngress
+// computation and the five-way if-chain that follows it, lines ~143-173):
+// same checks, same order, so the same requests pass or fail under both
+// implementations. It must run behind SecurityHeaders and ahead of any
+// route — see cmd/server's middleware chain, whose ordering follows
+// server.js's actual app.use() registration order (security headers, then
+// the rate limiter, then this), not a paraphrase of it.
+func RequireToken(token string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Fail closed, not open: if no token is available, deny
+			// everything instead of letting every request through
+			// unauthenticated — mirrors server.js's own `if
+			// (!state.apiToken) return res.status(503)...` defensive check.
+			// In practice cmd/server never installs this middleware at all
+			// if LoadOrCreateToken failed at startup, so token is never
+			// empty here; this guard stays anyway to match the Node
+			// original's own belt-and-suspenders check.
+			if token == "" {
+				writeJSONError(w, http.StatusServiceUnavailable, "API token unavailable")
+				return
+			}
+
+			authenticated := IsTokenValid(token, r.Header.Get("X-GLP-Token"))
+			// #735: EventSource can't send custom headers, so /api/events —
+			// and only that route — also accepts the token as a query
+			// param. See internal/sse/doc.go for why this lives here and
+			// not in that package.
+			if !authenticated && r.URL.Path == "/api/events" {
+				authenticated = IsTokenValid(token, r.URL.Query().Get("token"))
+			}
+
+			// Ingress bypass: only trust X-Ingress-Path when the request
+			// genuinely originates from the HA Supervisor (see
+			// IsIngressRequest) — prevents header spoofing from external
+			// LAN clients who can also reach the exposed port.
+			if IsIngressRequest(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if r.URL.Path == "/api/status" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if r.URL.Path == "/api/token" { // endpoint enforces expose_api_port itself
+				next.ServeHTTP(w, r)
+				return
+			}
+			if !strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/shots.json" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if authenticated {
+				next.ServeHTTP(w, r)
+				return
+			}
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		})
+	}
+}
+
+// writeJSONError ports the `res.status(...).json({ error: ... })` shape
+// server.js's auth middleware responds with on both its failure paths.
+func writeJSONError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	fmt.Fprintf(w, `{"error":%q}`, message)
 }

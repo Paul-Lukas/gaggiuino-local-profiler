@@ -1,0 +1,228 @@
+package sse
+
+import (
+	"bufio"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestHub_PublishFanOutAndUnsubscribe(t *testing.T) {
+	h := NewHub()
+	sub1, cancel1 := h.Subscribe()
+	sub2, cancel2 := h.Subscribe()
+	defer cancel2()
+
+	ev := Event{Type: EventSyncProgress, Data: map[string]any{"current": 1}}
+	h.Publish(ev)
+
+	for _, sub := range []<-chan Event{sub1, sub2} {
+		select {
+		case got := <-sub:
+			if got.Type != EventSyncProgress {
+				t.Errorf("got event type %q, want %q", got.Type, EventSyncProgress)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for published event")
+		}
+	}
+
+	cancel1()
+	if _, ok := <-sub1; ok {
+		t.Error("expected sub1's channel to be closed after cancel")
+	}
+
+	// A second publish must still reach the still-subscribed sub2 and must
+	// not panic/block because sub1 unsubscribed.
+	h.Publish(Event{Type: EventSyncComplete, Data: nil})
+	select {
+	case got := <-sub2:
+		if got.Type != EventSyncComplete {
+			t.Errorf("got event type %q, want %q", got.Type, EventSyncComplete)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for second published event")
+	}
+}
+
+func TestHub_PublishNonBlockingWhenSubscriberBufferFull(t *testing.T) {
+	h := NewHub()
+	_, cancel := h.Subscribe() // never read from
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < subscriberBuffer+10; i++ {
+			h.Publish(Event{Type: EventLiveSnapshot, Data: i})
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Publish blocked on a full subscriber buffer instead of dropping")
+	}
+}
+
+// readLines reads exactly n newline-terminated lines from r, failing the
+// test if that doesn't happen within timeout — a real network connection's
+// Read can block forever on a handler bug, so every read in this file goes
+// through this helper rather than calling bufio.Reader directly.
+func readLines(t *testing.T, r *bufio.Reader, n int, timeout time.Duration) []string {
+	t.Helper()
+	type result struct {
+		lines []string
+		err   error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		var lines []string
+		for len(lines) < n {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				ch <- result{lines, err}
+				return
+			}
+			lines = append(lines, line)
+		}
+		ch <- result{lines, nil}
+	}()
+	select {
+	case out := <-ch:
+		if out.err != nil {
+			t.Fatalf("reading SSE stream: %v", out.err)
+		}
+		return out.lines
+	case <-time.After(timeout):
+		t.Fatal("timed out reading SSE stream")
+		return nil
+	}
+}
+
+// TestHandler_ConnectPrimeAndPublish opens a real HTTP connection to a
+// Handler and verifies the headers, the padding comment, connect-time
+// priming, and that an event published after connecting is delivered over
+// the same stream — the four things Phase 1b's dispatch explicitly calls
+// out as needing coverage.
+func TestHandler_ConnectPrimeAndPublish(t *testing.T) {
+	hub := NewHub()
+	primed := Event{Type: EventPreheatUpdate, Data: map[string]any{"ready": true}}
+	handler := &Handler{
+		Hub:   hub,
+		Prime: func() []Event { return []Event{primed} },
+	}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/events")
+	if err != nil {
+		t.Fatalf("GET %s: %v", srv.URL, err)
+	}
+	defer resp.Body.Close()
+
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want text/event-stream", ct)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-cache, no-transform" {
+		t.Errorf("Cache-Control = %q, want no-cache, no-transform", cc)
+	}
+	if xab := resp.Header.Get("X-Accel-Buffering"); xab != "no" {
+		t.Errorf("X-Accel-Buffering = %q, want no", xab)
+	}
+
+	reader := bufio.NewReader(resp.Body)
+
+	// Padding line, blank line, then the primed event's "event:"/"data:"
+	// lines and its trailing blank line.
+	lines := readLines(t, reader, 5, 2*time.Second)
+
+	wantPadding := ":" + strings.Repeat(" ", paddingBytes) + "\n"
+	if lines[0] != wantPadding {
+		t.Errorf("padding line = %d bytes, want %d bytes starting with ':'", len(lines[0]), len(wantPadding))
+	}
+	if lines[1] != "\n" {
+		t.Errorf("expected blank line after padding, got %q", lines[1])
+	}
+	if lines[2] != "event: "+EventPreheatUpdate+"\n" {
+		t.Errorf("primed event line = %q, want \"event: %s\\n\"", lines[2], EventPreheatUpdate)
+	}
+	if !strings.HasPrefix(lines[3], "data: ") {
+		t.Fatalf("expected a data: line, got %q", lines[3])
+	}
+	var primedData map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(lines[3], "data: ")), &primedData); err != nil {
+		t.Fatalf("decoding primed event data: %v", err)
+	}
+	if primedData["ready"] != true {
+		t.Errorf("primed event data = %v, want ready:true", primedData)
+	}
+	if lines[4] != "\n" {
+		t.Errorf("expected trailing blank line after primed data, got %q", lines[4])
+	}
+
+	// Give the handler a moment to finish Subscribe()-ing before publishing
+	// — priming and subscribing happen before this call returns control to
+	// the client, but the network round trip above doesn't guarantee it.
+	time.Sleep(50 * time.Millisecond)
+	hub.Publish(Event{Type: EventSyncProgress, Data: map[string]any{"current": 3, "total": 10}})
+
+	pubLines := readLines(t, reader, 3, 2*time.Second)
+	if pubLines[0] != "event: "+EventSyncProgress+"\n" {
+		t.Errorf("published event line = %q, want \"event: %s\\n\"", pubLines[0], EventSyncProgress)
+	}
+	var pubData map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(pubLines[1], "data: ")), &pubData); err != nil {
+		t.Fatalf("decoding published event data: %v", err)
+	}
+	if pubData["current"] != float64(3) || pubData["total"] != float64(10) {
+		t.Errorf("published event data = %v, want current:3 total:10", pubData)
+	}
+	if pubLines[2] != "\n" {
+		t.Errorf("expected trailing blank line after published data, got %q", pubLines[2])
+	}
+}
+
+func TestHandler_Ping(t *testing.T) {
+	hub := NewHub()
+	handler := &Handler{Hub: hub, PingInterval: 30 * time.Millisecond}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/events")
+	if err != nil {
+		t.Fatalf("GET %s: %v", srv.URL, err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	// Padding + blank (no Prime set), then the first ping comment + blank.
+	lines := readLines(t, reader, 4, 2*time.Second)
+	if lines[2] != ":ping\n" {
+		t.Errorf("expected a :ping keepalive line, got %q", lines[2])
+	}
+	if lines[3] != "\n" {
+		t.Errorf("expected blank line after :ping, got %q", lines[3])
+	}
+}
+
+func TestHandler_NoFlusherRejected(t *testing.T) {
+	handler := &Handler{Hub: NewHub()}
+	rec := httptest.NewRecorder()
+	// httptest.NewRecorder's ResponseWriter does implement http.Flusher in
+	// modern Go, so wrap it in a type that deliberately doesn't, to exercise
+	// the "streaming unsupported" guard.
+	handler.ServeHTTP(noFlushRecorder{rec}, httptest.NewRequest(http.MethodGet, "/api/events", nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for a non-flushable ResponseWriter, got %d", rec.Code)
+	}
+}
+
+// noFlushRecorder wraps http.ResponseWriter while hiding any Flush method
+// the embedded value has, so it never satisfies http.Flusher.
+type noFlushRecorder struct {
+	http.ResponseWriter
+}

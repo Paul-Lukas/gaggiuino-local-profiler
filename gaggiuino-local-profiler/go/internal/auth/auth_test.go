@@ -10,6 +10,134 @@ import (
 	"testing"
 )
 
+// Not a secret -- a plain fixture string. IsTokenValid does a byte-for-byte
+// compare with no hex-decoding requirement, so RequireToken's tests below
+// need no particular length or charset, just a stand-in value distinct from
+// TestIsTokenValid's own "real" fixture above.
+const testToken = "test-fixture-token-not-a-real-secret"
+
+func newAuthedHandler() http.Handler {
+	return RequireToken(testToken)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+}
+
+func TestRequireToken_ValidHeaderPasses(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/shots", nil)
+	req.RemoteAddr = "192.168.1.50:1234" // not Supervisor -> Ingress bypass doesn't apply
+	req.Header.Set("X-GLP-Token", testToken)
+	rec := httptest.NewRecorder()
+	newAuthedHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestRequireToken_MissingTokenRejected(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/shots", nil)
+	req.RemoteAddr = "192.168.1.50:1234"
+	rec := httptest.NewRecorder()
+	newAuthedHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected application/json content type, got %q", ct)
+	}
+	if body := rec.Body.String(); body != `{"error":"Unauthorized"}` {
+		t.Errorf("unexpected body: %q", body)
+	}
+}
+
+func TestRequireToken_SSEQueryParamFallback(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/events?token="+testToken, nil)
+	req.RemoteAddr = "192.168.1.50:1234"
+	rec := httptest.NewRecorder()
+	newAuthedHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestRequireToken_QueryParamFallbackOnlyAppliesToEvents(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/shots?token="+testToken, nil)
+	req.RemoteAddr = "192.168.1.50:1234"
+	rec := httptest.NewRecorder()
+	newAuthedHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 (query-param fallback must not apply outside /api/events), got %d", rec.Code)
+	}
+}
+
+func TestRequireToken_IngressBypass(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/shots", nil)
+	req.RemoteAddr = "172.30.1.5:1234"
+	req.Header.Set("X-Ingress-Path", "/api/hassio_ingress/abc123")
+	rec := httptest.NewRecorder()
+	newAuthedHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected genuine Ingress request to bypass auth, got %d", rec.Code)
+	}
+}
+
+func TestRequireToken_SpoofedIngressHeaderFromLANRejected(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/shots", nil)
+	req.RemoteAddr = "192.168.1.50:1234"
+	req.Header.Set("X-Ingress-Path", "/api/hassio_ingress/abc123")
+	rec := httptest.NewRecorder()
+	newAuthedHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected spoofed Ingress header from a LAN client to be rejected, got %d", rec.Code)
+	}
+}
+
+func TestRequireToken_StatusAndTokenEndpointsBypassAuth(t *testing.T) {
+	for _, path := range []string{"/api/status", "/api/token"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.RemoteAddr = "192.168.1.50:1234"
+		rec := httptest.NewRecorder()
+		newAuthedHandler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: expected 200 without a token, got %d", path, rec.Code)
+		}
+	}
+}
+
+func TestRequireToken_NonAPIPathBypassesAuth(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/index.html", nil)
+	req.RemoteAddr = "192.168.1.50:1234"
+	rec := httptest.NewRecorder()
+	newAuthedHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for a non-/api/ path without a token, got %d", rec.Code)
+	}
+}
+
+func TestRequireToken_ShotsJSONRequiresAuth(t *testing.T) {
+	// Explicit carve-out in server.js: /shots.json is the one non-/api/
+	// path that still requires a token.
+	req := httptest.NewRequest(http.MethodGet, "/shots.json", nil)
+	req.RemoteAddr = "192.168.1.50:1234"
+	rec := httptest.NewRecorder()
+	newAuthedHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for /shots.json without a token, got %d", rec.Code)
+	}
+}
+
+func TestRequireToken_EmptyTokenFailsClosed(t *testing.T) {
+	handler := RequireToken("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("next handler must not run when no token is configured")
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req.RemoteAddr = "192.168.1.50:1234"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rec.Code)
+	}
+}
+
 func TestIsSupervisorIP(t *testing.T) {
 	cases := []struct {
 		name string

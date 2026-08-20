@@ -15,12 +15,16 @@
 //     lib/helpers.js's writeFileSafe.
 //   - SecurityHeaders ports the security-header net/http middleware block
 //     near the top of server.js — identical header names and values.
+//   - RequireToken (Phase 1b) ports server.js's API-token-auth app.use
+//     block: the X-GLP-Token header / ?token= query-param (for /api/events
+//     only) checks, the Ingress/status/token/non-API bypasses, and the
+//     JSON 401/503 error shapes, in the same order server.js evaluates them.
 //
 // This model is replicated 1:1, not "sinngemäß nachgebaut" — see
 // go/README.md for the migration's security-parity requirement.
 //
 // lib/middleware/rateLimit.js's per-socket-address rate-limit bucket logic
-// is NOT part of this package (Phase 1a scope was ingress-trust + token-auth
-// + security headers only); it belongs here or in a sibling package once
-// the HTTP server wiring that would actually exercise it exists.
+// is NOT part of this package — it lives in the sibling internal/ratelimit
+// package (Phase 1b), which reuses this package's RemoteIP for its bucket
+// key.
 package auth
