@@ -1,0 +1,557 @@
+package shots
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"os"
+	"strconv"
+)
+
+// This file ports routes/shots.js's Express router onto Go 1.22+'s
+// method-and-wildcard-pattern http.ServeMux (see RegisterRoutes). Two
+// ordering subtleties in the Node original have no Go equivalent to
+// replicate:
+//
+//   - Express matches routes in registration order, which is why
+//     routes/shots.js registers '/api/shots/last' and '/api/shots/defaults'
+//     *before* '/api/shots/:id' (a wildcard route registered first would
+//     otherwise capture "last"/"defaults" as :id). Go's ServeMux instead
+//     always prefers the most specific *pattern* regardless of registration
+//     order — a literal segment ("/api/shots/last") always outranks a
+//     wildcard one ("/api/shots/{id}") — so RegisterRoutes below has no
+//     equivalent ordering requirement or comment to carry forward.
+//   - routes/shots.js's POST /api/shots/:id/annotate runs its validate()
+//     body-schema middleware *before* the handler's own id-parsing, so a
+//     malformed body on an invalid-id request gets the validation 400, not
+//     the "Invalid shot ID" 400. annotate() below preserves that exact
+//     order (validate body, then parse id) even though Go's mux has
+//     already routed the request by then.
+const jsonBodyLimit = 16 * 1024 // express.json({ limit: '16kb' }) — server.js's global default; shots routes never override it.
+
+// Handlers wires Service (+ its Repository, for the defaults/blocklist
+// calls that don't go through Service) into net/http handlers.
+type Handlers struct {
+	service  *Service
+	repo     *Repository
+	imageDir string
+}
+
+// NewHandlers builds Handlers around repo — the single DB-backed
+// dependency every handler needs, matching cmd/server's existing
+// db.Open()-then-wire-everything-else pattern. Image uploads are written
+// under DefaultImageDir; tests construct a Handlers directly and override
+// the unexported imageDir field to point at a throwaway directory instead
+// (see helpers_test.go).
+func NewHandlers(repo *Repository) *Handlers {
+	return &Handlers{service: NewService(repo), repo: repo, imageDir: DefaultImageDir}
+}
+
+// RegisterRoutes registers every /shots.json and /api/shots/* route onto
+// mux — see cmd/server's main.go for the middleware chain (security
+// headers -> rate limit -> token auth) these routes run behind.
+func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /shots.json", h.listShots)
+	mux.HandleFunc("GET /api/shots/last", h.lastShot)
+	mux.HandleFunc("GET /api/shots/defaults", h.getDefaults)
+	mux.HandleFunc("POST /api/shots/defaults", h.postDefaults)
+	mux.HandleFunc("GET /api/shots/{id}", h.getShot)
+	mux.HandleFunc("GET /api/shots/{id}/card", h.getCard)
+	mux.HandleFunc("POST /api/shots/{id}/annotate", h.annotate)
+	mux.HandleFunc("POST /api/shots/{id}/trash", h.trash)
+	mux.HandleFunc("POST /api/shots/{id}/restore", h.restore)
+	mux.HandleFunc("POST /api/shots/{id}/delete", h.delete)
+	mux.HandleFunc("GET /api/shots/{id}/image", h.getImage)
+	mux.HandleFunc("POST /api/shots/{id}/image", h.postImage)
+	mux.HandleFunc("DELETE /api/shots/{id}/image", h.deleteImage)
+}
+
+// ── response helpers ────────────────────────────────────────────────────
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"Internal server error"}`))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(b)
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]string{"error": message})
+}
+
+func withScore(shot Shot, detail ScoreDetail) Shot {
+	out := shot.clone()
+	out["score"] = detail.Score
+	out["usedBeanTarget"] = detail.UsedBeanTarget
+	return out
+}
+
+// ── id parsing ──────────────────────────────────────────────────────────
+
+// jsParseInt ports JS's parseInt(s, 10): skip leading whitespace, an
+// optional sign, then consume as many leading decimal digits as present
+// ("123abc" -> 123, ok); no digits at all (after whitespace/sign) is NaN
+// ("abc" -> not ok). strconv.ParseInt/Atoi are both stricter — they reject
+// any trailing garbage outright — which would diverge from parseId()'s
+// behavior in routes/shots.js for a param like "123abc".
+func jsParseInt(s string) (int64, bool) {
+	i, n := 0, len(s)
+	for i < n {
+		switch s[i] {
+		case ' ', '\t', '\n', '\r', '\v', '\f':
+			i++
+			continue
+		}
+		break
+	}
+	start := i
+	if i < n && (s[i] == '+' || s[i] == '-') {
+		i++
+	}
+	digitsStart := i
+	for i < n && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == digitsStart {
+		return 0, false
+	}
+	v, err := strconv.ParseInt(s[start:i], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+// parseID ports routes/shots.js's parseId(param).
+func parseID(param string) (int64, bool) {
+	id, ok := jsParseInt(param)
+	if !ok || id < 1 || id > MaxShotID {
+		return 0, false
+	}
+	return id, true
+}
+
+// ── body decoding ───────────────────────────────────────────────────────
+
+// decodeJSONBody ports express.json({limit:'16kb'})'s two failure modes:
+// a body over the limit becomes a 413 (body-parser's own
+// entity.too.large -> lib/middleware/error.js's status>=400,<500 branch),
+// anything else that fails to parse becomes a 400. writes the error
+// response itself and returns ok=false on either.
+func decodeJSONBody(w http.ResponseWriter, r *http.Request) (map[string]any, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, jsonBodyLimit)
+	var body map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request entity too large")
+		} else {
+			writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		}
+		return nil, false
+	}
+	if body == nil {
+		body = map[string]any{}
+	}
+	return body, true
+}
+
+// ── handlers ────────────────────────────────────────────────────────────
+
+// listShots ports GET /shots.json.
+func (h *Handlers) listShots(w http.ResponseWriter, r *http.Request) {
+	var (
+		list []Shot
+		err  error
+	)
+	if r.URL.Query().Get("trash") == "1" {
+		list, err = h.service.GetTrash()
+	} else {
+		list, err = h.service.GetAll()
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	out := make([]Shot, len(list))
+	for i, shot := range list {
+		out[i] = withScore(shot, h.service.ComputeScoreDetail(shot))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// lastShot ports GET /api/shots/last.
+func (h *Handlers) lastShot(w http.ResponseWriter, r *http.Request) {
+	list, err := h.service.GetAll()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	if len(list) == 0 {
+		writeJSON(w, http.StatusOK, nil)
+		return
+	}
+	last := list[len(list)-1]
+	writeJSON(w, http.StatusOK, withScore(last, h.service.ComputeScoreDetail(last)))
+}
+
+// getDefaults ports GET /api/shots/defaults (#654).
+func (h *Handlers) getDefaults(w http.ResponseWriter, r *http.Request) {
+	defaults, err := h.repo.GetShotDefaults()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, defaults)
+}
+
+// shotDefaultsFromBody ports routes/shots.js's POST /api/shots/defaults
+// handler's explicit field-by-field pick with `?? null` / `?? empty
+// string` fallbacks.
+func shotDefaultsFromBody(body map[string]any) map[string]any {
+	get := func(key string) any {
+		if v, ok := body[key]; ok {
+			return v
+		}
+		return nil
+	}
+	grinder := ""
+	if v, ok := body["grinder"]; ok {
+		if s, ok2 := v.(string); ok2 {
+			grinder = s
+		}
+	}
+	return map[string]any{
+		"drinkType":    get("drinkType"),
+		"coffee":       get("coffee"),
+		"beanId":       get("beanId"),
+		"basketId":     get("basketId"),
+		"puckScreenId": get("puckScreenId"),
+		"grinder":      grinder,
+		"dose":         get("dose"),
+	}
+}
+
+// postDefaults ports POST /api/shots/defaults.
+func (h *Handlers) postDefaults(w http.ResponseWriter, r *http.Request) {
+	body, ok := decodeJSONBody(w, r)
+	if !ok {
+		return
+	}
+	if issues := ValidateShotDefaults(body); len(issues) > 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Validation failed", "issues": issues})
+		return
+	}
+	defaults := shotDefaultsFromBody(body)
+	if err := h.repo.SaveShotDefaults(defaults); err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, defaults)
+}
+
+// getShot ports GET /api/shots/:id. Note this returns 200 null for both an
+// invalid id AND a valid-but-nonexistent one — never a 400/404 — matching
+// routes/shots.js exactly (`if (!id) return res.json(null)`;
+// `if (!shot) return res.json(null)`).
+func (h *Handlers) getShot(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r.PathValue("id"))
+	if !ok {
+		writeJSON(w, http.StatusOK, nil)
+		return
+	}
+	shot, err := h.service.GetByID(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	if shot == nil {
+		writeJSON(w, http.StatusOK, nil)
+		return
+	}
+
+	previous, err := h.service.GetPreviousByProfile(shot)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+
+	resp := withScore(shot, h.service.ComputeScoreDetail(shot))
+	if previous != nil {
+		resp["previousShotId"] = previous["id"]
+		resp["previousShot"] = withScore(previous, h.service.ComputeScoreDetail(previous))
+	} else {
+		resp["previousShotId"] = nil
+		resp["previousShot"] = nil
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// getCard ports GET /api/shots/:id/card. Image generation itself
+// (lib/card.js's Canvas-based PNG render) is NOT ported in this phase —
+// see go/RESEARCH.md for the fogleman/gg spike this needs. The id-parsing
+// and shot-lookup error branches ARE ported (400/404), so this only
+// diverges from the eventual real endpoint on the success path, which
+// answers 501 instead of a PNG.
+//
+// TODO(Phase 1c-follow-up): fogleman/gg-based image generation, see
+// go/RESEARCH.md.
+func (h *Handlers) getCard(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid shot ID")
+		return
+	}
+	shot, err := h.service.GetByID(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	if shot == nil {
+		writeError(w, http.StatusNotFound, "Shot not found")
+		return
+	}
+	writeError(w, http.StatusNotImplemented, "share-card image generation not yet implemented in the Go server")
+}
+
+// annotate ports POST /api/shots/:id/annotate. Body validation runs before
+// id parsing — see this file's header comment for why that order matters.
+// SaveAnnotation itself has no existence check (matching ShotService.js's
+// saveAnnotation), but annotations.shot_id REFERENCES shots(id) with
+// foreign_keys=ON in both Node and Go, so annotating an id that isn't an
+// actual shot row still fails — as a foreign-key constraint error, mapped
+// to a generic 500 by both runtimes' error handling, not a 4xx — see
+// handlers_test.go's TestAnnotate_NonexistentShotFailsOnForeignKey.
+//
+// libraryService.checkLowStockNotify(req.body) (the fire-and-forget
+// low-stock notification routes/shots.js's annotate handler kicks off
+// afterwards) is NOT called here: it needs internal/library (bean
+// resolution, bag stock, HA-notify settings), which is still a Phase 0
+// placeholder. Wire it in once the Library phase lands — until then,
+// annotating a shot in the Go server never sends a low-stock notification.
+func (h *Handlers) annotate(w http.ResponseWriter, r *http.Request) {
+	body, ok := decodeJSONBody(w, r)
+	if !ok {
+		return
+	}
+	if issues := ValidateAnnotation(body); len(issues) > 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Validation failed", "issues": issues})
+		return
+	}
+	id, ok := parseID(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid shot ID")
+		return
+	}
+	if err := h.service.SaveAnnotation(id, body); err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// trash ports POST /api/shots/:id/trash.
+func (h *Handlers) trash(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid shot ID")
+		return
+	}
+	if err := h.service.TrashShot(id); err != nil {
+		if errors.Is(err, ErrShotNotFound) {
+			writeError(w, http.StatusNotFound, "Shot not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// restore ports POST /api/shots/:id/restore — no existence check, matching
+// the Node original.
+func (h *Handlers) restore(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid shot ID")
+		return
+	}
+	if err := h.service.RestoreShot(id); err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// delete ports POST /api/shots/:id/delete: permanently deletes and adds
+// the id to the blocklist so a later re-import/re-sync never resurrects it.
+func (h *Handlers) delete(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid shot ID")
+		return
+	}
+	shot, err := h.service.GetByID(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	if shot == nil {
+		writeError(w, http.StatusNotFound, "Shot not found")
+		return
+	}
+	if err := h.service.PermanentDelete(id); err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	blocklist, err := h.service.GetBlocklist()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	idStr := strconv.FormatInt(id, 10)
+	found := false
+	for _, v := range blocklist {
+		if v == idStr {
+			found = true
+			break
+		}
+	}
+	if !found {
+		if err := h.service.SaveBlocklist(append(blocklist, idStr)); err != nil {
+			writeError(w, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// getImage ports GET /api/shots/:id/image. An invalid id is treated
+// exactly like "no image" (404), not a 400 — matching routes/shots.js's
+// `const shot = id ? shotService.getById(id) : null;` (an invalid id
+// short-circuits to shot = null before the 404 check, same outcome as a
+// valid id with no shot).
+func (h *Handlers) getImage(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r.PathValue("id"))
+	var shot Shot
+	if ok {
+		var err error
+		shot, err = h.service.GetByID(id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+	}
+	ext := shot.imageExt()
+	contentType, known := extContentType[ext]
+	if ext == "" || !known {
+		writeError(w, http.StatusNotFound, "no image")
+		return
+	}
+	path := imagePath(h.imageDir, id, ext, "shot-")
+	if _, err := os.Stat(path); err != nil {
+		writeError(w, http.StatusNotFound, "no image")
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("Content-Type", contentType)
+	http.ServeFile(w, r, path)
+}
+
+// postImage ports POST /api/shots/:id/image (raw body upload, no URL
+// fetch — see image.go's doc comment).
+func (h *Handlers) postImage(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid shot ID")
+		return
+	}
+	shot, err := h.service.GetByID(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	if shot == nil {
+		writeError(w, http.StatusNotFound, "Shot not found")
+		return
+	}
+
+	contentType := r.Header.Get("Content-Type")
+	_, typeKnown := contentTypeKnown(contentType)
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxImageBytes)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusRequestEntityTooLarge, "request entity too large")
+		return
+	}
+	// Mirrors routes/shots.js's `!Buffer.isBuffer(req.body) ||
+	// req.body.length === 0`: express.raw() only populates req.body as a
+	// Buffer when Content-Type matches its whitelist, so an unrecognized
+	// content type reaches the same "no image data" branch an empty body
+	// does, distinctly from saveUploadedImage's own "unsupported image"
+	// check below (see image.go's doc comment on that redundancy).
+	if !typeKnown || len(data) == 0 {
+		writeError(w, http.StatusBadRequest, "no image data")
+		return
+	}
+
+	ext, ok := saveUploadedImage(h.imageDir, "shot-", id, data, contentType)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "unsupported image")
+		return
+	}
+	if oldExt := shot.imageExt(); oldExt != "" && oldExt != ext {
+		deleteImage(h.imageDir, id, oldExt, "shot-")
+	}
+	updated, err := h.service.SetImage(id, ext)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	// Only `score` is added here, not `usedBeanTarget` — matches
+	// routes/shots.js's `res.json({ ...updated, score:
+	// shotService.computeScore(updated) })` exactly.
+	resp := updated.clone()
+	resp["score"] = h.service.ComputeScore(updated)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// deleteImage (method) ports DELETE /api/shots/:id/image. A method and a
+// package-level function (image.go's deleteImage(id, ext, prefix)) can
+// share a name without conflict — the method is only ever reached via the
+// h.deleteImage(...) selector, the free function via a bare call — so this
+// stays deleteImage on the Handlers receiver, mirroring the route it
+// serves the same way every other handler here mirrors its route name.
+func (h *Handlers) deleteImage(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "Invalid shot ID")
+		return
+	}
+	shot, err := h.service.GetByID(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	if shot == nil {
+		writeError(w, http.StatusNotFound, "Shot not found")
+		return
+	}
+	if ext := shot.imageExt(); ext != "" {
+		deleteImage(h.imageDir, id, ext, "shot-")
+	}
+	updated, err := h.service.ClearImage(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "shot": updated})
+}

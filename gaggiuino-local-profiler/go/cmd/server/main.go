@@ -1,11 +1,13 @@
-// Command server is the Go rewrite's minimal HTTP bootstrap (Phase 1b,
-// issue #901): it wires internal/db, internal/auth, internal/ratelimit and
-// internal/sse together into a real net/http server, in the same
+// Command server is the Go rewrite's HTTP bootstrap: it wires internal/db,
+// internal/auth, internal/ratelimit, internal/sse and (Phase 1c, issue
+// #901) internal/shots together into a real net/http server, in the same
 // middleware order server.js actually registers its own (read that file,
 // not a paraphrase of it — see the comment on the handler chain below).
 //
-// No REST domain routes are registered yet — only GET /api/events. Those
-// come in Phase 1c. This binary is not wired into the Docker image, CI, or
+// GET /api/events (Phase 1b) plus the full /shots.json + /api/shots/*
+// domain (Phase 1c) are registered. Every other REST domain (library,
+// machines, orders, maintenance, backup) is still unrouted — those come in
+// later packages. This binary is not wired into the Docker image, CI, or
 // the running add-on; the Node app (server.js) remains the sole shipping
 // entrypoint until the rollout plan in go/README.md says otherwise.
 package main
@@ -22,6 +24,7 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ratelimit"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
 )
 
@@ -58,6 +61,9 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/events", sseHandler)
+
+	shotsHandlers := shots.NewHandlers(shots.NewRepository(sqlDB))
+	shotsHandlers.RegisterRoutes(mux)
 
 	limiter := ratelimit.New(rateLimitWindow, rateLimitMax)
 

@@ -6,41 +6,53 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 1b (SSE + rate limiting + server bootstrap)
+## Status: Phase 1c (shots domain — first full REST domain)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
-packages everything else builds on. Phase 1b adds a real, listening HTTP
-server on top of them, with one working endpoint:
+packages everything else builds on. Phase 1b added a real, listening HTTP
+server plus the `/api/events` SSE endpoint. Phase 1c (issue #901) ports
+`routes/shots.js` — the first REST domain to go the full HTTP-request →
+handler → `internal/db` → response path, establishing the pattern every
+later domain package follows:
 
 - `internal/db` — real SQLite schema init + migrations on
   `modernc.org/sqlite`, verified against a fixture generated from
   `lib/db.js`'s own code (see `internal/db/doc.go`).
 - `internal/auth` — real ingress-trust checks, constant-time token
   comparison, token file persistence, the security-header middleware, and
-  (Phase 1b) `RequireToken`, the full API-token-auth middleware ported from
+  `RequireToken`, the full API-token-auth middleware ported from
   server.js's `app.use` block (see `internal/auth/doc.go`).
-- `internal/ratelimit` (Phase 1b, new package) — the app-level rate limiter
-  ported from `lib/middleware/rateLimit.js` onto `golang.org/x/time/rate`:
-  600 req/min per socket address, `/assets/*` exempt (see
-  `internal/ratelimit/doc.go`).
-- `internal/sse` (Phase 1b) — the `/api/events` Server-Sent Events endpoint
-  ported from `routes/sse.js`: same headers, same 2048-byte Ingress-buffering
+- `internal/ratelimit` — the app-level rate limiter ported from
+  `lib/middleware/rateLimit.js` onto `golang.org/x/time/rate`: 600 req/min
+  per socket address, `/assets/*` exempt (see `internal/ratelimit/doc.go`).
+- `internal/sse` — the `/api/events` Server-Sent Events endpoint ported
+  from `routes/sse.js`: same headers, same 2048-byte Ingress-buffering
   padding comment, same connect-time priming, same 20s keepalive, same
-  event multiplexing, plus a Go-channel pub/sub (`Hub`) Phase 1c's domain
-  packages will publish onto (see `internal/sse/doc.go`).
-- `cmd/server` (Phase 1b, new) — a minimal `main.go` that opens the DB,
-  loads/creates the API token, and wires the above into a real `net/http`
-  server listening on port 8099 (same port as Node), with the same
-  middleware order server.js actually registers (security headers → rate
-  limiter → token auth), verified by manually booting the binary and
-  curling it end-to-end (401 unauthenticated, working `/api/events` stream
-  with a valid token).
+  event multiplexing, plus a Go-channel pub/sub (`Hub`) domain packages
+  publish onto (see `internal/sse/doc.go`).
+- `internal/shots` (Phase 1c, new) — the full shot-history REST domain:
+  `/shots.json`, `/api/shots/last`, `/api/shots/defaults` (GET+POST),
+  `/api/shots/:id`, `/api/shots/:id/annotate`, `/api/shots/:id/{trash,
+  restore,delete}`, and `/api/shots/:id/image` (GET+POST+DELETE) —
+  `lib/score.js`'s scoring, `ShotService`'s annotation/trash/blocklist
+  logic, and `ShotRepository`'s + `ShotDefaultsRepository`'s DB access, all
+  ported. `GET /api/shots/:id/card` (share-card PNG) is deliberately
+  stubbed at 501 — see `internal/shots/doc.go` for exactly what that
+  endpoint and the `#450`/`#456` library-dependent scoring/notification
+  paths defer to the not-yet-ported Library phase.
+- `cmd/server` — `main.go` opens the DB, loads/creates the API token, and
+  wires the above into a real `net/http` server listening on port 8099
+  (same port as Node), with the same middleware order server.js actually
+  registers (security headers → rate limiter → token auth), verified by
+  manually booting the binary and curling it end-to-end (401
+  unauthenticated; working `/api/events` stream and the full `/api/shots/*`
+  surface with a valid token).
 
-Every other package under `internal/` (`system`, `shots`, `library`,
-`machines`, `orders`, `maintenance`, `backup`) is still a Phase 0 `doc.go`
-placeholder — **no REST domain routes exist yet**, only `/api/events`.
-`go build ./...`, `go vet ./...`, and `go test ./...` (including `-race`)
-are all green.
+Every other package under `internal/` (`system`, `library`, `machines`,
+`orders`, `maintenance`, `backup`) is still a Phase 0 `doc.go` placeholder —
+no REST routes exist for those domains yet. `go build ./...`,
+`go vet ./...`, `gofmt -l .`, and `go test ./...` (including `-race`) are
+all green.
 
 ## Why
 
@@ -75,14 +87,14 @@ go/
   README.md              — this file
   RESEARCH.md             — Phase 0 research spikes (protobuf sources, image/QR libs)
   cmd/
-    server/                main.go — HTTP bootstrap (Phase 1b): db + auth + sse wiring, no domain routes yet
+    server/                main.go — HTTP bootstrap: db + auth + sse + shots wiring
   internal/
     db/                    lib/db.js — schema + migrations
     auth/                  server.js's ingress-trust + token-auth
     ratelimit/              lib/middleware/rateLimit.js — app-level rate limiter
     system/                routes/system.js's status/live/preheat endpoints + lib/poll.js
     sse/                   routes/sse.js — /api/events (implemented, Phase 1b)
-    shots/                 routes/shots.js + ShotService/ShotRepository
+    shots/                 routes/shots.js + ShotService/ShotRepository (implemented, Phase 1c)
     library/               routes/library/*.js + LibraryService
     machines/              routes/machines.js + machine-control.js + lib/machines/*
     orders/                routes/orders.js + OrderService
@@ -90,9 +102,10 @@ go/
     backup/                routes/backup.js
 ```
 
-Each `internal/*` package currently contains only a `doc.go` package
-comment pointing at its Node source of truth. See each one for exactly
-which file(s) it will absorb.
+The still-unimplemented packages (`system`, `library`, `machines`,
+`orders`, `maintenance`, `backup`) currently contain only a `doc.go`
+package comment pointing at their Node source of truth. See each one for
+exactly which file(s) it will absorb.
 
 ## Contract
 
