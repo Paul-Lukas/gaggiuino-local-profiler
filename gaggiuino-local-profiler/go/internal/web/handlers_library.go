@@ -90,25 +90,22 @@ func (h *LibraryHandlers) beansPage(w http.ResponseWriter, r *http.Request) {
 // now also calls (internal/library/handlers_beans.go), then answers with the
 // re-rendered row so htmx's `hx-swap="outerHTML"` reflects the new
 // enabled/disabled state in place — unlike shots' trash/restore actions,
-// this one doesn't remove the row from the page.
+// this one doesn't remove the row from the page. Reuses the Library
+// ToggleBeanActive already read (and saved) for the row's allBeans param
+// instead of issuing a second GetLibrary call just to re-render one row.
 func (h *LibraryHandlers) toggleBeanActiveAction(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseLibraryID(r.PathValue("id"))
 	if !ok {
 		writeFragmentError(w, http.StatusBadRequest, "Invalid bean ID")
 		return
 	}
-	bean, found, err := library.ToggleBeanActive(h.repo, id)
+	bean, lib, found, err := library.ToggleBeanActive(h.repo, id)
 	if err != nil {
 		httputil.InternalError(w, "web", err)
 		return
 	}
 	if !found {
 		writeFragmentError(w, http.StatusNotFound, "Bean not found")
-		return
-	}
-	lib, err := h.repo.GetLibrary()
-	if err != nil {
-		httputil.InternalError(w, "web", err)
 		return
 	}
 	doseRows, err := h.shotsRepo.GetAnnotatedDoses()

@@ -187,15 +187,19 @@ func UpsertKnownGrindSetting(lib *Library, beanID int64, grinder, grindSetting s
 // read-mutate-save round trip its REST counterpart (handlers_beans.go's
 // toggleBeanActive, which now calls this too) uses, rather than
 // reimplementing the flip. found is false when id matches no bean, mirroring
-// the REST handler's 404.
-func ToggleBeanActive(repo *Repository, id int64) (bean Entity, found bool, err error) {
-	lib, err := repo.GetLibrary()
+// the REST handler's 404. lib is the same already-read (and, on success,
+// already-saved) Library this function fetched internally — callers that
+// need the rest of the library alongside the toggled bean (internal/web's
+// toggleBeanActiveAction, which re-renders a row from lib.Beans) reuse it
+// instead of issuing their own extra GetLibrary call.
+func ToggleBeanActive(repo *Repository, id int64) (bean Entity, lib Library, found bool, err error) {
+	lib, err = repo.GetLibrary()
 	if err != nil {
-		return nil, false, err
+		return nil, Library{}, false, err
 	}
 	idx := findBeanIndex(lib, id)
 	if idx == -1 {
-		return nil, false, nil
+		return nil, Library{}, false, nil
 	}
 	bean = lib.Beans[idx]
 	if b, isBool := bean["enabled"].(bool); isBool && !b {
@@ -205,9 +209,9 @@ func ToggleBeanActive(repo *Repository, id int64) (bean Entity, found bool, err 
 	}
 	lib.Beans[idx] = bean
 	if err := repo.SaveLibrary(lib); err != nil {
-		return nil, false, err
+		return nil, Library{}, false, err
 	}
-	return bean, true, nil
+	return bean, lib, true, nil
 }
 
 // SetBeanImage ports LibraryService.js's setBeanImage: fire-and-forget after

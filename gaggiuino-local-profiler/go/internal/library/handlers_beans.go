@@ -589,13 +589,17 @@ func (h *Handlers) deleteBean(w http.ResponseWriter, r *http.Request) {
 }
 
 // toggleBeanActive ports POST /api/library/bean/:id/toggle-active (#578).
+//
+// id is parsed but NOT validated before calling ToggleBeanActive — passing
+// through a noMatch id (0, matching no real bean) rather than
+// short-circuiting to 404 here keeps the original pre-#901 ordering: a
+// request always reaches the DB (ToggleBeanActive's own GetLibrary) before
+// "not found" is decided, so a broken/unreachable DB still surfaces as 500
+// even when the path's {id} also happens to be malformed, instead of a
+// malformed id masking a DB outage behind a false-negative 404.
 func (h *Handlers) toggleBeanActive(w http.ResponseWriter, r *http.Request) {
-	id, noMatch := parseIDParam(r.PathValue("id"))
-	if noMatch {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	bean, found, err := ToggleBeanActive(h.repo, id)
+	id, _ := parseIDParam(r.PathValue("id"))
+	bean, _, found, err := ToggleBeanActive(h.repo, id)
 	if err != nil {
 		internalError(w, err)
 		return

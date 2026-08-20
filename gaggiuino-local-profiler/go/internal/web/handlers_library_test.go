@@ -137,6 +137,33 @@ func TestToggleBeanActiveAction_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestToggleBeanActiveAction_SingleLibraryRead guards against a #901
+// code-review regression: toggleBeanActiveAction used to call
+// h.repo.GetLibrary() a second time, right after library.ToggleBeanActive
+// had already read (and saved) the same Library, purely to re-render one
+// row. Asserting on the response alone can't catch this (both the buggy and
+// fixed handler answer identically), so this drives the request through a
+// countingDriver-backed DB (counting_driver_test.go) and counts how many
+// `SELECT ... FROM library` reads the toggle request actually issues.
+func TestToggleBeanActiveAction_SingleLibraryRead(t *testing.T) {
+	mux, libRepo, tracker := newCountingTestLibraryServer(t)
+	if err := libRepo.SaveLibrary(library.Library{
+		Beans: []library.Entity{{"id": int64(10), "name": "Kenya AA"}},
+	}); err != nil {
+		t.Fatalf("SaveLibrary: %v", err)
+	}
+	tracker.reset() // drop the fixture SaveLibrary's own traffic before measuring
+
+	rec := doRequest(t, mux, "POST", "/beans/10/toggle-active")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /beans/10/toggle-active: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	if got := tracker.count("FROM library"); got != 1 {
+		t.Errorf("GetLibrary reads during one toggle-active request = %d, want 1 (ToggleBeanActive's own read should be reused, not re-fetched)", got)
+	}
+}
+
 func TestToggleBeanActiveAction_InvalidID(t *testing.T) {
 	mux, _, _ := newTestLibraryServer(t)
 	rec := doRequest(t, mux, "POST", "/beans/not-a-number/toggle-active")

@@ -222,6 +222,37 @@ func TestBean_UpdateInvalidIDIsNotFound(t *testing.T) {
 	}
 }
 
+// TestBean_ToggleActiveInvalidIDIsNotFound mirrors
+// TestBean_UpdateInvalidIDIsNotFound for toggle-active: a malformed {id}
+// against a healthy DB is a 404, same as a well-formed id matching no bean.
+func TestBean_ToggleActiveInvalidIDIsNotFound(t *testing.T) {
+	h, _, _ := newTestHandlers(t)
+	mux := newMux(h)
+	rec := doJSON(t, mux, http.MethodPost, "/api/library/bean/not-a-number/toggle-active", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestBean_ToggleActive_DBErrorOutranksInvalidID guards against a #901
+// review regression: toggleBeanActive briefly 404'd a malformed {id} before
+// ever touching the DB, so a genuine DB outage could hide behind a
+// false-negative 404 whenever the request also happened to carry a
+// malformed id. The pre-#901 handler (and internal/library.ToggleBeanActive,
+// which this handler now calls) always reads the library first — a DB error
+// must still surface as 500 regardless of whether the id is well-formed.
+func TestBean_ToggleActive_DBErrorOutranksInvalidID(t *testing.T) {
+	h, _, sqlDB := newTestHandlers(t)
+	mux := newMux(h)
+	if err := sqlDB.Close(); err != nil {
+		t.Fatalf("closing db to simulate an outage: %v", err)
+	}
+	rec := doJSON(t, mux, http.MethodPost, "/api/library/bean/not-a-number/toggle-active", nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500 (DB error must outrank a malformed id); body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func createTestBean(t *testing.T, mux *http.ServeMux, extra map[string]any) (int64, map[string]any) {
 	t.Helper()
 	body := map[string]any{"name": "Test Bean"}
