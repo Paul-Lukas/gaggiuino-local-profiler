@@ -26,21 +26,17 @@ const DefaultTokenFile = "/data/api_token.txt"
 // arbitrary X-Ingress-Path.
 const HAIngressPrefix = "/api/hassio_ingress/"
 
-// supervisorNet is the HA Supervisor's internal add-on network
-// (172.30.0.0/16), which is where Ingress-proxied requests arrive from.
-var supervisorNet = func() *net.IPNet {
-	_, n, err := net.ParseCIDR("172.30.0.0/16")
-	if err != nil {
-		panic(err) // unreachable: literal is a valid CIDR
-	}
-	return n
-}()
-
-// IsSupervisorIP ports lib/helpers.js's isSupervisorIp(ip): true for
-// loopback (127.0.0.1 / ::1, however the connection reports it — including
-// an IPv4-mapped IPv6 form like ::ffff:127.0.0.1, which net.IP.IsLoopback
-// already normalizes) or any address in the Supervisor's 172.30.0.0/16
-// add-on network.
+// IsSupervisorIP ports lib/helpers.js's isSupervisorIp(ip) verbatim,
+// including its exact (non-obvious) string semantics: only literal
+// "127.0.0.1" or "::1" — not the whole 127.0.0.0/8 loopback block — count as
+// loopback, and "172.30." is a plain string prefix check on the (optionally
+// IPv4-mapped) address, not a CIDR-aware containment check. This is
+// deliberately a string comparison, not net.IP-based (no ParseIP,
+// IsLoopback, or IPNet.Contains): the Node original never parses the IP
+// either, it just strips a leading "::ffff:" and does ===/startsWith on the
+// resulting string, so anything that isn't exactly one of those three forms
+// (e.g. "127.0.0.5", an octal/non-canonical form, garbage) is untrusted —
+// same as here.
 //
 // #801 (also called out in server.js's isFromSupervisor comment this
 // mirrors): this deliberately trusts the *whole* 172.30.0.0/16 network, not
@@ -51,14 +47,8 @@ var supervisorNet = func() *net.IPNet {
 // /api/token grants, but load-bearing for anything later built on the
 // assumption that Ingress implies trusted.
 func IsSupervisorIP(ip string) bool {
-	parsed := net.ParseIP(strings.TrimSpace(ip))
-	if parsed == nil {
-		return false
-	}
-	if parsed.IsLoopback() {
-		return true
-	}
-	return supervisorNet.Contains(parsed)
+	plain := strings.TrimPrefix(strings.TrimSpace(ip), "::ffff:")
+	return plain == "127.0.0.1" || plain == "::1" || strings.HasPrefix(plain, "172.30.")
 }
 
 // RemoteIP extracts the connecting IP from an *http.Request's RemoteAddr

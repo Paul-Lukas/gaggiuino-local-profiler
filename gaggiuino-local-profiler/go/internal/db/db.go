@@ -366,15 +366,23 @@ func MigrateMachineTheme(sqlDB *sql.DB) error {
 // JSON.stringify(id)/JSON.parse(row.value) round trip exactly, since other
 // kv rows (e.g. 'migrated') follow the same convention and any future Go
 // reader of this table must decode it the same way.
+//
+// A syntactically valid but wrongly-shaped stored value (e.g. kv.value is
+// "{}" or "123" instead of a JSON-encoded string) must not prevent the
+// server from starting: Node's `if (row) return JSON.parse(row.value);`
+// never type-checks its result, it just returns whatever JSON.parse
+// produced. This decodes into interface{} and tolerantly coerces via
+// installIDString instead of failing the unmarshal on a type mismatch, so
+// Open() always succeeds here regardless of what's actually stored.
 func EnsureInstallID(sqlDB *sql.DB) (string, error) {
 	var value string
 	err := sqlDB.QueryRow(`SELECT value FROM kv WHERE key = 'install_id'`).Scan(&value)
 	if err == nil {
-		var id string
-		if err := json.Unmarshal([]byte(value), &id); err != nil {
+		var raw interface{}
+		if err := json.Unmarshal([]byte(value), &raw); err != nil {
 			return "", fmt.Errorf("db: decoding install_id: %w", err)
 		}
-		return id, nil
+		return installIDString(raw), nil
 	}
 	if err != sql.ErrNoRows {
 		return "", fmt.Errorf("db: reading install_id: %w", err)
@@ -395,6 +403,23 @@ func EnsureInstallID(sqlDB *sql.DB) (string, error) {
 		return "", fmt.Errorf("db: storing install_id: %w", err)
 	}
 	return id, nil
+}
+
+// installIDString tolerantly coerces a decoded kv.value for install_id into
+// a string, the same way lib/db.js implicitly does by just returning
+// JSON.parse's result unchecked: the expected case (the JSON-decoded value
+// is itself a string) is returned directly; anything else (a number, bool,
+// object, array, null -- kv.value was malformed or written by something
+// other than this code path) falls back to its JSON representation rather
+// than erroring, so a broken stored value can never fail Open().
+func installIDString(raw interface{}) string {
+	if s, ok := raw.(string); ok {
+		return s
+	}
+	if encoded, err := json.Marshal(raw); err == nil {
+		return string(encoded)
+	}
+	return fmt.Sprintf("%v", raw)
 }
 
 // copyFile is a plain byte-for-byte copy (no fsync/atomic-rename dance —

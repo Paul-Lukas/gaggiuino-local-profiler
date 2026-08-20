@@ -19,6 +19,8 @@ func TestIsSupervisorIP(t *testing.T) {
 		{"loopback v4", "127.0.0.1", true},
 		{"loopback v6", "::1", true},
 		{"loopback v4-mapped-v6", "::ffff:127.0.0.1", true},
+		{"loopback block but not exactly 127.0.0.1", "127.0.0.5", false},
+		{"loopback block but not exactly 127.0.0.1 (2)", "127.9.9.9", false},
 		{"supervisor net start", "172.30.0.0", true},
 		{"supervisor net middle", "172.30.55.12", true},
 		{"supervisor net end", "172.30.255.255", true},

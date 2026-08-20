@@ -74,6 +74,48 @@ func TestEnsureInstallID_StableAcrossCalls(t *testing.T) {
 	}
 }
 
+// TestEnsureInstallID_TolerantOfMalformedStoredValue pins #901: a
+// syntactically valid but wrongly-shaped kv.value for install_id (e.g. "{}"
+// or "123" instead of a JSON-encoded string, which is what a hand-edited or
+// corrupted DB might contain) must not make Open() fail. lib/db.js's
+// `JSON.parse(row.value)` never type-checks its result either -- it just
+// returns whatever JSON.parse produced, so this pins the Go port to the same
+// "never abort the server on this" behavior instead of propagating a
+// json.UnmarshalTypeError up through Open().
+func TestEnsureInstallID_TolerantOfMalformedStoredValue(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "glp.db")
+
+	sqlDB, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("initial Open: %v", err)
+	}
+	for _, malformed := range []string{`{}`, `123`} {
+		if _, err := sqlDB.Exec(
+			`INSERT OR REPLACE INTO kv (key, value) VALUES ('install_id', ?)`, malformed,
+		); err != nil {
+			t.Fatalf("seeding malformed install_id %q: %v", malformed, err)
+		}
+
+		id, err := EnsureInstallID(sqlDB)
+		if err != nil {
+			t.Fatalf("EnsureInstallID with malformed value %q: %v", malformed, err)
+		}
+		if id != malformed {
+			t.Errorf("EnsureInstallID(%q) = %q, want %q", malformed, id, malformed)
+		}
+	}
+	sqlDB.Close()
+
+	// Also confirm a full Open() (which calls EnsureInstallID internally)
+	// against a DB file that already has a malformed stored value succeeds,
+	// not just a direct EnsureInstallID call against an already-open handle.
+	sqlDB2, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("re-Open with malformed install_id already on disk: %v", err)
+	}
+	sqlDB2.Close()
+}
+
 // TestMigrateMachineColumns_LegacySchema builds a pre-#317 database by hand
 // (the shape lib/db.js's initSchema produced before machine_id existed) and
 // checks MigrateMachineColumns brings it up to the current shape: additive
