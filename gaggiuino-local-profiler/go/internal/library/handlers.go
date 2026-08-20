@@ -28,10 +28,29 @@ const jsonBodyLimit = 16 * 1024 // express.json({ limit: '16kb' }) — server.js
 // see service.go's ComputeGrinderWearStats doc comment) into net/http
 // handlers.
 type Handlers struct {
-	repo      *Repository
-	shotsRepo *shots.Repository
-	imageDir  string
-	limiter   *rateLimiter
+	repo            *Repository
+	shotsRepo       *shots.Repository
+	imageDir        string
+	limiter         *rateLimiter
+	onGrinderDelete func(grinderID int64) error
+}
+
+// SetOnGrinderDeleted wires the maintenance domain's cleanup of a deleted
+// grinder's `grinder_{id}` maintenance-table row (LibraryService.js's
+// getMaintenance()/saveMaintenance() round trip in the Node original's
+// grinder-delete handler) as a callback rather than a direct import: this
+// package already gets imported BY internal/maintenance (for grinder
+// existence checks in canonicalTask() and grinder names in
+// getMaintenance()/getMaintenanceLog()), so importing internal/maintenance
+// back from here would close a cycle. cmd/server calls this once at
+// startup, after both packages' Handlers exist — see main.go. A nil hook
+// (never wired, e.g. in this package's own unit tests) is a no-op, matching
+// the deferred behavior deleteGrinder had before Phase 1f: deleting a
+// grinder leaves its `maintenance` row in place (harmless — getMaintenance
+// only iterates the library's actual grinders — but not the active Node
+// cleanup) — see this file's deleteGrinder doc comment.
+func (h *Handlers) SetOnGrinderDeleted(fn func(grinderID int64) error) {
+	h.onGrinderDelete = fn
 }
 
 // NewHandlers builds Handlers around repo and shotsDB (the same *sql.DB

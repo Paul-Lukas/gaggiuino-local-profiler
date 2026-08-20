@@ -125,18 +125,15 @@ func (h *Handlers) resetBurrs(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteGrinder ports POST /api/library/grinder/:id/delete: also removes
-// its photo. The maintenance_log/`maintenance` table cleanup Node performs
-// here (LibraryService.js's getMaintenance()/saveMaintenance() round trip,
-// dropping the `grinder_{id}` task) is deliberately NOT ported: it's a real
-// piece of the maintenance domain's own logic (recomputing/rewriting every
-// MAINTENANCE_DEFAULTS-derived row, not a one-time migration), which
-// belongs to routes/maintenance.js's not-yet-ported Go port
-// (internal/maintenance, still Phase 0) rather than being partially
-// reimplemented here. Flagged in the Phase 1d report: until that domain
-// lands, deleting a grinder through the Go server leaves a stale
-// `grinder_{id}` row in the `maintenance` table (harmless — it just never
-// surfaces again since getMaintenance() only iterates the library's actual
-// grinders — but not byte-identical to Node's active cleanup).
+// its photo and (Phase 1f, #901) its `grinder_{id}` row in the
+// `maintenance` table, via the onGrinderDelete callback SetOnGrinderDeleted
+// wires — see that method's doc comment for why this is a callback rather
+// than a direct internal/maintenance import. Best-effort: a callback error
+// is swallowed (logged nowhere further — this package has no logger
+// dependency of its own, matching every other best-effort call site here)
+// rather than failing the whole delete, since the grinder itself is
+// already gone from the library at that point and there's nothing left to
+// roll back.
 func (h *Handlers) deleteGrinder(w http.ResponseWriter, r *http.Request) {
 	id, noMatch := parseIDParam(r.PathValue("id"))
 	lib, err := h.repo.GetLibrary()
@@ -163,6 +160,12 @@ func (h *Handlers) deleteGrinder(w http.ResponseWriter, r *http.Request) {
 	if err := h.repo.SaveLibrary(lib); err != nil {
 		internalError(w, err)
 		return
+	}
+	// Matches routes/library/grinders.js's own unconditional attempt (even
+	// for a param that didn't match any real grinder — `grinder_NaN` simply
+	// isn't a key in `maint` either, a silent no-op there too).
+	if h.onGrinderDelete != nil {
+		_ = h.onGrinderDelete(id) // best-effort, matches Node's `catch { /* ignore */ }`
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
