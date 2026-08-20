@@ -6,7 +6,7 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 3b (system domain + background polling + the two bootstrap-critical endpoints Phase 1g had deferred — every REST domain package from the migration plan now exists and is routed)
+## Status: Phase 2a (Go frontend foundation — templ+htmx+Alpine tooling, base layout, and the first working page, on top of Phase 3b's complete backend)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
 packages everything else builds on. Phase 1b added a real, listening HTTP
@@ -219,7 +219,17 @@ had originally deferred — see `internal/system/doc.go` for the small
 number of `routes/system.js` routes that remain unrouted by design, none
 of them depended on by anything any phase has built. `go build ./...`,
 `go vet ./...`, `gofmt -l .`, and `go test ./...` (including `-race`) are
-all green.
+all green — the backend side of the migration plan is done.
+
+Phase 2a (`internal/web`, new, #901) is the frontend's turn: the
+templ+htmx+Alpine tooling foundation described in the "Frontend" section
+below, plus one fully working page (`GET /shots`, built on
+`internal/shots`' existing Phase 1c service layer) as the template every
+later page follows — the same role `internal/shots` played for the REST
+domain packages above. Every other page (library, machines, orders,
+maintenance, the live shot chart) is still served by the untouched Node
+frontend (`public-src/`) — see "Frontend" for exactly what is and isn't
+cut over yet.
 
 ## Why
 
@@ -270,11 +280,83 @@ go/
     backup/                routes/backup.js + lib/backup-crypto.js (implemented, Phase 1f)
     ha/                    lib/ha.js — SendNotify/GetNotifyServices/GetPersons/GetSwitchState/CallHaService/GetHaLanguage (implemented, Phase 1f, extended Phase 1g)
     system/                routes/system.js's token/status/live/preheat/version/demo endpoints + lib/poll.js + lib/preheat.js (implemented, Phase 1g; token/status added Phase 3b)
+    web/                   templ+htmx+Alpine frontend foundation + GET /shots (implemented, Phase 2a)
+      templates/             .templ sources (own package — see internal/web/doc.go)
+      static/                vendored htmx/Alpine + style.css, embedded via embed.FS
+  Makefile                 `make generate`/`build`/`vet`/`test`/`fmt-check` — templ codegen first, every target (Phase 2a)
 ```
 
-Every package under `internal/` is now implemented — see
+Every backend package under `internal/` is implemented — see
 `go/internal/system/doc.go` for the small, deliberate set of
-`routes/system.js` routes it doesn't route.
+`routes/system.js` routes it doesn't route. `internal/web` is the one
+package still growing (Phase 2a has one page; the rest of `public-src/`'s
+pages remain to be ported in later phases).
+
+## Frontend
+
+The Go rewrite's frontend stack, per the Migrationsplan's Phase 2/frontend
+decision: [`templ`](https://templ.guide) (typesafe, compiled server
+templates) + [htmx](https://htmx.org) (server-driven fragment swaps for
+CRUD/navigation/forms, including the htmx SSE extension for non-high-
+frequency live updates) + [Alpine.js](https://alpinejs.dev) (declarative
+local UI interactivity — dropdowns, modals, filters — no bespoke JS for
+that). The one deliberate exception, not yet built: the live shot chart
+(pressure/flow during a pull, several updates a second over SSE) keeps a
+thin vanilla-JS canvas component consuming SSE directly, because
+server-round-tripping every animation frame is the wrong tool for that one
+job — see the Migrationsplan's frontend-stack rationale. Goal: no Node/npm
+anywhere in the Docker image (build or runtime); the only external browser
+runtime is htmx (~50 KB) plus Alpine (~54 KB), both vendored locally, never
+loaded from a CDN.
+
+**Status (Phase 2a, #901):** the tooling foundation plus one full page —
+`GET /shots`, a shot-history list built on `internal/shots`' existing
+Phase 1c service layer (not its REST handlers — see `internal/web/doc.go`).
+It supports trashing a shot (with an Alpine confirm step before the
+destructive htmx POST) and restoring one from the trash section, plus a
+client-side Alpine filter over profile/coffee text. This is the *template*
+for every later page, the same role `internal/shots` played for the REST
+domain packages — it is not itself a cutover: `public-src/`'s Node-served
+SPA remains the only frontend Home Assistant or a standalone install
+actually sees until a later phase flips that switch.
+
+**Codegen:** `.templ` sources live under `internal/web/templates/` and are
+NOT valid Go until `templ generate` runs, which writes a `_templ.go` next
+to each `.templ` file. Those generated files are git-ignored (see the
+repo-root `.gitignore`'s `gaggiuino-local-profiler/go/**/*_templ.go` entry)
+— run codegen before building/testing:
+
+```
+cd go
+make generate   # or: go generate ./...
+go build ./...
+```
+
+`make build`/`make vet`/`make test`/`make fmt-check` (see `go/Makefile`)
+all run `generate` first automatically, so CI or a fresh checkout never
+needs a separate manual step.
+
+**Assets:** `internal/web/static/` holds the vendored, unmodified htmx +
+htmx-SSE-extension + Alpine files (see
+`internal/web/static/vendor/NOTICE.md` for exact versions/licenses/sources)
+plus `style.css`, all embedded into the binary via `embed.FS`
+(`internal/web/assets.go`) and served at `/web/static/*` — no separate
+asset directory needs to ship alongside the binary at runtime. Alpine is
+vendored as `@alpinejs/csp`, not plain `alpinejs`: core Alpine's expression
+evaluator needs `script-src 'unsafe-eval'`, which
+`internal/auth.SecurityHeaders`'s CSP intentionally doesn't grant — see
+that NOTICE.md for the full reasoning.
+
+**Auth model:** `GET /shots` and its two htmx action routes
+(`POST /shots/{id}/trash`, `POST /shots/{id}/restore`) are registered
+outside `/api/`, so they fall through `internal/auth.RequireToken`'s
+existing bypass for non-API paths — the same trust boundary
+`public-src/`'s static HTML/JS/CSS already relies on today (HA Ingress's
+own auth, or LAN/port access in standalone mode), not a new session/cookie
+scheme. See `internal/web/doc.go`'s "Auth model" section for the full
+reasoning; this was the one open architecture question the Phase 2a brief
+flagged, resolved pragmatically for this first page rather than left
+blocking.
 
 ## Contract
 
@@ -288,5 +370,6 @@ contract tests against recorded Node traffic (Phase 0/1, not yet built).
 
 ```
 cd go
+make generate   # templ codegen — required before build/vet/test, see "Frontend"
 go build ./...
 ```

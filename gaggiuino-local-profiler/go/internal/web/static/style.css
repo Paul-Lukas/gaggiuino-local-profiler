@@ -1,0 +1,178 @@
+/* Phase 2a (#901) — minimal stylesheet for the templ+htmx+Alpine frontend
+ * foundation. Reuses public-src/style.css's own design tokens (radius,
+ * type scale, spacing ladder, gray-scale roles, ok/warn/err, amber accent
+ * — see that file's :root block for the full rationale on each) so the two
+ * frontends read as the same product, not a re-skin. Only the dark theme
+ * is ported here: public-src's [data-theme="light"] + [data-accent="..."]
+ * system is a whole separate axis this first template page doesn't need to
+ * carry — a later page can add it once more than one page exists to share
+ * it with.
+ */
+
+:root {
+  --radius: 10px;
+  --radius-sm: 4px;
+
+  --fs-1: 0.8125rem;
+  --fs-2: 0.875rem;
+  --fs-3: 1rem;
+  --fs-4: 1.25rem;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+
+  --gray-200: #eceded;
+  --gray-500: #a4a9ad;
+  --gray-600: #93989c;
+  --gray-700: #2b2f33;
+  --gray-800: #1a1c1f;
+  --gray-900: #131416;
+  --raised:   #232629;
+
+  --ok:   #5cb98a;
+  --warn: #d3a03f;
+  --err:  #e0705f;
+
+  --accent: #f59e0b;
+}
+
+* { box-sizing: border-box; }
+
+/* Alpine's own convention: hide an x-show target before Alpine has booted
+ * and evaluated the expression, so the confirm bar doesn't flash visible
+ * for a frame on load (the <script defer> for Alpine runs after the DOM is
+ * parsed, so there's a brief window where no directive has run yet). */
+[x-cloak] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--gray-900);
+  color: var(--gray-200);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--fs-3);
+}
+
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--gray-700);
+}
+
+.topnav-brand {
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.topnav-link {
+  color: var(--gray-500);
+  text-decoration: none;
+  font-size: var(--fs-2);
+}
+
+.topnav-link:hover { color: var(--gray-200); }
+
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--sp-5);
+}
+
+.page-title {
+  font-size: var(--fs-4);
+  margin: 0 0 var(--sp-4);
+}
+
+.filter-input {
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--gray-700);
+  background: var(--raised);
+  color: var(--gray-200);
+  font-size: var(--fs-2);
+}
+
+.shot-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.shot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--raised);
+  border-radius: var(--radius);
+}
+
+.shot-info { display: flex; flex-direction: column; gap: 2px; }
+
+.shot-name { font-weight: 600; }
+
+.shot-meta {
+  color: var(--gray-500);
+  font-size: var(--fs-1);
+}
+
+.shot-score {
+  font-weight: 700;
+  font-size: var(--fs-2);
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-sm);
+}
+
+.score-great { color: var(--ok); }
+.score-ok    { color: var(--warn); }
+.score-bad   { color: var(--err); }
+
+.shot-actions { display: flex; align-items: center; gap: var(--sp-2); }
+
+.btn {
+  border: 1px solid var(--gray-700);
+  background: transparent;
+  color: var(--gray-200);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-1);
+  cursor: pointer;
+}
+
+.btn:hover { border-color: var(--gray-500); }
+
+.btn-danger { color: var(--err); border-color: var(--err); }
+
+.confirm-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-1);
+  color: var(--gray-500);
+}
+
+.empty-state, .loading-state {
+  color: var(--gray-500);
+  padding: var(--sp-5);
+  text-align: center;
+}
+
+.trash-section {
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--gray-700);
+}
+
+.trash-heading {
+  font-size: var(--fs-2);
+  color: var(--gray-500);
+  margin: 0 0 var(--sp-3);
+}

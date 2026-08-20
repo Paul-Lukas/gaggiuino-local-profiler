@@ -53,12 +53,16 @@ rm -rf "$SMOKE_DIR"
 mkdir -p "$SMOKE_DIR/a" "$SMOKE_DIR/b"
 
 step "build"
-if ! (cd "$GO_DIR" && go build -o "$BIN" ./cmd/server) 2>"$SMOKE_DIR/build.log"; then
-	bad "go build ./cmd/server"
+# Phase 2a (#901): cmd/server now imports internal/web, whose .templ
+# sources aren't valid Go until `templ generate` writes their _templ.go
+# files (git-ignored — see go/README.md's Frontend section) — required
+# before this build step on a clean checkout.
+if ! (cd "$GO_DIR" && go generate ./... && go build -o "$BIN" ./cmd/server) 2>"$SMOKE_DIR/build.log"; then
+	bad "go generate && go build ./cmd/server"
 	cat "$SMOKE_DIR/build.log"
 	exit 1
 fi
-ok "go build ./cmd/server"
+ok "go generate && go build ./cmd/server"
 
 # start_server launches the binary against dbdir/{glp.db,api_token.txt} on
 # port, backgrounded, with GLP_ENABLE_ORDERS=true — options.json (the

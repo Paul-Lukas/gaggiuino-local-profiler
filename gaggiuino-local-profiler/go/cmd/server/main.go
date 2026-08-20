@@ -45,6 +45,7 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/system"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/web"
 )
 
 // defaultPort matches lib/constants.js's DEFAULT_PORT (8099) — the port the
@@ -86,6 +87,16 @@ func main() {
 	shotsRepo := shots.NewRepository(sqlDB)
 	shotsHandlers := shots.NewHandlers(shotsRepo)
 	shotsHandlers.RegisterRoutes(mux)
+
+	// Phase 2a (#901): the Go frontend foundation — GET /shots plus its two
+	// htmx trash/restore actions, built on the same shots.Service the JSON
+	// API above uses. Not yet reachable in production (this binary isn't
+	// wired into the Docker image/CI — see go/README.md), and deliberately
+	// registered outside /api/ so it falls through auth.RequireToken's
+	// existing static-asset bypass rather than needing a new auth path —
+	// see internal/web/doc.go's "Auth model" section.
+	webHandlers := web.NewHandlers(shots.NewService(shotsRepo))
+	webHandlers.RegisterRoutes(mux)
 
 	libRepo := library.NewRepository(sqlDB)
 	libraryHandlers := library.NewHandlers(libRepo, shotsRepo)

@@ -1,0 +1,40 @@
+// Package templates holds the .templ sources for the Go frontend (Phase
+// 2a, #901) and the _templ.go files `templ generate` produces from them.
+// The generated files are NOT committed (see the repo-root .gitignore) —
+// `go generate ./...` (or `make -C go generate`) must run before `go
+// build`/`go test` against this package; go/README.md's Frontend section
+// documents the exact command.
+package templates
+
+// Layout is the shared page shell every page templ renders into: <head>
+// with the vendored htmx/htmx-SSE-extension/Alpine(CSP build) <script>
+// tags (see go/internal/web/static/vendor/NOTICE.md for why the CSP
+// build), a minimal top nav, and a content slot. No inline <script> or
+// <style> anywhere in this file or anything it renders — the page runs
+// under internal/auth.SecurityHeaders's CSP (script-src 'self', no
+// 'unsafe-inline'/'unsafe-eval'; style-src allows 'unsafe-inline', but
+// nothing here relies on that either) unmodified; see that middleware's
+// doc comment for the exact policy this must keep satisfying.
+templ Layout(title string) {
+	<!DOCTYPE html>
+	<html lang="en" data-theme="dark">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ title } · GLP</title>
+			<link rel="stylesheet" href="/web/static/style.css"/>
+			<script src="/web/static/vendor/htmx-2.0.10.min.js"></script>
+			<script src="/web/static/vendor/htmx-sse-ext-2.0.10.js"></script>
+			<script defer src="/web/static/vendor/alpine-csp-3.16.2.min.js"></script>
+		</head>
+		<body hx-ext="sse">
+			<nav class="topnav">
+				<a class="topnav-brand" href="/shots">GLP</a>
+				<a class="topnav-link" href="/shots">Shots</a>
+			</nav>
+			<main class="page">
+				{ children... }
+			</main>
+		</body>
+	</html>
+}
