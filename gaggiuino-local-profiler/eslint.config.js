@@ -71,6 +71,18 @@ module.exports = [
     rules: commonRules,
   },
   {
+    // go/**: the in-progress Go rewrite's Node-side test fixture generators
+    // (e.g. go/internal/db/testdata/gen_node_schema.js drives lib/db.js's
+    // real schema code to produce the reference fixture the Go schema is
+    // compared against) — not part of the shipping app, but still plain
+    // Node scripts that need Node globals like any other.
+    files: ['go/**/*.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
+    rules: commonRules,
+  },
+  {
     files: ['lib/**/*.js', 'routes/**/*.js', 'server.js'],
     ignores: ['lib/machines/registry.js', 'lib/data.js', 'lib/machines/options-adoption.js'],
     languageOptions: {

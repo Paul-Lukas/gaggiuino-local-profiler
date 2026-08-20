@@ -6,13 +6,22 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 0 (skeleton)
+## Status: Phase 1a (db + auth)
 
-This is scaffolding only — a Go module with one placeholder package per
-future domain, each with a `doc.go` explaining what will move here and from
-which Node file. **No behavior has been ported.** `go build ./...` is green,
-but there is nothing here that talks to a database, a machine, or an HTTP
-client yet.
+Phase 0 was scaffolding only. Phase 1a ports the first two foundational
+packages everything else builds on:
+
+- `internal/db` — real SQLite schema init + migrations on
+  `modernc.org/sqlite`, verified against a fixture generated from
+  `lib/db.js`'s own code (see `internal/db/doc.go`).
+- `internal/auth` — real ingress-trust checks, constant-time token
+  comparison, token file persistence, and the security-header middleware
+  (see `internal/auth/doc.go`).
+
+Every other package under `internal/` is still a Phase 0 `doc.go`
+placeholder. **There is still no HTTP server or routes** — these two
+packages are library code only, not yet wired to anything that listens on a
+port. `go build ./...`, `go vet ./...`, and `go test ./...` are all green.
 
 ## Why
 
