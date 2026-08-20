@@ -54,7 +54,7 @@ const noDuplicateHelpersRule = {
 
 module.exports = [
   {
-    ignores: ['public/**', 'node_modules/**', 'docs/**', 'graphify-out/**'],
+    ignores: ['public/**', 'node_modules/**', 'docs/**', 'graphify-out/**', 'go/internal/web/static/vendor/**'],
   },
   js.configs.recommended,
   {
