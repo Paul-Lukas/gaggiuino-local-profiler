@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 // Same stubbing approach as suggest-grind-dose.test.js/best-grind-combo.test.js:
 // views/shots/utils.js pulls in state.js, which needs localStorage/navigator
 // at module load.
-let findPreviousShotForBean, isNewestShotForBean;
+let findPreviousShotForBean, isNewestShotForBean, buildGrinderGrindLabel;
 
 beforeAll(async () => {
   Object.defineProperty(globalThis, 'localStorage', {
@@ -14,7 +14,7 @@ beforeAll(async () => {
     value: { language: 'en' },
     configurable: true, writable: true,
   });
-  ({ findPreviousShotForBean, isNewestShotForBean } = await import('../public-src/views/shots/utils.js'));
+  ({ findPreviousShotForBean, isNewestShotForBean, buildGrinderGrindLabel } = await import('../public-src/views/shots/utils.js'));
 });
 
 const shot = (id, coffee, grindSetting, timestamp) => ({
@@ -73,5 +73,57 @@ describe('isNewestShotForBean (#429)', () => {
   it('is false without a bean annotated', () => {
     const shots = [shot(1, '', '18', 100)];
     expect(isNewestShotForBean(shots, shots[0])).toBe(false);
+  });
+});
+
+// #838: the standalone "Letzter Mahlgrad" chip was merged into the
+// bean/grinder line's own grind label. These tests prove the STATE CHANGE
+// (a previous grind setting existing, or not) actually changes the rendered
+// label text, not just that the function runs without throwing.
+describe('buildGrinderGrindLabel (#838)', () => {
+  // Mirrors public-src/i18n.js's t(): looks a function up by key and calls
+  // it with the given args, matching how the real recipe_grinder_grind /
+  // recipe_grind_with_baseline templates are invoked.
+  const dict = {
+    recipe_grinder_grind: (g, s) => (g ? `${g} · grind ${s}` : `Grind ${s}`),
+    recipe_grind_with_baseline: (g, s, p) => (g ? `${g} · grind ${s} (last ${p})` : `Grind ${s} (last ${p})`),
+  };
+  const t = (key, ...args) => dict[key](...args);
+
+  it('shows "(last X)" when the newest shot for a bean has a different previous grind setting', () => {
+    const shots = [
+      shot(1, 'Bean A', '18', 100),
+      shot(2, 'Bean A', '19', 200),
+    ];
+    const label = buildGrinderGrindLabel(shots, shots[1], true, t);
+    expect(label).toContain('(last 18)');
+    expect(label).toContain('19');
+  });
+
+  it('omits the baseline when there is no previous shot for the bean', () => {
+    const shots = [shot(1, 'Bean A', '18', 100)];
+    const label = buildGrinderGrindLabel(shots, shots[0], true, t);
+    expect(label).not.toContain('last');
+    expect(label).toBe('Grind 18');
+  });
+
+  it('omits the baseline when this is not the newest shot for the bean (allowBaseline=false, e.g. compare mode)', () => {
+    const shots = [
+      shot(1, 'Bean A', '18', 100),
+      shot(2, 'Bean A', '19', 200),
+    ];
+    const label = buildGrinderGrindLabel(shots, shots[1], false, t);
+    expect(label).not.toContain('last');
+    expect(label).toBe('Grind 19');
+  });
+
+  it('omits the baseline when viewing an older shot of the same bean', () => {
+    const shots = [
+      shot(1, 'Bean A', '18', 100),
+      shot(2, 'Bean A', '19', 200),
+    ];
+    const label = buildGrinderGrindLabel(shots, shots[0], true, t);
+    expect(label).not.toContain('last');
+    expect(label).toBe('Grind 18');
   });
 });

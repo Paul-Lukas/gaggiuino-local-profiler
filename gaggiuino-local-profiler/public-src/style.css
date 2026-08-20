@@ -550,6 +550,30 @@
         }
         .topbar-machine-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+        /* Topbar ambient machine icon (#837) — the full animated
+           "Instrument" SVG (machine-icon.js), sized into a ~44px square
+           touch target (matching .mobile-drawer-btn below as the reference
+           tap size) even though the icon's own aspect ratio is much taller
+           than wide — height-constrained, not width-stretched, so the body
+           silhouette never distorts. */
+        .topbar-machine-icon {
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; position: relative;
+            background: transparent; border: none; padding: 0; margin: 0; cursor: pointer;
+        }
+        /* #topbarMachineIcon (ID) outranks .machine-icon-live's own
+           100%/100% sizing rule further below regardless of stylesheet
+           order — .machine-icon-live is defined later in this file, so at
+           equal class-selector specificity it was winning and stretching
+           the button to fill its flex parent (#839). Same ID-specificity
+           reasoning #live-idle #liveMachineIcon already uses for its own
+           container. */
+        /* #887: clip to the box so no sliver of the machine's accent
+           colour renders past the intended 44px bounds — same guard
+           .easter-egg-panel-icon already has (#848). */
+        #topbarMachineIcon { width: 44px; height: 44px; overflow: hidden; }
+        #topbarMachineIcon .m-svg { width: auto; height: 100%; display: block; }
+
         /* Mobile burger drawer trigger (#425) — hidden on desktop; the
            max-width:768px block below shows it. */
         .mobile-drawer-btn {
@@ -568,7 +592,7 @@
            collapsing itself away. ── */
         #content-topbar {
             display: flex; align-items: center; gap: var(--sp-1);
-            padding: var(--sp-1) var(--sp-2); min-height: 32px;
+            padding: var(--sp-1) var(--sp-2); min-height: 44px; /* #837: fits the ~44px topbar machine icon */
             background: var(--gray-900);
             flex-shrink: 0;
             position: sticky; top: 0; z-index: 10;
@@ -811,11 +835,6 @@
         .machine-theme-color-input { width:34px; height:28px; padding: 0; border:1px solid var(--gray-700); border-radius:var(--radius); background:none; cursor:pointer; }
         .machine-theme-gradient-toggle { display:flex; align-items:center; gap: var(--sp-1); font-size: var(--fs-1); color:var(--gray-400); cursor:pointer; }
 
-        /* Topbar machine switcher icon (#594) */
-        .machine-switcher-icon { display:none; width:15px; height:auto; align-items:center; }
-        .machine-switcher-icon svg { width:100%; height:100%; display:block; }
-        .machine-switcher-icon.visible { display:inline-flex; }
-
         /* ── Degassing tracker ── */
         .degassing-bar-wrap { margin-top: var(--sp-2); }
         .degassing-bar-track { height:6px; border-radius:3px; background:var(--gray-800); position:relative; overflow:visible; }
@@ -885,6 +904,15 @@
 
         #chart-area { display: flex; flex-direction: column; padding: var(--sp-6) var(--sp-6) var(--sp-6); }
 
+        /* #852 fix: plain block wrapper for the title/verdict/recipe block +
+           the hero photo — see the comment in index.html above #shotHeaderZone
+           for why this exists (float has no effect on flex items, so
+           #shotHeroPhoto needs a non-flex, non-grid parent to float inside).
+           BFC (overflow:hidden) so the wrapper's own box clears the floated
+           photo — otherwise its height would collapse to the (shorter) text
+           column and .chart-tabs right below it would overlap the photo. */
+        #shotHeaderZone { display: block; overflow: hidden; }
+
         .sprofiler-header        { margin-bottom: var(--sp-4); }
         /* #413: was a hardcoded #fff — invisible on the light/Crema themes,
            where the content area is white/near-white. --gray-200 is the same
@@ -892,6 +920,16 @@
            .profile-name-sidebar, after #405). */
         .sprofiler-header h1     { font-size: var(--fs-5); font-weight: 600; color: var(--gray-200); margin: 0 0 var(--sp-1); }
         .sprofiler-header p      { font-size: var(--fs-2); color: var(--gray-400); margin: 0; }
+        /* #865: explicit order for all three flex items of .sprofiler-header
+           (title, action buttons, #verdictHeader) so #verdictHeader's
+           position relative to the other two can be flipped per breakpoint
+           without depending on DOM order or the now-inapplicable
+           :first-child/:last-child pairing (there are three children, not
+           two). Desktop keeps the verdict line last, matching its previous
+           standalone position below the row; the mobile media query below
+           moves it to order:2, between title and buttons. */
+        .sph-title   { order: 1; }
+        .sph-actions { order: 2; }
 
         .meta-sub   { font-size: var(--fs-2); color: var(--gray-500); font-weight: normal; margin-left: var(--sp-2); }
 
@@ -906,6 +944,14 @@
             flex-direction: column;
             gap: var(--sp-1);
             margin-bottom: var(--sp-5);
+            /* #865: now a flex item of .sprofiler-header — basis:100% makes
+               it always wrap onto its own row regardless of the row's
+               remaining width; order:3 keeps it last on desktop (after
+               .sph-title/.sph-actions), matching where it sat as a
+               standalone block before. The mobile media query overrides
+               this to order:2. */
+            flex: 1 1 100%;
+            order: 3;
         }
         .verdict-line {
             display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-2);
@@ -1130,7 +1176,7 @@
         .lib-item-origin-eyebrow { font-size: var(--fs-1); color: var(--gray-600); margin-bottom: 2px; }
         .lib-item-sub  { font-size: var(--fs-1); color: var(--gray-500); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .lib-item-brew .rail-icon, .lib-item-source .rail-icon { vertical-align: -3px; margin-right: 1px; }
-        .lib-item-actions { display: flex; gap: 2px; flex-shrink: 0; }
+        .lib-item-actions { display: flex; flex-wrap: wrap; gap: 2px; flex-shrink: 0; }
         @media (max-width: 640px) {
           .lib-item-info { width: 100%; }
           .lib-item-actions { width: 100%; justify-content: flex-end; border-top: 1px solid rgba(63,63,70,.5); padding-top: var(--sp-2); margin-top: var(--sp-1); }
@@ -1210,6 +1256,10 @@
         .lib-best-combo-label { color: var(--gray-500); }
         .lib-best-combo-value { color: var(--gray-200); font-weight: 600; }
         .lib-best-combo-score { color: var(--ok); }
+        .lib-last-grind-row { display: flex; align-items: center; gap: var(--sp-1); margin-top: var(--sp-1); font-size: var(--fs-1); flex-wrap: wrap; }
+        .lib-last-grind-label { color: var(--gray-500); }
+        .lib-last-grind-value { color: var(--gray-200); font-weight: 600; }
+        .lib-last-grind-ago { color: var(--gray-500); }
         .lib-form-field-check { display: flex; align-items: center; padding-top: var(--sp-5); }
         .lib-check-label { display: flex; align-items: center; gap: var(--sp-2); cursor: pointer; font-size: var(--fs-2); color: var(--gray-300); }
         .lib-check-label input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--ok); cursor: pointer; }
@@ -1593,6 +1643,20 @@
             margin-left: var(--sp-2);
             vertical-align: middle;
         }
+        /* #837: compact grind-setting badge, line 1 — bare number, no border
+           (Border-Diät: no border on non-clickable elements), grinder name
+           lives in its title tooltip instead of taking up row space. */
+        .sidebar-grind-badge {
+            font-size: var(--fs-1);
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            border-radius: var(--radius);
+            padding: 1px var(--sp-2);
+            margin-left: var(--sp-2);
+            vertical-align: middle;
+            background: var(--gray-800);
+            color: var(--gray-400);
+        }
         /* #397: unified 3-tier score scale (green >=90 / yellow >=70 / red
            below) — same classes as .score-* below, one color source. */
         .ss-great { background: rgba(34,197,94,.15);  color: var(--ok); }
@@ -1636,24 +1700,38 @@
         .freshness-ok     { background: rgba(245,158,11,.15); color: var(--accent-ink); }
         .freshness-old    { background: rgba(239,68,68,.12);  color: var(--err); }
 
-        /* Shot-detail header photo thumbnail (#448) — fills the empty space
-           next to machine/freshness text on mobile; small enough to sit
-           inline with the badge text rather than growing the header. */
+        /* Shot-detail header photo thumbnail (#448) — originally the mobile
+           fallback for the space next to machine/freshness text. #850 made
+           it desktop-hidden in favor of .shot-hero-photo below; #863 hides it
+           on mobile too, since the (now-shrunk) hero panel covers that
+           space there as well. Kept around only in case a future layout
+           needs an inline-sized photo again. */
         .shot-header-thumb {
+            display: none;
             width: 22px; height: 22px; border-radius: 50%; object-fit: cover;
             vertical-align: middle; margin-left: var(--sp-2); cursor: pointer;
             background: var(--gray-800);
         }
 
-        /* Grind-setting baseline chip (#429) — sits between the recipe zone
-           and the grind advice so the last-used setting and the current
-           advice read together as baseline + correction. */
-        .grind-baseline-chip {
-            display: inline-block; margin-top: var(--sp-3);
-            font-size: var(--fs-1); font-weight: 600; font-variant-numeric: tabular-nums;
-            padding: var(--sp-1) var(--sp-3); border-radius: var(--radius);
-            background: var(--gray-800); color: var(--gray-400);
+        /* Shot-detail hero photo (#850, shrunk for mobile in #863): panel
+           claiming the unused space to the right of the title/verdict/recipe
+           block, above the chart. Floated so the existing single-column
+           stack wraps around it with no DOM/layout restructuring. Desktop
+           size roughly matches the fixed 480x480 export resolution
+           (image-crop.js EXPORT_SIZE) — bigger would just look soft. Hidden
+           until JS adds .has-photo (no photo on this shot, or A/B compare
+           mode); the mobile media query below shrinks it instead of hiding
+           it. */
+        .shot-hero-photo {
+            display: none;
+            float: right;
+            width: 280px; height: 280px;
+            object-fit: cover; border-radius: 50%;
+            margin: 0 0 var(--sp-4) var(--sp-4);
+            background: var(--gray-800);
+            cursor: pointer;
         }
+        .shot-hero-photo.has-photo { display: block; }
 
         /* ── Grind advice ── #816: de-boxed — was a filled+bordered panel,
            exactly the "everything is a box" pattern PLAN.md calls out. Not
@@ -1682,6 +1760,11 @@
         .comp-thumb:hover { background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.2); }
         .comp-thumb-chart { background: rgba(0,0,0,.2); }
         .comp-thumb-no-data { height: 65px; display: flex; align-items: center; justify-content: center; color: var(--gray-600); font-size: var(--fs-1); }
+        /* #811 follow-up: repeated raw font-size:.85rem literals (analytics empty
+           states, flavor-wheel loading/unavailable, maintenance log empty state)
+           never migrated onto the six-step scale — closest step is --fs-2. */
+        .empty-note { color: var(--gray-600); font-size: var(--fs-2); }
+        .empty-note.pad-top { padding: var(--sp-2) 0; }
         .comp-thumb-meta { display: flex; align-items: center; gap: var(--sp-1); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-1); flex-wrap: wrap; }
         .comp-shot-date  { color: var(--gray-500); }
         .comp-shot-grind { color: var(--gray-300); display: inline-flex; align-items: center; gap: var(--sp-1); }
@@ -2084,8 +2167,25 @@
                overlap the buttons instead of wrapping onto their own row. Forcing
                both children to flex-basis:100% makes each claim the full row width,
                so they stack as two clean rows. */
-            .sprofiler-header > div:first-child { flex: 1 1 100% !important; }
-            .sprofiler-header > div:last-child   { flex: 1 1 100% !important; flex-wrap: wrap; justify-content: flex-start; }
+            .sph-title   { flex: 1 1 100% !important; }
+            .sph-actions { flex: 1 1 100% !important; flex-wrap: wrap; justify-content: flex-start; order: 3; }
+            /* #865: on mobile, #verdictHeader moves from last (order:3, its
+               desktop position) to between the title and the button row —
+               it fills the band next to the shrunk hero photo instead of
+               that space going unused while the score sits below everything.
+               .sph-actions is bumped to order:3 here so verdict's order:2
+               actually lands between title(1) and actions, instead of tying
+               with actions' base order:2 and losing on DOM order. */
+            .verdict-header { order: 2; margin-bottom: var(--sp-3); }
+            /* #863: the hero panel now shows on mobile too, shrunk to fit the
+               header's unused top-right space instead of falling back to the
+               22px thumb — the thumb is no longer needed once the hero
+               covers the same spot here. */
+            .shot-hero-photo.has-photo {
+                width: 100px; height: 100px;
+                margin: 0 0 var(--sp-2) var(--sp-2);
+            }
+            .shot-header-thumb { display: none; }
             .annotation-fields { grid-template-columns: 1fr; }
             .annotation-field.full-width { grid-column: 1; }
             .chart-container, .live-chart-container { height: clamp(300px, 50vh, 400px); }
@@ -2666,6 +2766,60 @@
             .machine-icon-live.is-steaming .milk-top,
             .machine-icon-live.is-steaming .swirl { animation: none !important; }
         }
+
+        /* Topbar icon easter egg (#837, colour approach fixed in #845, #848
+           and #886): 7 clicks within 3s (components/topbar-machine-icon.js)
+           triggers a short, reversible rainbow sweep.
+           Two earlier approaches were layered *on top of* the finished icon
+           instead of being part of its own theme, and both read as a filter
+           slapped over the machine rather than the machine itself changing
+           colour: a `filter: hue-rotate()` on the SVG (#837) only visibly
+           shifted already-saturated pixels (most of the body is neutral
+           grey/black), and a `::after` blend-mode overlay (#845/#848) tinted
+           every pixel but sat visibly on top of the rendered icon (#886).
+           The fix animates the icon's own hot-gradient `<stop>` colours
+           (`.mi-grad-a`/`.mi-grad-b`, `machine-icon.js`) directly through
+           the hue wheel — see animateGradientRainbow() in
+           components/topbar-machine-icon.js — so RGB mode really is the
+           machine's theme cycling, not a layer over it. No CSS animation
+           needed here any more; the JS driver checks
+           prefers-reduced-motion itself before starting. */
+
+        /* ── Easter egg panel (#845) ──────────────────────────────────────
+           Opens on the topbar icon's 7th click, alongside its brief burst
+           above. Not documented anywhere user-facing by design — see
+           components/topbar-machine-icon.js's module comment. */
+        .easter-egg-panel {
+            position: fixed; inset: 0; z-index: 9500;
+            align-items: center; justify-content: center; padding: var(--sp-4);
+        }
+        .easter-egg-panel-backdrop {
+            position: absolute; inset: 0; background: rgba(0,0,0,.6);
+        }
+        .easter-egg-panel-card {
+            position: relative; z-index: 1;
+            background: var(--gray-950); border: 1px solid var(--gray-700); border-radius: var(--radius-lg, var(--radius));
+            padding: var(--sp-6) var(--sp-5) var(--sp-5);
+            max-width: 320px; width: 100%;
+            display: flex; flex-direction: column; align-items: center; gap: var(--sp-3);
+            text-align: center;
+        }
+        .easter-egg-panel-close {
+            position: absolute; top: var(--sp-2); right: var(--sp-2);
+            background: transparent; border: none; color: var(--gray-500);
+            font-size: 22px; line-height: 1; cursor: pointer; padding: var(--sp-1);
+        }
+        .easter-egg-panel-close:hover { color: var(--gray-200); }
+        .easter-egg-panel-icon { position: relative; height: 140px; width: max-content; overflow: hidden; }
+        .easter-egg-panel-icon .m-svg { height: 100%; width: auto; display: block; }
+        .easter-egg-panel-card h3 { margin: 0; font-size: var(--fs-4); color: var(--gray-100); }
+        .easter-egg-panel-stats {
+            display: grid; grid-template-columns: auto auto; gap: var(--sp-1) var(--sp-3);
+            margin: 0; font-size: var(--fs-1);
+        }
+        .easter-egg-panel-stats dt { color: var(--gray-500); text-align: right; }
+        .easter-egg-panel-stats dd { margin: 0; color: var(--gray-300); text-align: left; font-variant-numeric: tabular-nums; }
+        .easter-egg-panel-thanks { margin: 0; font-size: var(--fs-1); color: var(--gray-400); }
 
         /* ══ Achievements view: the stamp card (#812) ═══════════════════════
            A printed cardboard card, not an app panel — per PLAN.md section 5

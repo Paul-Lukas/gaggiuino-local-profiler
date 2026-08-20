@@ -11,6 +11,8 @@ permissions: read-all
 jobs:
   analysis:
     name: Scorecard analysis
+    # Gitea Actions also auto-detects .github/workflows — skip there, GitHub-only.
+    if: github.server_url == 'https://github.com'
     runs-on: ubuntu-latest
     permissions:
       security-events: write
@@ -38,6 +40,6 @@ jobs:
           retention-days: 5
 
       - name: Upload to code-scanning
-        uses: github/codeql-action/upload-sarif@bce182f857edf1feab116e9795a3393d21977282 # v4
+        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
         with:
           sarif_file: results.sarif

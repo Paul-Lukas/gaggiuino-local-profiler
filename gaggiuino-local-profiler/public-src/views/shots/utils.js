@@ -170,3 +170,19 @@ export function isNewestShotForBean(shots, shot) {
     s.timestamp > shot.timestamp
   );
 }
+
+// #838: replaces the separate "Letzter Mahlgrad" chip — the baseline is now
+// folded straight into the bean/grinder line's grind portion instead of
+// getting its own box. `allowBaseline` is the caller's compare-mode gate
+// (the baseline reference only makes sense outside compare mode, same as
+// the old chip's `!shotB` check).
+export function buildGrinderGrindLabel(shots, shot, allowBaseline, t) {
+  const ann = shot?.annotation || {};
+  if (!ann.grindSetting) return ann.grinder || null;
+  const prevGrind = (allowBaseline && isNewestShotForBean(shots, shot))
+    ? findPreviousShotForBean(shots, shot)?.annotation?.grindSetting
+    : null;
+  return prevGrind
+    ? t('recipe_grind_with_baseline', ann.grinder || '', ann.grindSetting, prevGrind)
+    : t('recipe_grinder_grind', ann.grinder || '', ann.grindSetting);
+}

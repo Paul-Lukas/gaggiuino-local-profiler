@@ -13,6 +13,7 @@ import { WARNING_ICON_SVG, CHECK_ICON_SVG, CLOSE_ICON_SVG } from '../icons.js';
 import { updateStatus } from './status.js';
 import { THEME_PRESETS, resolveTheme } from '../../lib/machines/theme-presets.js';
 import { machineIconSvg, machineIconMiniSvg } from '../machine-icon.js';
+import { renderTopbarMachineIcon } from './topbar-machine-icon.js';
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -131,6 +132,10 @@ export async function loadMachines() {
     }
     renderMachinesList();
     renderMachineSwitcher();
+    // #837: unlike renderMachineSwitcher() above, the topbar's ambient icon
+    // is shown for every install (including single-machine ones), so this
+    // runs unconditionally rather than being folded into that function.
+    renderTopbarMachineIcon();
     // #604: recomputes on every loadMachines() completion (startup, machine
     // switch, and — since saveMachineForm() on success calls loadMachines()
     // itself — every machine-edit save too) so switching the default machine
@@ -163,10 +168,8 @@ export function renderMachineSwitcher() {
   // visibility would depend on two independently-changing things (this and
   // the sidebar's own collapsed state) for one thin, low-cost bar.
   const machines = S.machines || [];
-  const iconEl = document.getElementById('machineSwitcherIcon');
   if (machines.length < 2) {
     el.style.display = 'none'; el.innerHTML = '';
-    iconEl?.classList.remove('visible');
     return;
   }
 
@@ -175,26 +178,12 @@ export function renderMachineSwitcher() {
     machines.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('');
   el.value = String(S.activeMachineId ?? 'all');
   el.style.display = '';
-  updateMachineSwitcherIcon();
-}
-
-// Small coloured machine glyph next to the topbar switcher (#594) so
-// multi-machine users can tell which machine is active at a glance, not
-// just by name — a plain <select> can't reliably render swatches inside
-// its own <option>s across browsers.
-function updateMachineSwitcherIcon() {
-  const iconEl = document.getElementById('machineSwitcherIcon');
-  if (!iconEl) return;
-  const machine = (S.machines || []).find(m => m.id === S.activeMachineId);
-  if (!machine) { iconEl.classList.remove('visible'); iconEl.innerHTML = ''; return; }
-  iconEl.innerHTML = machineIconMiniSvg(machine.theme, machine.type);
-  iconEl.classList.add('visible');
 }
 
 export function switchActiveMachine(rawValue) {
   const value = rawValue === 'all' ? 'all' : parseInt(rawValue, 10);
   setActiveMachine(value);
-  updateMachineSwitcherIcon();
+  renderTopbarMachineIcon();
   applyActiveMachineChange();
 }
 
@@ -219,8 +208,10 @@ export function applyActiveMachineChange() {
   }
   // #340: the Library "Profiles" tab shows the active machine's own live
   // profile list — refetch on switch so it doesn't keep showing whichever
-  // machine was active when the tab was first opened.
-  loadMachineProfileList();
+  // machine was active when the tab was first opened. Fire-and-forget, but
+  // caught (#846) — a network failure here shouldn't surface as an
+  // unhandled rejection just because nothing else in this function awaits it.
+  loadMachineProfileList().catch(() => {});
   // #464: the topbar status dot/hostname (#railStatusDot/#railMachineName)
   // used to keep showing the default machine's state until the next 30s
   // poll — refresh immediately, scoped to the newly active machine.

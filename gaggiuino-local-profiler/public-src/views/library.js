@@ -14,7 +14,7 @@ import { generateBeanQR, parseGlpQrParams } from '../glp-qr.js';
 import { calcBestGrindCombosForBean } from './shots/grind.js';
 import { renderShotDefaultsSettingsCard } from '../components/shot-defaults-settings.js';
 import { sumConsumedDoses, computeBeanRemaining } from '../bean-math.js';
-import { TARGET_ICON_SVG, SLIDERS_ICON_SVG, FLAVOR_WHEEL_ICON_SVG, COFFEE_ICON_SVG, WATER_DROP_ICON_SVG, ICE_CUBE_ICON_SVG, LINK_ICON_SVG, WRENCH_ICON_SVG, STAR_ICON_SVG, WARNING_ICON_SVG, CLOSE_ICON_SVG, EDIT_ICON_SVG } from '../icons.js';
+import { TARGET_ICON_SVG, SLIDERS_ICON_SVG, FLAVOR_WHEEL_ICON_SVG, COFFEE_ICON_SVG, WATER_DROP_ICON_SVG, SNOWFLAKE_ICON_SVG, LINK_ICON_SVG, WRENCH_ICON_SVG, STAR_ICON_SVG, WARNING_ICON_SVG, CLOSE_ICON_SVG, EDIT_ICON_SVG } from '../icons.js';
 
 const ICON_PENCIL = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"/></svg>`;
 const ICON_TRASH  = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H10V19H8V9M14,9H16V19H14V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z"/></svg>`;
@@ -35,6 +35,33 @@ function originDisplay(bean) {
     const label = countryName(o.code, S.currentLang);
     return o.percent != null ? `${label} ${o.percent}%` : label;
   }).join(' + ');
+}
+
+// Most recently used grind setting for a bean (#829). Deliberately reads
+// S.shots' own annotations rather than bean.knownGrindSettings: that array
+// is only written by the Guided Dial-In wizard's explicit "Save known grind"
+// button (dialin-wizard.js's dialinSaveKnownGrind, POST .../known-grind) —
+// it stays empty for the common case of a bean that's only ever been
+// annotated on normal shots, which would make "last used" silently blank
+// for most beans. Same beanId-first, name-fallback matching convention as
+// calcBestGrindCombosForBean/suggestGrindDoseForBean's preferMostRecent path
+// (#456), and the same "most recent shot for this bean" concept as that
+// function's lastForBean — just without its dose/priority-fallback logic,
+// since this only ever wants the plain last annotated grind.
+function lastUsedGrindForBean(bean, shots) {
+  const name = bean.name?.trim().toLowerCase();
+  const match = (shots || [])
+    .filter(s => {
+      const a = s.annotation || {};
+      if (!a.grinder?.trim() || !a.grindSetting) return false;
+      return bean.id != null && a.beanId != null
+        ? a.beanId === bean.id
+        : (a.coffee || '').trim().toLowerCase() === name;
+    })
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+  return match
+    ? { grinder: match.annotation.grinder.trim(), grindSetting: match.annotation.grindSetting, timestamp: match.timestamp }
+    : null;
 }
 
 // ── Library load ──────────────────────────────────────────────────────────
@@ -141,7 +168,7 @@ export function renderBeanList() {
       const stockBar = `<span class="lib-stock-bar" title="${stockPct}%"><span class="lib-stock-bar-fill${isLow ? ' low' : ''}" style="width:${stockPct}%"></span></span>`;
       invHtml = `<div class="lib-inv-stats">
         <span>${t('lib_inv_consumed', activeBagConsumed)}</span>
-        <span class="lib-inv-remaining${isLow ? ' low' : ''}">${t('lib_inv_remaining', remaining)}</span>${stockBar}
+        <span class="lib-inv-remaining${isLow ? ' low' : ''}">${t('lib_inv_remaining', Math.max(0, remaining))}</span>${stockBar}
         ${isLow ? `<span class="lib-inv-reorder">${t('lib_inv_reorder')}</span>` : ''}
         ${bags.length > 1 ? `<span class="lib-inv-total">${t('lib_inv_total_consumed', totalConsumed)} · ${t('lib_inv_bags', bags.length)}</span>` : ''}
         ${editingStock
@@ -206,18 +233,23 @@ export function renderBeanList() {
         </div>`;
       // #477: each portion's own effective age (its clock only runs while
       // not frozen) — separate from the bag's badge above, which is never
-      // discounted by this. Shown in the tooltip rather than as its own
-      // badge to keep the row compact.
+      // discounted by this.
       const fpAge = frozenPortionAgeDays(activeBag?.roastDate || b.roastDate, fp);
       const fpTitle = fpAge != null
         ? `${t('bag_frozen_portion_title', fp.portionCount, fp.portionWeight_g)} — ${t('bag_frozen_portion_age', fpAge)}`
         : t('bag_frozen_portion_title', fp.portionCount, fp.portionWeight_g);
+      // #856: the portion's paused age is now also a visible badge (reusing
+      // the bag-level fresh-badge color tiers), not just a tooltip — without
+      // it, a frozen portion looked like it kept aging same as the bag.
+      const fpAgeBadge = fpAge != null
+        ? ` <span class="lib-fresh-badge fresh-${freshnessState(fpAge)}" title="${esc(t('bag_frozen_portion_age', fpAge))}">${fpAge}d</span>`
+        : '';
       if (fp.thawedAt) {
         const thawedStr = new Date(fp.thawedAt).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' });
-        return `<span class="lib-frozen-badge thawed" title="${esc(fpTitle)}">${t('bag_frozen_thawed_badge', thawedStr)}
+        return `<span class="lib-frozen-badge thawed" title="${esc(fpTitle)}">${t('bag_frozen_thawed_badge', thawedStr)}${fpAgeBadge}
           <button class="lib-frozen-edit-btn" data-action="open-edit-frozen-form" data-portion-id="${fp.id}" title="${t('bag_frozen_edit_btn')}">${EDIT_ICON_SVG}</button></span>${editForm}`;
       }
-      return `<span class="lib-frozen-badge" title="${esc(fpTitle)}">${ICE_CUBE_ICON_SVG} ${remaining}/${fp.portionCount} ${t('bag_frozen_badge', frozenStr)}
+      return `<span class="lib-frozen-badge" title="${esc(fpTitle)}">${SNOWFLAKE_ICON_SVG} ${remaining}/${fp.portionCount} ${t('bag_frozen_badge', frozenStr)}${fpAgeBadge}
         <button class="lib-frozen-thaw-btn" data-action="thaw-portion" data-bean-id="${b.id}" data-portion-id="${fp.id}" title="${t('bag_thaw_btn')}">${t('bag_thaw_btn')}</button>
         <button class="lib-frozen-edit-btn" data-action="open-edit-frozen-form" data-portion-id="${fp.id}" title="${t('bag_frozen_edit_btn')}">${EDIT_ICON_SVG}</button></span>${editForm}`;
     }).join('')}</div>` : '';
@@ -237,6 +269,22 @@ export function renderBeanList() {
       <span class="lib-best-combo-value">${esc(t('bean_best_combo_value', bestCombos[0].grinder, bestCombos[0].grindSetting))}</span>
       <span class="lib-best-combo-score">${t('bean_best_combo_score', bestCombos[0].avgScore)}</span>
     </div>` : '';
+
+    // Last-used grind setting (#829) — separate from bestComboHtml above:
+    // that's the highest-*scoring* combo across history, this is simply
+    // whatever was dialed in most recently, which is what "what did I have
+    // this on last time" actually means when picking up a bean again.
+    const lastGrind = lastUsedGrindForBean(b, S.shots);
+    const lastGrindHtml = lastGrind ? (() => {
+      const usedAtMs = lastGrind.timestamp * 1000;
+      const ageDays = Math.floor((Date.now() - usedAtMs) / 86400000);
+      const dateStr = new Date(usedAtMs).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' });
+      return `<div class="lib-last-grind-row" title="${esc(t('bean_last_grind_tooltip', dateStr))}">
+      <span class="lib-last-grind-label">${t('bean_last_grind_label')}</span>
+      <span class="lib-last-grind-value">${esc(t('bean_best_combo_value', lastGrind.grinder, lastGrind.grindSetting))}</span>
+      <span class="lib-last-grind-ago">${t('bean_last_grind_ago', ageDays)}</span>
+    </div>`;
+    })() : '';
 
     const extraParts = [
       b.altitude_m ? t('bean_altitude_display', b.altitude_m) : '',
@@ -274,6 +322,7 @@ export function renderBeanList() {
         ${brewHtml}
         ${ratingHtml}
         ${bestComboHtml}
+        ${lastGrindHtml}
         ${Array.isArray(b.flavors) && b.flavors.length ? `<div class="lib-flavor-row">${b.flavors.map(f => `<span class="flavor-chip flavor-chip-static">${esc(f)}</span>`).join('')}</div>` : ''}
         ${invHtml}
         ${frozenHtml}
@@ -284,7 +333,7 @@ export function renderBeanList() {
       </div>
       <div class="lib-item-actions">
         <button class="lib-btn-sm" data-action="open-new-bag" data-id="${b.id}" title="${t('lib_new_bag')}">${t('lib_new_bag')}</button>
-        ${activeBag ? `<button class="lib-btn-sm" data-action="open-freeze-form" data-id="${b.id}" title="${t('bag_freeze_btn')}">${ICE_CUBE_ICON_SVG} ${t('bag_freeze_btn')}</button>` : ''}
+        ${activeBag ? `<button class="lib-btn-sm" data-action="open-freeze-form" data-id="${b.id}" title="${t('bag_freeze_btn')}">${SNOWFLAKE_ICON_SVG} ${t('bag_freeze_btn')}</button>` : ''}
         ${Array.isArray(b.flavors) && b.flavors.length ? `<button class="lib-btn-sm" data-action="open-flavor-wheel" data-id="${b.id}" title="${t('flavor_wheel_btn')}">${FLAVOR_WHEEL_ICON_SVG}</button>` : ''}
         <button class="lib-btn-sm" data-action="create-profile-from-bean" data-id="${b.id}" title="${t('profile_create_from_bean')}">${SLIDERS_ICON_SVG}</button>
         <button class="lib-btn-sm" data-action="start-dialin-from-bean" data-id="${b.id}" title="${t('dialin_wizard_start_from_bean')}">${TARGET_ICON_SVG}</button>
@@ -675,7 +724,7 @@ function renderOriginChips() {
   // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   wrap.innerHTML = _formOrigins.map((o, i) => `
     <span class="flavor-chip origin-chip">${esc(countryName(o.code, S.currentLang))}
-      <input type="number" class="origin-chip-percent" data-origin-idx="${i}" min="0" max="100" step="1" placeholder="%" value="${o.percent ?? ''}">
+      <input type="number" class="origin-chip-percent" data-origin-idx="${i}" min="0" max="100" step="1" placeholder="%" value="${esc(o.percent ?? '')}">
       <button type="button" class="flavor-chip-x" data-origin-idx-remove="${i}">${CLOSE_ICON_SVG}</button>
     </span>`).join('');
 }
@@ -1346,7 +1395,7 @@ export function renderRecipeList() {
       r.targetDose_g  ? `${r.targetDose_g} g`    : null,
       r.targetYield_g ? `→ ${r.targetYield_g} g` : null,
       r.water_g       ? `${WATER_DROP_ICON_SVG} ${r.water_g} g` : null,
-      r.ice_g         ? `${ICE_CUBE_ICON_SVG} ${r.ice_g} g`     : null,
+      r.ice_g         ? `${SNOWFLAKE_ICON_SVG} ${r.ice_g} g`     : null,
       r.targetTime_s  ? `${r.targetTime_s} s`    : null,
       r.waterTemp_c   ? `${r.waterTemp_c} °C`    : null,
       r.grindSize     ? esc(r.grindSize)          : null,

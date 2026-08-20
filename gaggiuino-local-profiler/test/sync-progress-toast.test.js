@@ -99,7 +99,7 @@ describe('SSE push: shot-counter live update via handleSyncProgressEvent()/handl
 
   beforeEach(() => {
     doc = makeFakeDocument();
-    ['syncProgressBar', 'syncProgressLabel', 'shot-count'].forEach(id => doc._preRegister(id));
+    ['syncProgressBar', 'syncProgressLabel'].forEach(id => doc._preRegister(id));
     globalThis.document = doc;
     S.activeMachineId = null;
     S.currentLang = 'en';
@@ -122,15 +122,14 @@ describe('SSE push: shot-counter live update via handleSyncProgressEvent()/handl
 
   it('shows baseline + current on the first progress event of a new backfill', () => {
     handleSyncProgressEvent({ machineId: 1, current: 3, total: 10 });
-    expect(doc.getElementById('shot-count').textContent).toBe('(40)'); // 37 + 3
-    expect(globalThis.window.updateFlapCounter).toHaveBeenLastCalledWith(40);
+    expect(globalThis.window.updateFlapCounter).toHaveBeenLastCalledWith(40); // 37 + 3
   });
 
   it('keeps advancing the same baseline on later ticks of the same sequence', () => {
     handleSyncProgressEvent({ machineId: 1, current: 1, total: 10 });
     handleSyncProgressEvent({ machineId: 1, current: 5, total: 10 });
     handleSyncProgressEvent({ machineId: 1, current: 10, total: 10 });
-    expect(doc.getElementById('shot-count').textContent).toBe('(47)'); // 37 + 10
+    expect(globalThis.window.updateFlapCounter).toHaveBeenLastCalledWith(47); // 37 + 10
   });
 
   it('does not call window.loadData() per tick -- too expensive at this cadence', () => {
@@ -147,10 +146,10 @@ describe('SSE push: shot-counter live update via handleSyncProgressEvent()/handl
   // base instead, so the total only ever goes forward.
   it('folds a machine\'s prior progress into the shared base when it restarts its own sequence without ever completing', () => {
     handleSyncProgressEvent({ machineId: 1, current: 10, total: 10 });
-    expect(doc.getElementById('shot-count').textContent).toBe('(47)'); // 37 + 10
+    expect(globalThis.window.updateFlapCounter).toHaveBeenLastCalledWith(47); // 37 + 10
 
     handleSyncProgressEvent({ machineId: 1, current: 1, total: 5 });
-    expect(doc.getElementById('shot-count').textContent).toBe('(48)'); // (37 + 10) + 1, not 37 + 1
+    expect(globalThis.window.updateFlapCounter).toHaveBeenLastCalledWith(48); // (37 + 10) + 1, not 37 + 1
   });
 
   // #742 review regression guard: an earlier version tracked a baseline PER
@@ -165,18 +164,18 @@ describe('SSE push: shot-counter live update via handleSyncProgressEvent()/handl
   // contributing its own `current` on top of it.
   it('combines concurrent machines into one shared total instead of flickering between separate per-machine baselines', () => {
     handleSyncProgressEvent({ machineId: 1, current: 5, total: 10 });
-    expect(doc.getElementById('shot-count').textContent).toBe('(42)'); // 37 + 5
+    expect(globalThis.window.updateFlapCounter).toHaveBeenLastCalledWith(42); // 37 + 5
 
     // Machine 2 joins in -- must ADD to the shared total, not replace it
     // with its own independent baseline.
     handleSyncProgressEvent({ machineId: 2, current: 2, total: 8 });
-    expect(doc.getElementById('shot-count').textContent).toBe('(44)'); // 37 + 5 + 2
+    expect(globalThis.window.updateFlapCounter).toHaveBeenLastCalledWith(44); // 37 + 5 + 2
 
     handleSyncProgressEvent({ machineId: 1, current: 8, total: 10 });
-    expect(doc.getElementById('shot-count').textContent).toBe('(47)'); // 37 + 8 + 2
+    expect(globalThis.window.updateFlapCounter).toHaveBeenLastCalledWith(47); // 37 + 8 + 2
 
     handleSyncProgressEvent({ machineId: 2, current: 4, total: 8 });
-    expect(doc.getElementById('shot-count').textContent).toBe('(49)'); // 37 + 8 + 4
+    expect(globalThis.window.updateFlapCounter).toHaveBeenLastCalledWith(49); // 37 + 8 + 4
   });
 
   // #742 review: a machine finishing (success or failure) must not make the
@@ -185,10 +184,10 @@ describe('SSE push: shot-counter live update via handleSyncProgressEvent()/handl
   it('a machine finishing does not drop the displayed total while another is still mid-sync', () => {
     handleSyncProgressEvent({ machineId: 1, current: 5, total: 10 });
     handleSyncProgressEvent({ machineId: 2, current: 3, total: 8 });
-    expect(doc.getElementById('shot-count').textContent).toBe('(45)'); // 37 + 5 + 3
+    expect(globalThis.window.updateFlapCounter).toHaveBeenLastCalledWith(45); // 37 + 5 + 3
 
     handleSyncCompleteEvent({ machineId: 1, total: 10, success: false });
-    expect(doc.getElementById('shot-count').textContent).toBe('(45)'); // unchanged -- machine 1's 5 folded into the base
+    expect(globalThis.window.updateFlapCounter).toHaveBeenLastCalledWith(45); // unchanged -- machine 1's 5 folded into the base
   });
 
   it('reconciles via window.loadData() on a successful completion', () => {
@@ -212,7 +211,7 @@ describe('SSE push: shot-counter live update via handleSyncProgressEvent()/handl
     S.shots = new Array(47);
 
     handleSyncProgressEvent({ machineId: 1, current: 1, total: 5 });
-    expect(doc.getElementById('shot-count').textContent).toBe('(48)'); // 47 + 1, not 37 + 10 + 1
+    expect(globalThis.window.updateFlapCounter).toHaveBeenLastCalledWith(48); // 47 + 1, not 37 + 10 + 1
   });
 });
 

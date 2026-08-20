@@ -10,7 +10,7 @@ import {
 } from '../../utils.js';
 import { renderSidebar }                                      from '../../components/sidebar.js';
 import { apiPortClosedHtml }                                  from '../../components/api-port-notice.js';
-import { getShotData, calcShotScore, shotUsedBeanTarget, findPreviousShot, findPreviousShotForBean, isNewestShotForBean } from './utils.js';
+import { getShotData, calcShotScore, shotUsedBeanTarget, findPreviousShot, buildGrinderGrindLabel } from './utils.js';
 import { calcGrindAdvice, calcComparativeGrindAdvice, _miniShotChart } from './grind.js';
 import { renderAnnotationPanel }                              from './annotation.js';
 import { updatePQChart }                                      from './charts.js';
@@ -332,29 +332,13 @@ export function updateView() {
   }
 
   // Bean + grinder + grind setting (#429) — the shot's own annotation,
-  // shown regardless of compare mode.
-  const grinderLabel = ann.grindSetting ? t('recipe_grinder_grind', ann.grinder || '', ann.grindSetting) : ann.grinder;
-  // #635: appended only when actually set (most shots won't have either yet),
-  // so this stays a no-op on mobile space until the equipment library is used.
-  const basketName     = _equipmentName(S.coffeeLibrary?.baskets, ann.basketId);
-  const puckScreenName = _equipmentName(S.coffeeLibrary?.puckScreens, ann.puckScreenId);
-  const beanGrinder = [ann.coffee, grinderLabel, basketName, puckScreenName].filter(Boolean).join(' · ');
-  document.getElementById('beanGrinderVal').textContent = beanGrinder || '–';
-
-  // Grind-setting baseline chip (#429): only while viewing the newest shot
-  // of its bean — that's the one being dialed in, so the last recorded
-  // grind setting for the same bean is the relevant reference point.
-  const grindBaselineEl = document.getElementById('grindBaselineChip');
-  if (grindBaselineEl) {
-    const prevBeanShot = !shotB && isNewestShotForBean(S.shots, shotA) ? findPreviousShotForBean(S.shots, shotA) : null;
-    const prevGrind     = prevBeanShot?.annotation?.grindSetting;
-    if (prevGrind) {
-      grindBaselineEl.textContent = t('grind_baseline_last', prevGrind);
-      grindBaselineEl.style.display = '';
-    } else {
-      grindBaselineEl.style.display = 'none';
-    }
-  }
+  // shown regardless of compare mode. #838: when this is the newest shot for
+  // its bean and a previous grind setting is on record, the baseline is
+  // folded straight into this label ("Mahlgrad X (zuletzt Y)") instead of
+  // a separate chip — one place to look instead of two.
+  const grinderLabel = buildGrinderGrindLabel(S.shots, shotA, !shotB, t);
+  document.getElementById('beanVal').textContent    = ann.coffee || '–';
+  document.getElementById('grinderVal').textContent = grinderLabel || '–';
 
   // Freshness badge
   const freshEl   = document.getElementById('freshnessBadge');
@@ -378,19 +362,41 @@ export function updateView() {
     fwEl.style.display = fw ? '' : 'none';
   }
 
-  // Shot photo thumbnail (#448): reuses the same image the annotation panel
-  // uploads/shows (_renderShotPhoto() in annotation.js) — shown here too so
-  // the empty space next to the machine/freshness line on mobile isn't wasted.
+  // Shot photo (#448, #850): reuses the same image the annotation panel
+  // uploads/shows (_renderShotPhoto() in annotation.js) — the small circular
+  // thumb fills the empty space next to the machine/freshness line on
+  // mobile, and the large hero panel (floated top-right of #chart-area)
+  // fills the unused desktop space above the chart. Both show the same
+  // photo, fetched once and shared; CSS (see .shot-hero-photo /
+  // .shot-header-thumb) decides which one is visible per breakpoint.
   const photoThumbEl = document.getElementById('shotHeaderThumb');
-  if (photoThumbEl) {
+  const heroPhotoEl  = document.getElementById('shotHeroPhoto');
+  if (photoThumbEl || heroPhotoEl) {
     if (!shotB && shotA.image) {
-      photoThumbEl.style.display = '';
-      photoThumbEl.onclick = () => { if (photoThumbEl.src) openLightbox(photoThumbEl.src); };
-      loadShotImageBlobUrl(shotA.id).then(url => { if (url) photoThumbEl.src = url; });
+      if (photoThumbEl) {
+        photoThumbEl.style.display = '';
+        photoThumbEl.onclick = () => { if (photoThumbEl.src) openLightbox(photoThumbEl.src); };
+      }
+      if (heroPhotoEl) {
+        heroPhotoEl.classList.add('has-photo');
+        heroPhotoEl.onclick = () => { if (heroPhotoEl.src) openLightbox(heroPhotoEl.src); };
+      }
+      loadShotImageBlobUrl(shotA.id).then(url => {
+        if (!url) return;
+        if (photoThumbEl) photoThumbEl.src = url;
+        if (heroPhotoEl)  heroPhotoEl.src  = url;
+      });
     } else {
-      photoThumbEl.style.display = 'none';
-      photoThumbEl.removeAttribute('src');
-      photoThumbEl.onclick = null;
+      if (photoThumbEl) {
+        photoThumbEl.style.display = 'none';
+        photoThumbEl.removeAttribute('src');
+        photoThumbEl.onclick = null;
+      }
+      if (heroPhotoEl) {
+        heroPhotoEl.classList.remove('has-photo');
+        heroPhotoEl.removeAttribute('src');
+        heroPhotoEl.onclick = null;
+      }
     }
   }
 
@@ -441,13 +447,13 @@ export function updateView() {
     const beanTargetHint = shotUsedBeanTarget(shotA)
       ? `<span class="verdict-bean-target-hint" title="${esc(t('verdict_bean_target_hint'))}">${TARGET_ICON_SVG}</span>` : '';
     document.getElementById('verdictHeadline').innerHTML = (advice ? `${advice.icon} ${esc(advice.text)}` : esc(t('verdict_no_data'))) + beanTargetHint;
-    document.getElementById('verdictSubline').textContent = [
-      nameA,
-      `Shot ${shotA.nativeId ?? shotA.id}`,
-      ann.coffee || null,
-      formatTimeLabel(totalSecs),
-      avgPressure != null ? `${avgPressure.toFixed(1)} bar Ø` : null
-    ].filter(Boolean).join(' · ');
+    // #838: duration and avg pressure dropped — they're already shown once
+    // each, in the Dauer recipe card (incl. phase breakdown) and the
+    // Process-zone pressure card, so repeating them here was pure duplication.
+    // #841: profile name + shot number (topTitle, one element above) and the
+    // bean name (beanVal, in the recipe zone below) were the only
+    // things left in this subline — both already shown elsewhere, so the
+    // subline itself is retired (stays hidden, see index.html/style.css).
     verdictHeader.style.display = '';
   } else {
     verdictHeader.style.display = 'none';

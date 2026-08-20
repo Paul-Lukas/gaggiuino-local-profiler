@@ -1,5 +1,52 @@
 ## [Unreleased]
 
+## [2.35.0] – 2026-08-19
+
+### Fixed
+- **The armv7 add-on image failed to build.** A recent Node.js dependency bump moved the Docker base image to `node:24-slim`, which Node.js no longer ships for 32-bit ARM — reverted back to `node:22-slim` (current LTS) to keep armv7 devices supported. Closes #903
+
+### Changed
+- Internal: switched dependency updates from Dependabot to Renovate (`renovate.json`), matching the same npm dev-dependency and github-actions grouping as before, plus automerge for green minor/patch dev-tooling/CI updates, immediate (unscheduled) security PRs, and weekly lockfile maintenance (CI/tooling only, no user-facing change). Closes #875
+- Internal: add a job timeout and retry-wrap the CI Playwright Chromium install step (short per-attempt timeout + 3 retries), so a runner-side apt-mirror hiccup self-heals within one CI run instead of hanging indefinitely (happened today, ~40 minutes uncontrolled). CI/tooling only, no user-facing change. Closes #882
+- Internal: merged `version-release-check.yaml` into `test.yaml` as a third job — same triggers, just one fewer workflow file (CI/tooling only, no user-facing change). Closes #880
+
+### Added
+- **Frozen coffee portions in the Coffee Library now show their own paused-age badge**, so a portion on ice no longer looks like it's aging at the same rate as the rest of the bag. Closes #856
+- **The shot detail screen now shows a large photo panel above the chart on desktop**, floated top-right of the title/verdict/recipe block, instead of leaving that space empty — the existing 22px circular thumb was the only photo shown there before. Closes #850
+- **The shot photo panel now shows on mobile too**, shrunk to fit the header's unused space instead of falling back to the tiny 22px thumb. Closes #863
+- **The animated machine icon now has a permanent home in the app topbar**, visible on every tab instead of only in the Live view's idle panel — its heating/hot/brewing/steaming states are no longer hidden the moment a shot starts or you switch tabs. Closes #837
+
+### Changed
+- **The shot score now sits right under the title on mobile** instead of below the export buttons, filling the empty space next to the (now 100px) hero photo instead of leaving it unused. Closes #865
+- **The shot detail screen no longer shows the basket or puck screen on its bean/grinder line** — both are already visible/editable in the annotation panel below, and added noise to this glance-level view without adding value. Closes #867
+- **The frozen-portion/frozen-batch icon is now a snowflake** instead of a 4-quadrant grid square that read as a generic tile at small sizes. Same icon everywhere it appears: shot-list badge, Coffee Library badge, freeze button, recipe ice amount. Closes #869
+- **The shot detail screen now shows Bohne and Mühle as two separate recipe cards** instead of one long combined string ("bean · grinder · grind setting · baseline") under a single "Bohne & Mühle" label. Closes #871
+
+### Fixed
+- **The easter-egg rainbow effect on the topbar machine icon now rotates the machine's own colour** instead of overlaying a translucent colour filter on top of the finished icon. Closes #886
+- **The topbar machine icon no longer shows a sliver of the machine's accent colour poking out below its 44px box.** Closes #887
+- **A bean's remaining stock in the Coffee Library no longer displays as a negative number.** Closes #888
+- **The dev-build banner covered the topbar and shot-list header on mobile** instead of pushing them down like it does on desktop. Closes #861
+- **Coffee Library action buttons could spill off the left edge of the screen on mobile** instead of wrapping to a second line when a bean card had many buttons in its row. Closes #859
+- **The new desktop hero photo panel rendered as a square instead of a circle**, unlike every other place the shot photo shows up (the small header thumb, the upload crop editor). Closes #855
+- **Topbar machine icon rendered full-size instead of its intended 44px**, overlapping the shot list. Closes #839
+- **Topbar showed the active machine's icon twice** once the multi-machine switcher was visible — the old static 15px glyph next to the switcher dropdown duplicated the new animated topbar icon. Removed the redundant one. Closes #845
+- **Machine icon's steam knob recolored from light chrome to black**, matching the real machine. Closes #842
+- **Shot detail screen repeated the profile name, shot number and bean name twice** — once right under the score, again in the title and recipe line above/below it. The duplicate line is gone. Closes #841
+- **Doc screenshots captured the full page instead of just the relevant view.** `scripts/screenshots.mjs` now crops each capture to its view container, cutting the repeated top nav bar out of the generated images. Closes #835
+- **GitHub-only CI workflows (build, CodeQL, dependency review, scorecard, dev-image publish, release-drift check) no longer auto-run against the local Gitea mirror.** Gitea Actions picks up `.github/workflows` automatically, so registering the local runner re-ran all of them there too — one accidental run already fired a real CodeQL job. Each now skips outside `github.com`; the `test.yaml` lint/test gate is unaffected and runs on both. Closes #834
+
+### Added
+- **The Coffee Library's bean list now shows the last grind setting you used for each bean**, right next to the existing "best combo" line — no more clicking into a bean or digging through shot history to remember it. Closes #829
+
+### Changed
+- **Reduced duplicate info on the shot detail screen and sidebar.** The sidebar's grinder name moved out of the row text into a compact grind-setting badge (with the grinder name as a tooltip) so the number you actually check often stays visible at a glance; the verdict subline no longer repeats duration/avg-pressure already shown in the recipe cards; and the separate "Letzter Mahlgrad" chip is now folded into the bean/grinder line itself. Closes #831
+
+### Fixed
+- **~20 raw `font-size:.85rem` literals never migrated onto the type scale.** Left over from the redesign, concentrated in Analytics' empty-state messages — now a shared `.empty-note` class on `var(--fs-2)`. Closes #832
+- **Removed dead `getElementById('shot-count')` lookups** left over from flattening the sidebar's split-flap counter to plain text — the element they targeted no longer exists, so both were silent no-ops. Closes #775, closes #830
+- **Closed out a recurring CodeQL false-positive class and one real gap it surfaced.** Two newly re-flagged `js/xss-through-dom` alerts pointed at sinks already covered by this repo's own `esc()`/`escapeHtml()` helpers; one was confirmed safe and dismissed, but the Coffee Library's blend-origin percent field turned out to be the one interpolated value in that block CodeQL was right to flag — it reached `innerHTML` unescaped, relying entirely on upstream validation rather than escaping at the render site. Now escaped like every other field there. Closes #760
+
 ## [2.34.0] – 2026-08-16
 
 ### Fixed

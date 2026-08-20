@@ -147,10 +147,22 @@
         </nav>
 
         <div class="topbar-machine">
+            <button type="button" id="topbarMachineIcon" class="topbar-machine-icon" data-i18n-title="topbar_machine_icon_title" title="Maschinen-Status" aria-label="Maschinen-Status"></button>
             <span class="status-dot unknown" id="railStatusDot"></span>
             <span id="railMachineName" class="topbar-machine-name">–</span>
-            <span id="machineSwitcherIcon" class="machine-switcher-icon"></span>
             <select id="machineSwitcher" class="machine-switcher" style="display:none" data-action="switch-machine" data-i18n-title="machine_switcher_title" title="Maschine"></select>
+        </div>
+    </div>
+
+    <!-- Topbar icon easter egg panel (#845) — not mentioned in CHANGELOG/whats-new by design, stays a secret for whoever finds it. -->
+    <div id="easterEggPanel" class="easter-egg-panel" style="display:none" role="dialog" aria-modal="true" aria-labelledby="easterEggPanelTitle">
+        <div class="easter-egg-panel-backdrop" data-action="close-easter-egg"></div>
+        <div class="easter-egg-panel-card">
+            <button type="button" class="easter-egg-panel-close" id="easterEggPanelCloseBtn" data-action="close-easter-egg" aria-label="Schließen">&times;</button>
+            <div class="easter-egg-panel-icon" id="easterEggPanelIcon"></div>
+            <h3 id="easterEggPanelTitle" data-i18n="easter_egg_title">Gefunden.</h3>
+            <dl class="easter-egg-panel-stats" id="easterEggPanelStats"></dl>
+            <p class="easter-egg-panel-thanks" data-i18n="easter_egg_thanks">Danke an alle, die dieses kleine Projekt nutzen.</p>
         </div>
     </div>
 
@@ -171,12 +183,35 @@
         </div>
 
         <div id="chart-area">
+            <!-- Shot header zone (#850/#852 float fix): plain block wrapper
+                 around the title/verdict/recipe block + the hero photo. It
+                 exists ONLY because #chart-area is display:flex, and per the
+                 CSS spec float has no effect on a flex item — a floated flex
+                 item behaves as float:none, so #shotHeroPhoto rendered as a
+                 full-width block stacked above everything instead of
+                 wrapping. Wrapping these elements in one plain (non-flex,
+                 non-grid) block gives them back normal in-flow block
+                 layout, where floats work as designed: each sibling here is
+                 still just a block-level box to THIS wrapper, even though
+                 .sprofiler-header/#verdictHeader/.recipe-zone are
+                 themselves flex containers internally. .chart-tabs and the
+                 chart canvas stay OUTSIDE this wrapper as direct flex
+                 children of #chart-area, unaffected, so the chart keeps
+                 spanning full width below the header/photo zone. -->
+            <div id="shotHeaderZone">
+            <!-- Shot hero photo (#850, shrunk for mobile in #863): panel
+                 showing the same image as #shotHeaderThumb, floated top-right
+                 so the existing single-column content wraps around it —
+                 claims the empty space next to the title/verdict/recipe
+                 block instead of restructuring the layout into a two-column
+                 grid. -->
+            <img id="shotHeroPhoto" class="shot-hero-photo" alt="" data-i18n-title="shot_photo_title">
             <div class="sprofiler-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
-                <div style="flex:1;min-width:0">
+                <div class="sph-title" style="flex:1;min-width:0">
                     <h1 id="topTitle" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Profil-Name</h1>
                     <p id="topSubtitle" style="margin:0"><span id="machineSubtitle">gaggiuino</span><span id="freshnessBadge" class="freshness-badge" style="display:none"></span><span id="firmwareVersionBadge" style="display:none;font-size:.7rem;color:var(--gray-600);margin-left:6px"></span><img id="shotHeaderThumb" class="shot-header-thumb" alt="" style="display:none" data-i18n-title="shot_photo_title"></p>
                 </div>
-                <div style="display:flex;gap:12px;align-items:flex-start;flex-shrink:0">
+                <div class="sph-actions" style="display:flex;gap:12px;align-items:flex-start;flex-shrink:0">
                     <button class="export-btn" id="exportAllCsvBtn" data-i18n-title="export_csv_title" title="Alle Shots als CSV exportieren">↓ CSV</button>
                     <button class="export-btn" id="exportShotBtn" data-i18n-title="export_shot_title" title="Aktuellen Shot als .shot exportieren (Decent Espresso Format)">↓ .shot</button>
                     <button class="export-btn" id="exportProfileBtn" data-i18n-title="btn_export_profile_tooltip" title="Profil exportieren">↓ Profil</button>
@@ -188,15 +223,27 @@
                       </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Verdict header (#398, de-boxed #816): score + plain-language dial-in advice fold into one line, replacing the old boxed banner (score badge + a second boxed advice line beneath it). -->
-            <div id="verdictHeader" class="verdict-header" style="display:none">
-                <div class="verdict-line">
-                    <span class="verdict-score-num" id="verdictRingVal">–</span><span class="verdict-sep">·</span><span class="verdict-headline" id="verdictHeadline">-</span>
-                    <span class="delta-chip" id="verdictDeltaChip" style="display:none"></span>
+                <!-- Verdict header (#398, de-boxed #816, reordered #865): score +
+                     plain-language dial-in advice, folded into one line. Now a
+                     third flex item of .sprofiler-header (flex-basis:100%, so it
+                     always wraps onto its own row) rather than a sibling block
+                     below the whole row — desktop keeps it last (order set in
+                     CSS), but on mobile it renders BETWEEN the title and the
+                     button row, using the band next to the (now 100px) hero
+                     photo instead of sitting below everything with that space
+                     going unused. -->
+                <div id="verdictHeader" class="verdict-header" style="display:none">
+                    <div class="verdict-line">
+                        <span class="verdict-score-num" id="verdictRingVal">–</span><span class="verdict-sep">·</span><span class="verdict-headline" id="verdictHeadline">-</span>
+                        <span class="delta-chip" id="verdictDeltaChip" style="display:none"></span>
+                    </div>
+                    <!-- #841: retired — used to repeat the profile name/shot number
+                         (already in #topTitle above) and the bean name (already
+                         in #beanVal below). Kept hidden rather than removed
+                         in case a genuinely independent subline is needed later. -->
+                    <div class="verdict-subline" id="verdictSubline" style="display:none"></div>
                 </div>
-                <div class="verdict-subline" id="verdictSubline">-</div>
             </div>
 
             <div id="orderedByInfo" class="ann-ordered-by" style="display:none"></div>
@@ -218,18 +265,19 @@
                     <span class="recipe-card-sub" id="phasesSub"></span>
                 </div>
                 <div class="recipe-card">
-                    <span class="recipe-card-label" data-i18n="recipe_bean_grinder">Bohne & Mühle</span>
-                    <span class="recipe-card-value" id="beanGrinderVal">-</span>
+                    <span class="recipe-card-label" data-i18n="recipe_bean">Bohne</span>
+                    <span class="recipe-card-value" id="beanVal">-</span>
+                </div>
+                <div class="recipe-card">
+                    <span class="recipe-card-label" data-i18n="recipe_grinder">Mühle</span>
+                    <span class="recipe-card-value" id="grinderVal">-</span>
                 </div>
             </div>
-
-            <!-- Grind-setting baseline chip (#429): last recorded grind for
-                 this bean, shown only while viewing its newest shot. -->
-            <span id="grindBaselineChip" class="grind-baseline-chip" style="display:none"></span>
 
             <div id="grindAdviceComparative" class="grind-advice grind-comparative" style="display:none">
                 <span class="grind-icon" id="grindAdviceComparativeIcon"></span>
                 <span id="grindAdviceComparativeText"></span>
+            </div>
             </div>
 
             <div class="chart-tabs tabs-scroll">

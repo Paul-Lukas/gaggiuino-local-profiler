@@ -2,7 +2,7 @@ import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { localeFor } from '../constants.js';
 import { esc, scoreClass, formatTimeLabel, groupShotsByDay } from '../utils.js';
-import { STAR_ICON_SVG , ICE_CUBE_ICON_SVG, CLOSE_ICON_SVG} from '../icons.js';
+import { STAR_ICON_SVG , SNOWFLAKE_ICON_SVG, CLOSE_ICON_SVG} from '../icons.js';
 import { resolveBeanForAnnotation } from '../views/shots/utils.js';
 
 // These are imported lazily via window to avoid circular dependencies
@@ -11,8 +11,6 @@ import { resolveBeanForAnnotation } from '../views/shots/utils.js';
 export function renderSidebar() {
   const el = document.getElementById('shots');
   el.innerHTML = '';
-  const countEl = document.getElementById('shot-count');
-  if (countEl) countEl.textContent = `(${S.shots.length})`;
   updateFlapCounter(S.shots.length);
 
   const shots = sortedShots();
@@ -91,16 +89,20 @@ function _buildShotWrapper(shot) {
     const line2 = [ann.coffee || null, dose ? `${dose.toFixed(1)} g` : null].filter(Boolean).join(' · ') || durLabel || '';
     // #502: which frozen-portion batch (if any) this shot's dose came from —
     // an explicit annotation-panel choice, shown at a glance in the list too.
-    const frozenBadge = ann.frozenPortionId ? `<span class="shot-frozen-badge" title="${esc(t('ann_frozen_portion'))}">${ICE_CUBE_ICON_SVG}</span>` : '';
+    const frozenBadge = ann.frozenPortionId ? `<span class="shot-frozen-badge" title="${esc(t('ann_frozen_portion'))}">${SNOWFLAKE_ICON_SVG}</span>` : '';
 
     const rating = parseInt(ann.rating) || 0;
     const starsHtml = rating > 0
       ? `<span class="stars">${STAR_ICON_SVG.repeat(rating)}<span class="off">${STAR_ICON_SVG.repeat(5 - rating)}</span></span>`
       : '';
     const timeLabel = date.toLocaleTimeString(localeFor(S.currentLang), { hour: '2-digit', minute: '2-digit' });
-    // #429: grind setting alongside the grinder in the meta line.
-    const grinderLabel = [ann.grinder, ann.grindSetting].filter(Boolean).join(' · ');
-    const grinderHtml = grinderLabel ? `<span class="shot-grinder">${esc(grinderLabel)}</span>` : '';
+    // #838: grind setting moves into its own compact badge next to the score
+    // (line 1) so it's visible at a glance without opening the shot — the
+    // grinder name itself is relegated to the badge's title tooltip, since
+    // it changes far less often than the grind setting does.
+    const grindBadgeHtml = ann.grindSetting
+      ? `<span class="sidebar-grind-badge"${ann.grinder ? ` title="${esc(ann.grinder)}"` : ''}>${esc(ann.grindSetting)}</span>`
+      : '';
 
     // Multi-machine badge (#325): only shown in "all machines" mode with
     // more than one machine registered — a machine-scoped list already
@@ -118,10 +120,10 @@ function _buildShotWrapper(shot) {
         <div class="shot-text">
           <div class="shot-line1">
             <span class="shot-line1-name"><span class="profile-name-sidebar">${esc(profileName)}</span>${machineBadge}</span>
-            ${scoreHtml}
+            ${grindBadgeHtml}${scoreHtml}
           </div>
           <div class="shot-line2">${frozenBadge}${esc(line2)}</div>
-          <div class="shot-line3">${starsHtml}${grinderHtml}<span class="shot-time">${esc(timeLabel)}</span></div>
+          <div class="shot-line3">${starsHtml}<span class="shot-time">${esc(timeLabel)}</span></div>
         </div>
       </div>
     `;

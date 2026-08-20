@@ -168,12 +168,12 @@ function animBody(gradId, steelId, mini = false) {
       <path d="M0 134 L80 134 L80.8 138 L0 138 Z" fill="#fff" opacity=".07"/>
       <rect x="4.5" y="155" width="7.5" height="4.4" rx="1.5" fill="#26262c"/>
       <rect x="66" y="155" width="7.5" height="4.4" rx="1.5" fill="#26262c"/>
-      <ellipse cx="82.6" cy="26.4" rx="2.6" ry="5.4" fill="#1f1f24"/>
-      <path d="M82.6 21 H95.4 A3.4 5.4 0 0 1 95.4 31.8 H82.6 Z" fill="#b4b9c0"/>
-      <ellipse cx="95.4" cy="26.4" rx="3.2" ry="5.4" fill="#d6dade"/>
-      <ellipse cx="95.4" cy="26.4" rx="1.5" ry="2.6" fill="#9aa0a8"/>
-      <path d="M84 22.6 H93.4" stroke="#fff" opacity=".55" stroke-width="1.4" stroke-linecap="round"/>
-      <path d="M84 30 H93.4" stroke="#000" opacity=".22" stroke-width="1.2" stroke-linecap="round"/>`;
+      <ellipse cx="82.6" cy="26.4" rx="2.6" ry="5.4" fill="#0c0c0e"/>
+      <path d="M82.6 21 H95.4 A3.4 5.4 0 0 1 95.4 31.8 H82.6 Z" fill="#1a1a1e"/>
+      <ellipse cx="95.4" cy="26.4" rx="3.2" ry="5.4" fill="#161619"/>
+      <ellipse cx="95.4" cy="26.4" rx="1.5" ry="2.6" fill="#0c0c0e"/>
+      <path d="M84 22.6 H93.4" stroke="#fff" opacity=".35" stroke-width="1.4" stroke-linecap="round"/>
+      <path d="M84 30 H93.4" stroke="#000" opacity=".4" stroke-width="1.2" stroke-linecap="round"/>`;
 }
 
 // Gaggiuino: rectangular display module bolted to the front, overhanging,
@@ -367,9 +367,14 @@ export function machineIconAnimatedSvg(theme, kind = 'gaggiuino') {
     return `
     <svg viewBox="${vb}" class="m-svg" aria-hidden="true">
       <defs>
+        <!-- .mi-grad-a/.mi-grad-b (#886): stable hooks the topbar easter
+             egg's animateGradientRainbow() (components/topbar-machine-icon.js)
+             uses to rotate these two stop colours through the hue wheel and
+             restore them afterwards — the gradient ids themselves are
+             per-instance and not usable for that. -->
         <linearGradient id="${hotGradId}" x1="6" y1="0" x2="92" y2="145" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stop-color="${a}"/>
-          <stop offset="1" stop-color="${b}"/>
+          <stop class="mi-grad-a" offset="0" stop-color="${a}"/>
+          <stop class="mi-grad-b" offset="1" stop-color="${b}"/>
         </linearGradient>
         <linearGradient id="${coldGradId}" x1="6" y1="0" x2="92" y2="145" gradientUnits="userSpaceOnUse">
           <stop offset="0" stop-color="#6a6f74"/>
@@ -467,6 +472,30 @@ export function setMachineIconMode(rootEl, mode, heatFraction = 0) {
     if (!svg) return;
     const heat = mode === 'off' ? 0 : mode === 'heating' ? Math.max(0, Math.min(1, heatFraction)) : 1;
     svg.style.setProperty('--heat', String(heat));
+}
+
+// Maps what the backend actually reports onto one of MACHINE_ICON_MODES.
+// Pure -- same {mode, heatFraction} for the same (msg, preheat) pair, no
+// DOM/state access -- so every caller that drives an animated icon instance
+// shares one translation instead of copy-pasting it: views/live.js's own
+// #liveMachineIcon and the topbar's always-visible ambient widget
+// (components/topbar-machine-icon.js, #837) both call this, then hand the
+// result straight to setMachineIconMode().
+//
+// NOTE ON STEAM: there is deliberately no 'steaming' case. Nothing in the
+// poll payload distinguishes steaming from heating — lib/machine-state.js
+// derives isBrewing from brewSwitchState and carries no steam-switch
+// equivalent — and showing a steam state on a guess would be worse than not
+// showing it, since it would be wrong exactly when the user is watching.
+// The icon supports the state; wiring it needs a signal that does not exist
+// yet.
+export function resolveMachineIconState(msg, preheat) {
+    if (msg?.machineReachable === false) return { mode: 'off', heatFraction: 0 };
+    if (msg?.isLive)                     return { mode: 'brewing', heatFraction: 1 };
+    if (preheat && !preheat.ready && preheat.remaining > 0) {
+        return { mode: 'heating', heatFraction: Math.max(0, Math.min(1, preheat.pct || 0)) };
+    }
+    return { mode: 'hot', heatFraction: 1 };
 }
 
 function formatBrewTime(sec) {

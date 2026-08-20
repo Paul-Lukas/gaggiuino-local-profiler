@@ -472,6 +472,15 @@ function detectPreinfusionEnd(pressure) {
 async function generateShareCard(shot, score, format = 'square', accent, theme) {
     if (!createCanvas) throw new Error('canvas module not available');
     const GLP        = buildPalette(accent, theme);
+    // #811 "Instrument": true only for the frozen LEGACY_GLP snapshot
+    // (buildPalette() with no args, #462) -- an already-shared/cached card
+    // link keeps rendering exactly as it always did (accent bar, boxed
+    // header/footer/tiles/chips, score ring); the current palette gets the
+    // typographic/boxless redesign throughout this function instead. Same
+    // GLP.ok presence check scoreColor() uses. Declared this early (rather
+    // than right before the score badge section, where it originally lived)
+    // because the header now needs it too (#873 follow-up).
+    const isLegacy = !GLP.ok;
     const glpIcon    = await getGlpIcon();
     const shotPhoto  = await getShotPhoto(shot);
     // Lazily required: LibraryService touches the DB at require-time in some
@@ -566,18 +575,35 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     ctx.fillRect(0, 0, W, H);
 
     // ── ACCENT BAR + HEADER ────────────────────────────────────────────────
+    // #873 follow-up: the current palette drops the accent bar and the
+    // boxed header entirely (prototype `.sq-top{border-bottom:1px solid
+    // var(--line);padding-bottom:10px}` — no bar, no fill, just a hairline
+    // under the row). Legacy keeps the bar + GLP.bgCard-filled header box
+    // exactly as before.
     const BAR_H = 4;
-    const barGrad = ctx.createLinearGradient(0, 0, W, 0);
-    barGrad.addColorStop(0, GLP.accentFrom);
-    barGrad.addColorStop(1, GLP.accentTo);
-    ctx.fillStyle = barGrad;
-    ctx.fillRect(0, 0, W, BAR_H);
+    if (isLegacy) {
+        const barGrad = ctx.createLinearGradient(0, 0, W, 0);
+        barGrad.addColorStop(0, GLP.accentFrom);
+        barGrad.addColorStop(1, GLP.accentTo);
+        ctx.fillStyle = barGrad;
+        ctx.fillRect(0, 0, W, BAR_H);
+    }
 
     const HH       = 76;
-    const headerY  = BAR_H;
-    ctx.fillStyle = GLP.bgCard;
-    ctx.fillRect(0, headerY, W, HH);
+    const headerY  = isLegacy ? BAR_H : 0;
+    if (isLegacy) {
+        ctx.fillStyle = GLP.bgCard;
+        ctx.fillRect(0, headerY, W, HH);
+    }
     const headerBottom = headerY + HH;
+    if (!isLegacy) {
+        ctx.strokeStyle = GLP.border;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, headerBottom);
+        ctx.lineTo(W, headerBottom);
+        ctx.stroke();
+    }
 
     // GLP logo (icon.png) — or fallback to bold text
     const iconSize = Math.round(HH * 0.72);
@@ -592,8 +618,13 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
         ctx.fillText('GLP', PX, headerY + HH / 2);
     }
 
-    // Shot number + date top-right
-    const headerRight = [shotId, dateStr].filter(Boolean).join('  ·  ');
+    // Shot number + date top-right -- #873 follow-up: Story format shows
+    // only the brand/logo on the current palette, no "Shot #x · date" (the
+    // prototype's Story header pane has no meta text at all). Square format,
+    // and the legacy palette regardless of format, keep showing it.
+    const headerRight = (isLegacy || format !== 'story')
+        ? [shotId, dateStr].filter(Boolean).join('  ·  ')
+        : '';
     ctx.fillStyle = GLP.textDim;
     ctx.font = F(20);
     ctx.textAlign = 'right';
@@ -611,9 +642,8 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     // snapshot (buildPalette() with no args, #462) so an already-shared/
     // cached card link keeps rendering exactly as it always did; the current
     // path draws the score inline with the verdict phrase further down
-    // instead (see "HERO" below). isLegacy mirrors the same GLP.ok presence
-    // check scoreColor() already uses to distinguish the two palettes.
-    const isLegacy = !GLP.ok;
+    // instead (see "HERO" below). isLegacy is declared up near GLP above now
+    // (the header needs it too, #873 follow-up).
     const scoreR = 74;
     const scx = W - PX - 88, scy = headerBottom + 90;
     if (isLegacy && score != null) {
@@ -823,29 +853,32 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     // Chart coordinate system with margins for axes + legend
     const CHART_L  = 44;   // left margin (Y axis labels)
     const CHART_R  = 44;   // right margin (right Y axis)
-    const CHART_T  = 26;   // top margin (phase label chips)
+    // #873: on the current palette the phase labels move inside the plot
+    // area itself (see "Phase label chips" below), so the top margin no
+    // longer needs to reserve a whole row for them -- just breathing room.
+    // The legacy path still draws them as a chip row above the plot, so it
+    // keeps the original reservation.
+    const CHART_T  = isLegacy ? 26 : 10;   // top margin
     const CHART_B  = 28;   // bottom margin (X axis)
     const LEGEND_H = 50;
 
     const outerX    = PX - 8;
-    let outerY       = sepY + 10;
+    const outerY     = sepY + 10;
     const outerW    = W - 2 * PX + 16;
     const STATS_H   = 200;
     const FOOT_H    = 52;
-    // Chart fills remaining space so the card has no empty area — except in
-    // story format, where filling all the way down stretches the chart into
-    // a tall, distorted shape. There it's capped near-square (like the shot
-    // graph reads everywhere else in the app) and the freed vertical space is
-    // split evenly above/below the chart+stats block instead of left as one
-    // gap.
+    // Chart fills remaining space so the card has no empty area. Story format
+    // used to cap this near-square and split the freed height evenly above/
+    // below as blank gaps (matching the old boxed chart + 5-tile grid, where
+    // a near-square chart read best) -- #873 follow-up: the prototype's own
+    // note for the Story pane ("dasselbe System, hochkant: das Messband
+    // bricht auf zwei Reihen, der Chart bekommt die gewonnene Höhe") calls
+    // for the opposite now that the band-row stats grid is much shorter than
+    // the old tile grid -- the chart should grow into that freed height
+    // instead of leaving it blank. Same availH formula square already uses,
+    // just no longer capped to outerW for story.
     const availH = H - outerY - STATS_H - 16 - FOOT_H;
-    let outerH = Math.max(Math.round(240 * SCALE), availH);
-    if (format === 'story') {
-        const capped = Math.min(outerH, outerW);
-        const freed  = Math.max(0, outerH - capped);
-        outerH = capped;
-        outerY += freed / 2;
-    }
+    const outerH = Math.max(Math.round(240 * SCALE), availH);
 
     const plotX  = outerX + CHART_L;
     const plotY  = outerY + CHART_T;
@@ -946,15 +979,26 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     // Phase backgrounds + divider (inside clip)
     if (preEnd !== null && nPts > 0) {
         const pxEnd = xTime(preEnd);
-        ctx.fillStyle = 'rgba(52,152,219,0.08)';
-        ctx.fillRect(plotX, plotY, pxEnd - plotX, plotH);
-        ctx.fillStyle = 'rgba(243,156,18,0.06)';
-        ctx.fillRect(pxEnd, plotY, plotX + plotW - pxEnd, plotH);
-        ctx.strokeStyle = 'rgba(200,200,200,0.2)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(pxEnd, plotY); ctx.lineTo(pxEnd, plotY + plotH); ctx.stroke();
-        ctx.setLineDash([]);
+        if (isLegacy) {
+            ctx.fillStyle = 'rgba(52,152,219,0.08)';
+            ctx.fillRect(plotX, plotY, pxEnd - plotX, plotH);
+            ctx.fillStyle = 'rgba(243,156,18,0.06)';
+            ctx.fillRect(pxEnd, plotY, plotX + plotW - pxEnd, plotH);
+            ctx.strokeStyle = 'rgba(200,200,200,0.2)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath(); ctx.moveTo(pxEnd, plotY); ctx.lineTo(pxEnd, plotY + plotH); ctx.stroke();
+            ctx.setLineDash([]);
+        } else {
+            // #873 (corrected spec, superseding the original issue body):
+            // ONLY the preinfusion zone gets a tint -- extraction stays bare
+            // -- and there is no divider line at all; the tint's own right
+            // edge is the only boundary indicator. Exact color/opacity lifted
+            // from redesign-2026-08/prototype.html's Instrument·Square SVG:
+            // `fill="#0072b2" opacity=".14"`.
+            ctx.fillStyle = 'rgba(0,114,178,0.14)';
+            ctx.fillRect(plotX, plotY, pxEnd - plotX, plotH);
+        }
     }
 
     // Helper to draw one series
@@ -985,28 +1029,49 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
 
     ctx.restore();
 
-    // Phase label chips in the chart top margin (above the plot area)
+    // Phase label chips in the chart top margin (above the plot area) --
+    // legacy only. #873: on the current palette the labels move INSIDE the
+    // plot area as plain colored text (no box/pill), a few px below plotY,
+    // colored to match each phase's own line color (GLP.cPressure/cFlow --
+    // same blue/orange already used for those series and their legend
+    // entries below).
     if (preEnd !== null && nPts > 0) {
         const pxEnd    = xTime(preEnd);
         const preWidth = pxEnd - plotX;
         const extWidth = plotX + plotW - pxEnd;
-        const chipH    = 18, chipPad = 7;
-        const chipY    = outerY + (CHART_T - chipH) / 2;
-        ctx.font = F(12);
-        ctx.textBaseline = 'middle';
-        ctx.textAlign    = 'left';
 
-        if (preWidth > 90) {
-            const lw = ctx.measureText('Preinfusion').width + chipPad * 2;
-            drawChip(ctx, plotX + 4, chipY, lw, chipH, { fill: 'rgba(52,152,219,0.2)' });
-            ctx.fillStyle = 'rgba(52,152,219,0.9)';
-            ctx.fillText('Preinfusion', plotX + 4 + chipPad, chipY + chipH / 2);
-        }
-        if (extWidth > 90) {
-            const lw = ctx.measureText('Extraktion').width + chipPad * 2;
-            drawChip(ctx, pxEnd + 4, chipY, lw, chipH, { fill: 'rgba(243,156,18,0.2)' });
-            ctx.fillStyle = 'rgba(243,156,18,0.9)';
-            ctx.fillText('Extraktion', pxEnd + 4 + chipPad, chipY + chipH / 2);
+        if (isLegacy) {
+            const chipH = 18, chipPad = 7;
+            const chipY = outerY + (CHART_T - chipH) / 2;
+            ctx.font = F(12);
+            ctx.textBaseline = 'middle';
+            ctx.textAlign    = 'left';
+
+            if (preWidth > 90) {
+                const lw = ctx.measureText('Preinfusion').width + chipPad * 2;
+                drawChip(ctx, plotX + 4, chipY, lw, chipH, { fill: 'rgba(52,152,219,0.2)' });
+                ctx.fillStyle = 'rgba(52,152,219,0.9)';
+                ctx.fillText('Preinfusion', plotX + 4 + chipPad, chipY + chipH / 2);
+            }
+            if (extWidth > 90) {
+                const lw = ctx.measureText('Extraktion').width + chipPad * 2;
+                drawChip(ctx, pxEnd + 4, chipY, lw, chipH, { fill: 'rgba(243,156,18,0.2)' });
+                ctx.fillStyle = 'rgba(243,156,18,0.9)';
+                ctx.fillText('Extraktion', pxEnd + 4 + chipPad, chipY + chipH / 2);
+            }
+        } else {
+            ctx.font = F(13, true);
+            ctx.textBaseline = 'top';
+            ctx.textAlign    = 'left';
+
+            if (preWidth > 90) {
+                ctx.fillStyle = GLP.cPressure;
+                ctx.fillText('Preinfusion', plotX + 6, plotY + 6);
+            }
+            if (extWidth > 90) {
+                ctx.fillStyle = GLP.cFlow;
+                ctx.fillText('Extraktion', pxEnd + 6, plotY + 6);
+            }
         }
     }
 
@@ -1022,147 +1087,259 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     if (tgtTemp.length    > 2) legendItems.push({ color: GLP.cTemp,       label: 'Ziel Temperatur', dash: true });
 
     if (legendItems.length) {
-        const legY    = outerY + outerH - LEGEND_H / 2;
-        const chipH   = 26, chipPad = 10, dotR = 5, gap = 10;
+        const legY = outerY + outerH - LEGEND_H / 2;
         ctx.font = F(15);
         ctx.textBaseline = 'middle';
-        const chipWidths = legendItems.map(it => dotR * 2 + 8 + ctx.measureText(it.label).width + chipPad * 2);
-        const totalLegW  = chipWidths.reduce((a, b) => a + b, 0) + gap * (legendItems.length - 1);
-        let lx = outerX + (outerW - totalLegW) / 2;
 
-        legendItems.forEach((it, i) => {
-            const cw = chipWidths[i];
-            drawChip(ctx, lx, legY - chipH / 2, cw, chipH, {
-                fill:   GLP.bgChart,
-                stroke: GLP.borderDim,
+        if (isLegacy) {
+            const chipH   = 26, chipPad = 10, dotR = 5, gap = 10;
+            const chipWidths = legendItems.map(it => dotR * 2 + 8 + ctx.measureText(it.label).width + chipPad * 2);
+            const totalLegW  = chipWidths.reduce((a, b) => a + b, 0) + gap * (legendItems.length - 1);
+            let lx = outerX + (outerW - totalLegW) / 2;
+
+            legendItems.forEach((it, i) => {
+                const cw = chipWidths[i];
+                drawChip(ctx, lx, legY - chipH / 2, cw, chipH, {
+                    fill:   GLP.bgChart,
+                    stroke: GLP.borderDim,
+                });
+
+                const dotX = lx + chipPad + dotR;
+                ctx.beginPath();
+                ctx.arc(dotX, legY, dotR, 0, Math.PI * 2);
+                if (it.dash) {
+                    ctx.strokeStyle = it.color;
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                } else {
+                    ctx.fillStyle = it.color;
+                    ctx.fill();
+                }
+
+                ctx.fillStyle = GLP.textDim;
+                ctx.textAlign = 'left';
+                ctx.fillText(it.label, dotX + dotR + 8, legY);
+                lx += cw + gap;
             });
+        } else {
+            // #873: plain text row -- a small colored line swatch (10x2px,
+            // not a dot) + label, no box/border/pill background at all.
+            // Content (which series/target lines appear) is unchanged, only
+            // the box/dot visual treatment goes away.
+            const swatchW = 10, swatchH = 2, labelGap = 8, itemGap = 20;
+            const itemWidths = legendItems.map(it => swatchW + labelGap + ctx.measureText(it.label).width);
+            const totalLegW  = itemWidths.reduce((a, b) => a + b, 0) + itemGap * (legendItems.length - 1);
+            let lx = outerX + (outerW - totalLegW) / 2;
 
-            const dotX = lx + chipPad + dotR;
-            ctx.beginPath();
-            ctx.arc(dotX, legY, dotR, 0, Math.PI * 2);
-            if (it.dash) {
-                ctx.strokeStyle = it.color;
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-            } else {
-                ctx.fillStyle = it.color;
-                ctx.fill();
-            }
+            legendItems.forEach((it, i) => {
+                if (it.dash) {
+                    ctx.strokeStyle = it.color;
+                    ctx.lineWidth = swatchH;
+                    ctx.setLineDash([3, 2]);
+                    ctx.beginPath();
+                    ctx.moveTo(lx, legY);
+                    ctx.lineTo(lx + swatchW, legY);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                } else {
+                    ctx.fillStyle = it.color;
+                    ctx.fillRect(lx, legY - swatchH / 2, swatchW, swatchH);
+                }
 
-            ctx.fillStyle = GLP.textDim;
-            ctx.textAlign = 'left';
-            ctx.fillText(it.label, dotX + dotR + 8, legY);
-            lx += cw + gap;
-        });
+                ctx.fillStyle = GLP.textDim;
+                ctx.textAlign = 'left';
+                ctx.fillText(it.label, lx + swatchW + labelGap, legY);
+                lx += itemWidths[i] + itemGap;
+            });
+        }
     }
 
-    // ── STATS GRID — matches GLP web UI layout (Image #21), rebuilt as a
-    // tile grid (#463): one flat, borderless GLP.bgCard box per stat with
-    // gaps between tiles, mirroring the live app's recipe-card/process-card
-    // language, instead of one bordered panel with internal divider lines. ──
+    // ── STATS GRID ─────────────────────────────────────────────────────────
     const statsY   = outerY + outerH + 8;
     const statsH   = STATS_H;
     const sX       = PX - 8;          // left edge of stats area
     const sW       = W - 2 * PX + 16; // width of stats area
-    const lastWF   = weightFlow.filter(v => v > 0).slice(-1)[0] != null
-        ? +(weightFlow.filter(v => v > 0).slice(-1)[0]).toFixed(1) : null;
 
-    // Build rows: [label, mainVal, subVal, special]
-    // special = 'phasen' renders chips instead of text
-    // #811: labels were ALL-CAPS literals — sentence case now, same rule as
-    // the live UI ("Uppercase + letter-spacing entfällt ersatzlos").
-    const leftRows = [];
-    if (avgPres != null) leftRows.push([
-        'Druck  (Ø / Max Ziel)',
-        `${avgPres} bar`,
-        (tgtPressVal && tgtPressVal > 0) ? `/ ${tgtPressVal} bar` : (maxPres ? `/ ${maxPres} max` : '')
-    ]);
-    if (avgFlow != null) leftRows.push([
-        'Pumpenfluss  (Ø / Ziel)',
-        `${avgFlow} ml/s`,
-        (tgtFlowVal && tgtFlowVal > 0) ? `/ ${tgtFlowVal} ml/s` : ''
-    ]);
-    if (avgTemp != null) leftRows.push([
-        'Temperatur  (Ø ±Σ / Ziel)',
-        `${avgTemp} °C`,
-        [tempSD ? `±${tempSD}` : '', (tgtTempVal && tgtTempVal > 0) ? `/ ${tgtTempVal} °C` : ''].filter(Boolean).join('  ')
-    ]);
-    const rightRows = [];
-    const weightVal = finalWeight ?? yieldG;
-    if (weightVal != null) rightRows.push([
-        'Gewicht  (Gesamt / Fluss Ende)',
-        `${weightVal} g`,
-        lastWF ? `/ ${lastWF} ml/s` : ''
-    ]);
-    if (avgWF != null) rightRows.push([
-        'Gewichtsfluss  (Ø / Max)',
-        `${avgWF} ml/s`,
-        maxWF ? `/ ${maxWF} max` : ''
-    ]);
-    rightRows.push(['Dauer', fmtDurSec(totalSec), '']);
+    if (isLegacy) {
+        // Matches GLP web UI layout (Image #21), rebuilt as a tile grid
+        // (#463): one flat, borderless GLP.bgCard box per stat with gaps
+        // between tiles, mirroring the live app's recipe-card/process-card
+        // language, instead of one bordered panel with internal divider
+        // lines.
+        const lastWF = weightFlow.filter(v => v > 0).slice(-1)[0] != null
+            ? +(weightFlow.filter(v => v > 0).slice(-1)[0]).toFixed(1) : null;
 
-    const nRows    = Math.max(leftRows.length, rightRows.length);
-    const TILE_GAP = 14;
-    const tileW    = (sW - TILE_GAP) / 2;
-    const tileH    = (statsH - TILE_GAP * (nRows - 1)) / nRows;
-    const lTileX   = sX;
-    const rTileX   = sX + tileW + TILE_GAP;
-    const lX       = lTileX + 16;   // left col text start
-    const rX       = rTileX + 16;   // right col text start
+        // Build rows: [label, mainVal, subVal, special]
+        // special = 'phasen' renders chips instead of text
+        // #811: labels were ALL-CAPS literals — sentence case now, same rule
+        // as the live UI ("Uppercase + letter-spacing entfällt ersatzlos").
+        const leftRows = [];
+        if (avgPres != null) leftRows.push([
+            'Druck  (Ø / Max Ziel)',
+            `${avgPres} bar`,
+            (tgtPressVal && tgtPressVal > 0) ? `/ ${tgtPressVal} bar` : (maxPres ? `/ ${maxPres} max` : '')
+        ]);
+        if (avgFlow != null) leftRows.push([
+            'Pumpenfluss  (Ø / Ziel)',
+            `${avgFlow} ml/s`,
+            (tgtFlowVal && tgtFlowVal > 0) ? `/ ${tgtFlowVal} ml/s` : ''
+        ]);
+        if (avgTemp != null) leftRows.push([
+            'Temperatur  (Ø ±Σ / Ziel)',
+            `${avgTemp} °C`,
+            [tempSD ? `±${tempSD}` : '', (tgtTempVal && tgtTempVal > 0) ? `/ ${tgtTempVal} °C` : ''].filter(Boolean).join('  ')
+        ]);
+        const rightRows = [];
+        const weightVal = finalWeight ?? yieldG;
+        if (weightVal != null) rightRows.push([
+            'Gewicht  (Gesamt / Fluss Ende)',
+            `${weightVal} g`,
+            lastWF ? `/ ${lastWF} ml/s` : ''
+        ]);
+        if (avgWF != null) rightRows.push([
+            'Gewichtsfluss  (Ø / Max)',
+            `${avgWF} ml/s`,
+            maxWF ? `/ ${maxWF} max` : ''
+        ]);
+        rightRows.push(['Dauer', fmtDurSec(totalSec), '']);
 
-    const drawStatsCol = (rows, tileX, textX) => {
-        rows.forEach(([lbl, val, sub, special], r) => {
-            const ry = statsY + r * (tileH + TILE_GAP);
-            // RADIUS_PX, not the drawChip() default (RADIUS_SM_PX): a stats
-            // tile is a small container, not a control. #811.
-            drawChip(ctx, tileX, ry, tileW, tileH, { fill: GLP.bgCard, radius: RADIUS_PX });
+        const nRows    = Math.max(leftRows.length, rightRows.length);
+        const TILE_GAP = 14;
+        const tileW    = (sW - TILE_GAP) / 2;
+        const tileH    = (statsH - TILE_GAP * (nRows - 1)) / nRows;
+        const lTileX   = sX;
+        const rTileX   = sX + tileW + TILE_GAP;
+        const lX       = lTileX + 16;   // left col text start
+        const rX       = rTileX + 16;   // right col text start
 
-            ctx.textAlign    = 'left';
-            ctx.textBaseline = 'alphabetic';
-            ctx.fillStyle    = GLP.textMute;
-            ctx.font         = F(12);
-            ctx.fillText(lbl, textX, ry + 22);
+        const drawStatsCol = (rows, tileX, textX) => {
+            rows.forEach(([lbl, val, sub, special], r) => {
+                const ry = statsY + r * (tileH + TILE_GAP);
+                // RADIUS_PX, not the drawChip() default (RADIUS_SM_PX): a
+                // stats tile is a small container, not a control. #811.
+                drawChip(ctx, tileX, ry, tileW, tileH, { fill: GLP.bgCard, radius: RADIUS_PX });
 
-            if (special === 'phasen') {
-                // Draw phase chips
-                const chipH = 18, chipPad = 6, chipY2 = ry + 27;
-                ctx.font = F(12);
-                ctx.textBaseline = 'middle';
-                let cx = textX;
-                const chips = [];
-                if (preinfEndSec != null) chips.push({ t: `Preinfusion  ${fmtDurSec(preinfEndSec)}`, c: '52,152,219' });
-                if (extDurSec    != null) chips.push({ t: `Extraktion  ${fmtDurSec(extDurSec)}`,    c: '243,156,18' });
-                chips.forEach(({ t, c }) => {
-                    const tw = ctx.measureText(t).width;
-                    const cw = tw + chipPad * 2;
-                    drawChip(ctx, cx, chipY2, cw, chipH, { fill: `rgba(${c},0.18)` });
-                    ctx.fillStyle = `rgba(${c},0.9)`;
-                    ctx.fillText(t, cx + chipPad, chipY2 + chipH / 2);
-                    cx += cw + 8;
-                });
+                ctx.textAlign    = 'left';
                 ctx.textBaseline = 'alphabetic';
-            } else {
-                ctx.font = F(20, true);
-                const valW = ctx.measureText(val).width;
-                ctx.fillStyle = GLP.text;
-                ctx.fillText(val, textX, ry + 46);
-                if (sub) {
-                    ctx.fillStyle = GLP.textMute;
-                    ctx.font      = F(13);
-                    ctx.fillText(sub, textX + valW + 8, ry + 46);
-                }
-            }
-        });
-    };
+                ctx.fillStyle    = GLP.textMute;
+                ctx.font         = F(12);
+                ctx.fillText(lbl, textX, ry + 22);
 
-    drawStatsCol(leftRows,  lTileX, lX);
-    drawStatsCol(rightRows, rTileX, rX);
-    ctx.textAlign = 'left';
+                if (special === 'phasen') {
+                    // Draw phase chips
+                    const chipH = 18, chipPad = 6, chipY2 = ry + 27;
+                    ctx.font = F(12);
+                    ctx.textBaseline = 'middle';
+                    let cx = textX;
+                    const chips = [];
+                    if (preinfEndSec != null) chips.push({ t: `Preinfusion  ${fmtDurSec(preinfEndSec)}`, c: '52,152,219' });
+                    if (extDurSec    != null) chips.push({ t: `Extraktion  ${fmtDurSec(extDurSec)}`,    c: '243,156,18' });
+                    chips.forEach(({ t, c }) => {
+                        const tw = ctx.measureText(t).width;
+                        const cw = tw + chipPad * 2;
+                        drawChip(ctx, cx, chipY2, cw, chipH, { fill: `rgba(${c},0.18)` });
+                        ctx.fillStyle = `rgba(${c},0.9)`;
+                        ctx.fillText(t, cx + chipPad, chipY2 + chipH / 2);
+                        cx += cw + 8;
+                    });
+                    ctx.textBaseline = 'alphabetic';
+                } else {
+                    ctx.font = F(20, true);
+                    const valW = ctx.measureText(val).width;
+                    ctx.fillStyle = GLP.text;
+                    ctx.fillText(val, textX, ry + 46);
+                    if (sub) {
+                        ctx.fillStyle = GLP.textMute;
+                        ctx.font      = F(13);
+                        ctx.fillText(sub, textX + valW + 8, ry + 46);
+                    }
+                }
+            });
+        };
+
+        drawStatsCol(leftRows,  lTileX, lX);
+        drawStatsCol(rightRows, rTileX, rX);
+        ctx.textAlign = 'left';
+    } else {
+        // #873 "Instrument" band system: two unboxed rows of 3 cells, big
+        // number on top, sentence-case label below (no parens). Reuses the
+        // same computed values as the legacy tiles above instead of
+        // recomputing anything.
+        //
+        // Correction from the prototype's actual CSS (not just its note
+        // text): cells within a row carry NO box/border of their own --
+        // each ROW gets exactly one thin top rule (`.band-row{border-top:
+        // 1px solid var(--line)}`), shared across all 3 cells, with only
+        // 16px of left padding separating cells 2/3 from their neighbour
+        // (`.band-cell + .band-cell{padding-left:16px}`). Confirmed against
+        // Max's real Story-format screenshots: a single hairline sits above
+        // each row of 3 numbers, nothing else.
+        const BAND_COLS  = 3;
+        const bandColW   = sW / BAND_COLS;
+        const bandRowH   = statsH / 2;
+        const bandPadTop = 14; // gap between the rule and the number above it
+
+        const pressQual = (tgtPressVal && tgtPressVal > 0)
+            ? `Ziel ${tgtPressVal}`
+            : (maxPres ? `max ${maxPres}` : '');
+
+        const bandRow1 = [
+            (dose != null || yieldG != null) ? {
+                label: 'Dosis → Ausbeute',
+                value: (dose != null && yieldG != null) ? `${dose} → ${yieldG}g` : `${dose ?? yieldG}g`,
+            } : null,
+            ratio ? { label: 'Ratio', value: ratio } : null,
+            { label: 'Dauer', value: fmtDurSec(totalSec) },
+        ];
+        const bandRow2 = [
+            avgPres != null ? {
+                label: pressQual ? `Druck Ø · ${pressQual}` : 'Druck Ø',
+                value: `${avgPres} bar`,
+            } : null,
+            avgFlow != null ? { label: 'Pumpenfluss Ø', value: `${avgFlow} ml/s` } : null,
+            avgTemp != null ? {
+                label: `Temperatur Ø${tempSD ? ` ±${tempSD}` : ''}`,
+                value: `${avgTemp} °C`,
+            } : null,
+        ];
+
+        const drawBandRow = (cells, rowY) => {
+            ctx.strokeStyle = GLP.border;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(sX, rowY);
+            ctx.lineTo(sX + sW, rowY);
+            ctx.stroke();
+
+            cells.forEach((cell, i) => {
+                if (!cell) return;
+                const cx = sX + i * bandColW + (i > 0 ? 16 : 0);
+                ctx.textAlign    = 'left';
+                ctx.textBaseline = 'alphabetic';
+                ctx.fillStyle    = GLP.text;
+                ctx.font         = F(30, true);
+                ctx.fillText(cell.value, cx, rowY + bandPadTop + 30);
+                ctx.fillStyle    = GLP.textMute;
+                ctx.font         = F(14);
+                ctx.fillText(cell.label, cx, rowY + bandPadTop + 54);
+            });
+        };
+
+        drawBandRow(bandRow1, statsY);
+        drawBandRow(bandRow2, statsY + bandRowH);
+        ctx.textAlign = 'left';
+    }
 
     // ── FOOTER ─────────────────────────────────────────────────────────────
+    // #873 follow-up: current palette drops the GLP.bgCard-filled footer
+    // strip -- footer sits directly on GLP.bg with just a 1px GLP.border top
+    // line (prototype `.sq-foot{border-top:1px solid var(--line)}`). Legacy
+    // keeps the filled strip exactly as before.
     const footY = H - 38;
-    ctx.fillStyle = GLP.bgCard;
-    ctx.fillRect(0, footY - 12, W, H - footY + 12);
+    if (isLegacy) {
+        ctx.fillStyle = GLP.bgCard;
+        ctx.fillRect(0, footY - 12, W, H - footY + 12);
+    }
     ctx.strokeStyle = GLP.border;
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, footY - 12); ctx.lineTo(W, footY - 12); ctx.stroke();
@@ -1176,17 +1353,27 @@ async function generateShareCard(shot, score, format = 'square', accent, theme) 
     const footerLeft = ['Gaggiuino Local Profiler', installCode].filter(Boolean).join('  ·  ');
     ctx.fillText(footerLeft, PX, footY + 6);
 
-    // "Made with GLP" pill — same soft-tint chip convention as the rest of the app
+    // "Made with GLP" pill. #873 follow-up: outline-only on the current
+    // palette -- border + text in GLP.accentFrom, no fill at all (prototype
+    // `.sq-foot span{border:1px solid var(--aline);color:var(--aline);
+    // border-radius:3px}`). Legacy keeps the soft-tint filled chip.
     const pillText = 'Made with GLP';
     ctx.font = F(16, true);
     const pillPad = 12;
     const pillW = ctx.measureText(pillText).width + pillPad * 2;
     const pillH = 30;
     const pillX = W - PX - pillW, pillY = footY + 6 - pillH / 2;
-    drawChip(ctx, pillX, pillY, pillW, pillH, {
-        fill:   GLP.accentTint + '0.14)',
-        stroke: GLP.accentTint + '0.3)',
-    });
+    if (isLegacy) {
+        drawChip(ctx, pillX, pillY, pillW, pillH, {
+            fill:   GLP.accentTint + '0.14)',
+            stroke: GLP.accentTint + '0.3)',
+        });
+    } else {
+        drawChip(ctx, pillX, pillY, pillW, pillH, {
+            stroke: GLP.accentFrom,
+            radius: Math.round(3 * CANVAS_SCALE),
+        });
+    }
     ctx.fillStyle = GLP.accentFrom;
     ctx.textAlign = 'center';
     ctx.fillText(pillText, pillX + pillW / 2, footY + 6);
