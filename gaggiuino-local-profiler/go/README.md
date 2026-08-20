@@ -386,11 +386,16 @@ every htmx request via htmx's `htmx:configRequest` event — no per-page
 wiring, no SSR-embedded token in `GET /shots`' own (deliberately
 unauthenticated) HTML. See `internal/web/doc.go`'s "Auth model" section and
 `glp-token.js`'s own doc comment for the full reasoning, including why
-fetch-and-attach was chosen over an SSR meta tag. Standalone mode with
-`expose_api_port` explicitly set to `false` still 401s a non-Ingress
-Trash/Restore click — `GET /api/token` itself refuses that caller — but
-that's the same `isApiPortBlocked()` state the SPA already surfaces today,
-not a new gap.
+fetch-and-attach was chosen over an SSR meta tag. The fetch itself is
+relative (`api/token`, not `/api/token`) — a #901 code-review fix, mirroring
+`public-src/api.js`'s `initToken()` — so it resolves correctly against the
+HA Ingress-prefixed page URL and reaches the add-on's own handler on the
+primary access path; a root-absolute fetch would resolve against the
+origin root instead and miss it. Standalone mode with `expose_api_port`
+explicitly set to `false` still 401s a non-Ingress Trash/Restore click —
+`GET /api/token` itself refuses that caller — but that's the same
+`isApiPortBlocked()` state the SPA already surfaces today, not a new gap,
+and it's the only caller this fetch is expected to fail for.
 
 ## Contract
 

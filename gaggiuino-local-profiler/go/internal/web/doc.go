@@ -59,7 +59,13 @@
 // comes back empty and the Trash/Restore buttons 401 in that
 // configuration — not a new failure mode, the same one
 // isApiPortBlocked()/api.js's initToken() already describe for the SPA
-// today, and out of scope for this package to change.
+// today, and out of scope for this package to change. This is the ONLY
+// caller glp-token.js's fetch is expected to fail for — genuine HA Ingress
+// access (the primary path) reaches GET /api/token fine, because the
+// fetch is relative ("api/token"), resolving against the Ingress-prefixed
+// page URL the same way public-src/api.js's initToken() does, not against
+// the origin root (a #901 code-review fix: a root-absolute fetch would
+// have skipped the Ingress prefix entirely and missed the add-on).
 // TestBrowserFlow_FetchedTokenAuthorizesTrash in handlers_test.go drives
 // this end to end through the real auth.RequireToken stack: fetch GET
 // /api/token, then use the token it returns to authorize

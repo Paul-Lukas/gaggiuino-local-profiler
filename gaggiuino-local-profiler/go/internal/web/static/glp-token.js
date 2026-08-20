@@ -28,12 +28,44 @@
 // 401s exactly like a standalone-mode session with no token today — not a
 // new failure mode, the same one GET /api/token's own doc comment
 // describes for the SPA.
+//
+// #901 code review (2 findings): the fetch path below is relative
+// ("api/token", no leading slash), not root-absolute — deliberately
+// mirroring public-src/api.js's initToken(), which fetches 'api/token' the
+// same way. GET /shots (this script's host page) is reachable through HA
+// Ingress at a per-session prefix (/api/hassio_ingress/<token>/...), and
+// every route this package registers (GET /shots, GET /api/token, POST
+// /shots/{id}/trash, ...) is a flat, single-segment-deep sibling under
+// that prefix — so a *relative* fetch from /shots resolves against
+// ".../<prefix>/" and lands on ".../<prefix>/api/token", the add-on's own
+// handler. A root-absolute path with a leading slash instead resolves
+// against the origin root, skipping the Ingress prefix entirely and
+// missing the add-on — landing on HA Core's own root, not this app, and
+// 404ing there.
+// That failure was silent (swallowed by the .catch() below), leaving
+// token permanently null on Ingress, the primary access path — not just
+// the non-Ingress/expose_api_port=false case the rest of this comment
+// block and go/README.md's "Auth model" section describe; both are now
+// updated to stop implying only the non-Ingress path was affected.
+//
+// The second finding was a race: fetchToken() below used to run once,
+// fire-and-forget, with nothing to make a click land after it settled. A
+// Trash/Restore click during that window fired with no X-GLP-Token header
+// and 401'd even though the fetch would have succeeded moments later.
+// tokenPromise plus the htmx:confirm listener below close that: htmx
+// fires htmx:confirm for every request it issues (hx-confirm attribute or
+// not — see the vendored htmx-2.0.10.min.js's issueRequest()/confirm
+// dispatch), before the request actually goes out, so intercepting it
+// here and deferring evt.detail.issueRequest() until tokenPromise settles
+// makes every htmx request wait for the token fetch's outcome (success,
+// failure, or an already-settled promise on a later click) instead of
+// racing it.
 (function () {
 	var token = null;
 
 	function fetchToken() {
 		var headers = token ? { "X-GLP-Token": token } : {};
-		fetch("/api/token", { headers: headers })
+		return fetch("api/token", { headers: headers })
 			.then(function (r) {
 				return r.ok ? r.json() : null;
 			})
@@ -44,7 +76,10 @@
 				// Network error, or expose_api_port=false with no Ingress
 				// (getToken's 403): token stays null, matching
 				// api.js's initToken() leaving S.glpToken empty in the
-				// same situation.
+				// same situation. tokenPromise still resolves (not
+				// rejects) so requests waiting on it below aren't stuck
+				// forever — they just proceed with no token, same as
+				// before this fix, and 401 the same way.
 			});
 	}
 
@@ -52,5 +87,12 @@
 		if (token) evt.detail.headers["X-GLP-Token"] = token;
 	});
 
-	fetchToken();
+	document.body.addEventListener("htmx:confirm", function (evt) {
+		evt.preventDefault();
+		tokenPromise.then(function () {
+			evt.detail.issueRequest(true);
+		});
+	});
+
+	var tokenPromise = fetchToken();
 })();

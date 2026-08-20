@@ -310,6 +310,60 @@ func TestListPage_LoadsTokenScript(t *testing.T) {
 	}
 }
 
+// TestGlpTokenJS_UsesRelativeTokenFetchForIngress pins the #901 code-review
+// fix for a root-absolute fetch("/api/token") silently breaking token
+// fetching under HA Ingress: every route this package registers sits at a
+// per-session Ingress prefix (/api/hassio_ingress/<token>/...), and a
+// root-absolute fetch resolves against the origin root instead of that
+// prefix — missing the add-on's own GET /api/token handler entirely (a
+// 404 against HA Core's root, swallowed by fetchToken()'s .catch(), token
+// stays null forever). The served script must fetch the relative
+// "api/token" instead, exactly like public-src/api.js's initToken()
+// already does for the SPA — see glp-token.js's own doc comment for the
+// full reasoning. A full browser/Ingress-proxy round trip isn't exercised
+// here (no headless browser in this test suite); this instead pins the
+// exact served source text, which is what actually determines how the
+// browser resolves the fetch.
+func TestGlpTokenJS_UsesRelativeTokenFetchForIngress(t *testing.T) {
+	mux, _ := newTestServer(t)
+	rec := doRequest(t, mux, "GET", "/web/static/glp-token.js")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /web/static/glp-token.js: status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, `fetch("/api/token"`) {
+		t.Errorf("glp-token.js fetches the root-absolute \"/api/token\" — breaks under HA Ingress's session-prefixed URLs\nbody:\n%s", body)
+	}
+	if !strings.Contains(body, `fetch("api/token"`) {
+		t.Errorf("glp-token.js does not fetch the relative \"api/token\" (mirroring public-src/api.js's initToken())\nbody:\n%s", body)
+	}
+}
+
+// TestGlpTokenJS_WaitsForTokenBeforeIssuingHtmxRequests pins the #901
+// code-review fix for the click-before-fetch-resolves race: a Trash/
+// Restore click landing before fetchToken()'s GET /api/token settled used
+// to fire immediately with no X-GLP-Token header attached and 401, even
+// though the fetch would have succeeded moments later. The fix defers
+// htmx's actual request dispatch via the async htmx:confirm/issueRequest
+// pattern (see htmx-2.0.10.min.js's confirm-event dispatch) until the
+// token fetch has settled. Like the sibling test above, this pins the
+// served source rather than driving a real browser/timing race, which
+// this test suite has no infrastructure for.
+func TestGlpTokenJS_WaitsForTokenBeforeIssuingHtmxRequests(t *testing.T) {
+	mux, _ := newTestServer(t)
+	rec := doRequest(t, mux, "GET", "/web/static/glp-token.js")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /web/static/glp-token.js: status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"htmx:confirm"`) {
+		t.Errorf("glp-token.js does not listen for htmx:confirm — nothing defers a click until the token fetch settles\nbody:\n%s", body)
+	}
+	if !strings.Contains(body, "evt.detail.issueRequest") {
+		t.Errorf("glp-token.js does not call evt.detail.issueRequest — htmx request would never actually be issued after the wait\nbody:\n%s", body)
+	}
+}
+
 // TestBrowserFlow_FetchedTokenAuthorizesTrash simulates the actual browser
 // sequence glp-token.js drives end to end through the real
 // auth.RequireToken middleware stack, the same pattern
