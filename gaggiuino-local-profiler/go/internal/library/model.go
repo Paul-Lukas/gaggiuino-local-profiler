@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -44,9 +45,44 @@ func newLibrary() Library {
 }
 
 // newID mirrors every routes/library/*.js create handler's `id: Date.now()`
-// — a millisecond-epoch timestamp used as the entity id.
+// — a millisecond-epoch timestamp used as the entity id. Node's version can
+// theoretically return the same value for two calls inside one millisecond
+// too, but a real HTTP round trip between separate requests makes that
+// practically impossible. Go's in-process request handling (and the test
+// suite in particular, which drives handlers directly via httptest with no
+// network hop) can issue two consecutive newID() calls within the same
+// millisecond routinely, which produced real bag/portion id collisions and
+// a downstream panic (see deleteBag). lastID ratchets the clock forward so
+// every call returns a strictly increasing value, eliminating collisions
+// without changing the value returned for the common case where enough
+// real time has elapsed between calls.
+var lastID int64
+
 func newID() int64 {
-	return time.Now().UnixMilli()
+	for {
+		prev := atomic.LoadInt64(&lastID)
+		next := time.Now().UnixMilli()
+		if next <= prev {
+			next = prev + 1
+		}
+		if atomic.CompareAndSwapInt64(&lastID, prev, next) {
+			return next
+		}
+	}
+}
+
+// reserveID mirrors Node's `Date.now() + 1` (routes/library/beans.js's
+// initial-bag id, deliberately offset from the bean's own id): it hands back
+// a manually computed id but still ratchets newID's clock forward past it,
+// so a later newID() call in the same request or the next one can never
+// collide with it.
+func reserveID(id int64) int64 {
+	for {
+		prev := atomic.LoadInt64(&lastID)
+		if id <= prev || atomic.CompareAndSwapInt64(&lastID, prev, id) {
+			return id
+		}
+	}
 }
 
 // idOf reads e[key] as an int64 regardless of whether it arrived as an

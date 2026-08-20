@@ -80,7 +80,7 @@ func (h *Handlers) createBean(w http.ResponseWriter, r *http.Request) {
 	}
 	if stockG != nil || roastDate != "" || batchNumber != "" {
 		bean["bags"] = []any{Entity{
-			"id": id + 1, "roastDate": roastDate, "stock_g": stockG,
+			"id": reserveID(id + 1), "roastDate": roastDate, "stock_g": stockG,
 			"openedAt": newID(), "batchNumber": batchNumber,
 		}}
 	} else {
