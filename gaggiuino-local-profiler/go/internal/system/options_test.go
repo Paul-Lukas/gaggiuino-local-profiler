@@ -9,9 +9,9 @@ import (
 )
 
 // resetPreheatMinutesCacheForTest isolates a test's use of the
-// package-level preheatMinutesCache/defaultOptionsFile (both process-wide
-// state, shared with every other test in this package and with
-// production code) and restores both on cleanup.
+// package-level preheatMinutesCache/statusOptionsCache/defaultOptionsFile
+// (all process-wide state, shared with every other test in this package and
+// with production code) and restores all of it on cleanup.
 func resetPreheatMinutesCacheForTest(t *testing.T) {
 	t.Helper()
 	origFile := defaultOptionsFile
@@ -19,6 +19,10 @@ func resetPreheatMinutesCacheForTest(t *testing.T) {
 	origValid, origMtime, origMinutes := preheatMinutesCache.valid, preheatMinutesCache.mtime, preheatMinutesCache.minutes
 	preheatMinutesCache.valid = false
 	preheatMinutesCache.mu.Unlock()
+	statusOptionsCache.mu.Lock()
+	origStatusValid, origStatusMtime, origStatusOpts := statusOptionsCache.valid, statusOptionsCache.mtime, statusOptionsCache.opts
+	statusOptionsCache.valid = false
+	statusOptionsCache.mu.Unlock()
 	t.Cleanup(func() {
 		defaultOptionsFile = origFile
 		preheatMinutesCache.mu.Lock()
@@ -26,6 +30,11 @@ func resetPreheatMinutesCacheForTest(t *testing.T) {
 		preheatMinutesCache.mtime = origMtime
 		preheatMinutesCache.minutes = origMinutes
 		preheatMinutesCache.mu.Unlock()
+		statusOptionsCache.mu.Lock()
+		statusOptionsCache.valid = origStatusValid
+		statusOptionsCache.mtime = origStatusMtime
+		statusOptionsCache.opts = origStatusOpts
+		statusOptionsCache.mu.Unlock()
 	})
 }
 
@@ -103,6 +112,20 @@ func TestLoadPreheatMinutes_FallsBackWhenFileMissing(t *testing.T) {
 // true — only a literal JSON `false` may close it. See #901's getToken doc
 // comment for why an accidental default-closed here would repeat the
 // v2.19.1 regression.
+// writeOptionsFileAt writes content to path and pins its mtime to at, so a
+// same-path rewrite is guaranteed to bump statusOptionsCache's mtime key
+// (two os.WriteFile calls close together can otherwise land on the same
+// filesystem-timestamp granularity and look like a no-op to the cache).
+func writeOptionsFileAt(t *testing.T, path, content string, at time.Time) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.Chtimes(path, at, at); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+}
+
 func TestIsApiPortExposed_DefaultsOpen(t *testing.T) {
 	resetPreheatMinutesCacheForTest(t)
 
@@ -112,18 +135,15 @@ func TestIsApiPortExposed_DefaultsOpen(t *testing.T) {
 		t.Error("missing options.json: isApiPortExposed() = false, want true (default open)")
 	}
 
+	base := time.Now().Truncate(time.Second)
 	path := filepath.Join(t.TempDir(), "options.json")
-	if err := os.WriteFile(path, []byte(`{"sync_interval":5}`), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	writeOptionsFileAt(t, path, `{"sync_interval":5}`, base)
 	defaultOptionsFile = path
 	if !isApiPortExposed() {
 		t.Error("expose_api_port key absent: isApiPortExposed() = false, want true")
 	}
 
-	if err := os.WriteFile(path, []byte(`{"expose_api_port":false}`), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	writeOptionsFileAt(t, path, `{"expose_api_port":false}`, base.Add(time.Second))
 	if isApiPortExposed() {
 		t.Error("expose_api_port:false: isApiPortExposed() = true, want false")
 	}
@@ -144,19 +164,71 @@ func TestLoadSyncIntervalMinutes(t *testing.T) {
 		t.Fatalf("missing file: loadSyncIntervalMinutes() = %d, want 5", got)
 	}
 
+	base := time.Now().Truncate(time.Second)
 	path := filepath.Join(t.TempDir(), "options.json")
-	if err := os.WriteFile(path, []byte(`{"sync_interval":15}`), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	writeOptionsFileAt(t, path, `{"sync_interval":15}`, base)
 	defaultOptionsFile = path
 	if got := loadSyncIntervalMinutes(); got != 15 {
 		t.Fatalf("loadSyncIntervalMinutes() = %d, want 15", got)
 	}
 
-	if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	writeOptionsFileAt(t, path, `{}`, base.Add(time.Second))
 	if got := loadSyncIntervalMinutes(); got != 5 {
 		t.Fatalf("sync_interval key absent: loadSyncIntervalMinutes() = %d, want 5 (no env fallback once the file itself parses)", got)
+	}
+}
+
+// TestLoadStatusOptions_CachesUntilFileChanges is the #901 code-review
+// regression test for loadStatusOptions()'s caching, mirroring
+// TestLoadPreheatMinutes_CachesUntilFileChanges above: a cache hit (mtime
+// unchanged) must keep serving the previously-parsed values even if the
+// file's *content* changed underneath it without a new mtime, and a genuine
+// mtime bump must take effect on the very next call.
+func TestLoadStatusOptions_CachesUntilFileChanges(t *testing.T) {
+	resetPreheatMinutesCacheForTest(t)
+
+	path := filepath.Join(t.TempDir(), "options.json")
+	defaultOptionsFile = path
+
+	base := time.Now().Truncate(time.Second)
+	writeOptionsFileAt(t, path, `{"enable_orders":true,"expose_api_port":false,"sync_interval":15}`, base)
+	if got := isOrdersEnabled(); !got {
+		t.Fatalf("isOrdersEnabled() = %v, want true", got)
+	}
+	if got := isApiPortExposed(); got {
+		t.Fatalf("isApiPortExposed() = %v, want false", got)
+	}
+	if got := loadSyncIntervalMinutes(); got != 15 {
+		t.Fatalf("loadSyncIntervalMinutes() = %d, want 15", got)
+	}
+
+	// Rewrite the content but hold the mtime fixed -- cache hits must keep
+	// returning the stale-but-cached values, not re-parse.
+	if err := os.WriteFile(path, []byte(`{"enable_orders":false,"expose_api_port":true,"sync_interval":99}`), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.Chtimes(path, base, base); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	if got := isOrdersEnabled(); !got {
+		t.Fatalf("isOrdersEnabled() = %v, want true (cached, mtime unchanged)", got)
+	}
+	if got := isApiPortExposed(); got {
+		t.Fatalf("isApiPortExposed() = %v, want false (cached, mtime unchanged)", got)
+	}
+	if got := loadSyncIntervalMinutes(); got != 15 {
+		t.Fatalf("loadSyncIntervalMinutes() = %d, want 15 (cached, mtime unchanged)", got)
+	}
+
+	// Now bump the mtime -- the new values must take effect immediately.
+	writeOptionsFileAt(t, path, `{"enable_orders":false,"expose_api_port":true,"sync_interval":99}`, base.Add(time.Second))
+	if got := isOrdersEnabled(); got {
+		t.Fatalf("isOrdersEnabled() = %v, want false (mtime changed, cache invalidated)", got)
+	}
+	if got := isApiPortExposed(); !got {
+		t.Fatalf("isApiPortExposed() = %v, want true (mtime changed, cache invalidated)", got)
+	}
+	if got := loadSyncIntervalMinutes(); got != 99 {
+		t.Fatalf("loadSyncIntervalMinutes() = %d, want 99 (mtime changed, cache invalidated)", got)
 	}
 }

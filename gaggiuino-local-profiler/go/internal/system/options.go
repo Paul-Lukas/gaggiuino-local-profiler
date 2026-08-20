@@ -73,23 +73,111 @@ func parsePreheatMinutesFile() int {
 	return 20
 }
 
+// statusOptionsCache caches loadStatusOptions()'s parsed result, keyed on
+// options.json's mtime — the same mtime-cache pattern preheatMinutesCache
+// above already established for the identical problem (#901 code review:
+// isOrdersEnabled/isApiPortExposed/loadSyncIntervalMinutes were added to
+// GET /api/status, another hot path polled every 10s by glp-integration's
+// GlpDataCoordinator, without picking up that pattern — each did its own
+// unconditional os.ReadFile+json.Unmarshal on every call). Unlike
+// preheatMinutesCache, these three fields are always read together from
+// the same request, so one cached parse covers all three instead of three
+// independent caches.
+var statusOptionsCache struct {
+	mu    sync.Mutex
+	valid bool // false until the first os.Stat succeeds
+	mtime time.Time
+	opts  statusOptions
+}
+
+type statusOptions struct {
+	ordersEnabled       bool
+	apiPortExposed      bool
+	syncIntervalMinutes int
+}
+
+// loadStatusOptions returns the cached (or freshly parsed, on a cache miss)
+// options.json fields isOrdersEnabled/isApiPortExposed/
+// loadSyncIntervalMinutes below all delegate to.
+func loadStatusOptions() statusOptions {
+	statusOptionsCache.mu.Lock()
+	defer statusOptionsCache.mu.Unlock()
+
+	info, statErr := os.Stat(defaultOptionsFile)
+	if statErr == nil && statusOptionsCache.valid && info.ModTime().Equal(statusOptionsCache.mtime) {
+		return statusOptionsCache.opts
+	}
+
+	opts := parseStatusOptionsFile()
+	statusOptionsCache.valid = statErr == nil
+	if statErr == nil {
+		statusOptionsCache.mtime = info.ModTime()
+	}
+	statusOptionsCache.opts = opts
+	return opts
+}
+
+// parseStatusOptionsFile does loadStatusOptions()'s actual read+parse+
+// fallback chain — split out so loadStatusOptions itself only holds the
+// cache-check/cache-store logic, matching parsePreheatMinutesFile's split
+// above.
+func parseStatusOptionsFile() statusOptions {
+	data, err := os.ReadFile(defaultOptionsFile)
+	if err != nil {
+		return statusOptions{
+			ordersEnabled:       os.Getenv("GLP_ENABLE_ORDERS") == "true",
+			apiPortExposed:      os.Getenv("GLP_EXPOSE_API_PORT") != "false",
+			syncIntervalMinutes: syncIntervalMinutesFromEnv(),
+		}
+	}
+	var raw struct {
+		EnableOrders  bool        `json:"enable_orders"`
+		ExposeAPIPort *bool       `json:"expose_api_port"`
+		SyncInterval  json.Number `json:"sync_interval"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return statusOptions{
+			ordersEnabled:       os.Getenv("GLP_ENABLE_ORDERS") == "true",
+			apiPortExposed:      os.Getenv("GLP_EXPOSE_API_PORT") != "false",
+			syncIntervalMinutes: syncIntervalMinutesFromEnv(),
+		}
+	}
+
+	// key absent from an otherwise-valid options.json -- undefined !== false
+	apiPortExposed := true
+	if raw.ExposeAPIPort != nil {
+		apiPortExposed = *raw.ExposeAPIPort
+	}
+	syncInterval := 5
+	if n, err := raw.SyncInterval.Int64(); err == nil && n > 0 {
+		syncInterval = int(n)
+	}
+	return statusOptions{
+		ordersEnabled:       raw.EnableOrders,
+		apiPortExposed:      apiPortExposed,
+		syncIntervalMinutes: syncInterval,
+	}
+}
+
+// syncIntervalMinutesFromEnv is loadSyncIntervalMinutes's whole-file-missing
+// fallback: GLP_SYNC_INTERVAL (#764) then 5. Only ever consulted when
+// options.json itself is missing/unparseable, never merged in field-by-field
+// against an otherwise-present file — same distinction apiPortExposed's
+// key-absent-vs-file-absent branches draw above.
+func syncIntervalMinutesFromEnv() int {
+	if n, err := strconv.Atoi(os.Getenv("GLP_SYNC_INTERVAL")); err == nil && n > 0 {
+		return n
+	}
+	return 5
+}
+
 // isOrdersEnabled duplicates internal/orders' own isOrdersEnabled() verbatim
 // (see that package's options.go for the reasoning): a narrow,
 // single-field read rather than an import of internal/orders, which this
 // package doesn't otherwise depend on. GET /api/status's ordersFeature
 // field is this copy's only caller.
 func isOrdersEnabled() bool {
-	data, err := os.ReadFile(defaultOptionsFile)
-	if err != nil {
-		return os.Getenv("GLP_ENABLE_ORDERS") == "true"
-	}
-	var opts struct {
-		EnableOrders bool `json:"enable_orders"`
-	}
-	if err := json.Unmarshal(data, &opts); err != nil {
-		return os.Getenv("GLP_ENABLE_ORDERS") == "true"
-	}
-	return opts.EnableOrders
+	return loadStatusOptions().ordersEnabled
 }
 
 // isApiPortExposed ports lib/data.js's isApiPortExposed() /
@@ -101,49 +189,14 @@ func isOrdersEnabled() bool {
 // /api/token doc comment (ported verbatim in handlers.go's getToken) for
 // why the default can't be closed.
 func isApiPortExposed() bool {
-	data, err := os.ReadFile(defaultOptionsFile)
-	if err != nil {
-		return os.Getenv("GLP_EXPOSE_API_PORT") != "false"
-	}
-	var opts struct {
-		ExposeAPIPort *bool `json:"expose_api_port"`
-	}
-	if err := json.Unmarshal(data, &opts); err != nil {
-		return os.Getenv("GLP_EXPOSE_API_PORT") != "false"
-	}
-	if opts.ExposeAPIPort == nil {
-		return true // key absent from an otherwise-valid options.json -- undefined !== false
-	}
-	return *opts.ExposeAPIPort
+	return loadStatusOptions().apiPortExposed
 }
 
 // loadSyncIntervalMinutes ports `opts.sync_interval || 5` — GET
 // /api/status's syncInterval field. A missing/unparseable options.json
 // falls back to GLP_SYNC_INTERVAL (#764) then 5; a valid options.json that
 // simply lacks (or has a non-positive) sync_interval falls straight to 5,
-// matching loadOptions()'s own per-branch fallback chain (the env var is
-// only ever consulted on the *whole-file-missing* path, never merged in
-// field-by-field against an otherwise-present file — same distinction
-// isApiPortExposed's key-absent-vs-file-absent branches draw above).
+// matching loadOptions()'s own per-branch fallback chain.
 func loadSyncIntervalMinutes() int {
-	data, err := os.ReadFile(defaultOptionsFile)
-	if err != nil {
-		if n, err := strconv.Atoi(os.Getenv("GLP_SYNC_INTERVAL")); err == nil && n > 0 {
-			return n
-		}
-		return 5
-	}
-	var opts struct {
-		SyncInterval json.Number `json:"sync_interval"`
-	}
-	if err := json.Unmarshal(data, &opts); err != nil {
-		if n, err := strconv.Atoi(os.Getenv("GLP_SYNC_INTERVAL")); err == nil && n > 0 {
-			return n
-		}
-		return 5
-	}
-	if n, err := opts.SyncInterval.Int64(); err == nil && n > 0 {
-		return int(n)
-	}
-	return 5
+	return loadStatusOptions().syncIntervalMinutes
 }

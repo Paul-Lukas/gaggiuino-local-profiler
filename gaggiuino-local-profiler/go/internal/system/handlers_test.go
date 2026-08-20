@@ -1,6 +1,7 @@
 package system
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -8,7 +9,9 @@ import (
 	"testing"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
 )
 
 func newFullTestHandlers(t *testing.T) (*Handlers, *http.ServeMux, *Poller) {
@@ -312,4 +315,77 @@ func TestGetStatus_WrongTokenStaysUnauthenticated(t *testing.T) {
 	if _, present := body["machineUrl"]; present {
 		t.Error("wrong X-GLP-Token still leaked machineUrl")
 	}
+}
+
+// erroringAdapterProvider ports fakeAdapterProvider but lets a test force
+// GetAdapter itself to fail for specific machine IDs -- standing in for the
+// real machines.Handlers.GetAdapter's "unknown machine type"/"requires a
+// type" error path (see adapter.go), which a real orphaned registry row
+// (Type left empty or invalid by an incomplete migration) would hit but
+// which the machines table's own CHECK constraint prevents constructing
+// directly in a test DB.
+type erroringAdapterProvider struct {
+	ok      *fakeAdapter
+	failIDs map[int64]bool
+}
+
+func (p erroringAdapterProvider) GetAdapter(m *machines.Machine) (machines.Adapter, error) {
+	if p.failIDs[m.ID] {
+		return nil, fmt.Errorf("unknown machine type: %s", m.Type)
+	}
+	return p.ok, nil
+}
+
+// TestGetStatus_MachineIdProbe_GetAdapterFailureNoMismatch is the #901 code
+// review regression: a ?machineId probe against a machine whose GetAdapter
+// call fails (an orphaned registry row from an incomplete migration is the
+// real-world trigger, see erroringAdapterProvider above) must not leave the
+// response mixing the requested machine's hostname with the DEFAULT
+// machine's reachability/error state. GetAdapter failing must be treated as
+// a probe failure for the REQUESTED machine, exactly like routes/system.js's
+// single try/catch wrapping both getAdapter() and getStatus().
+func TestGetStatus_MachineIdProbe_GetAdapterFailureNoMismatch(t *testing.T) {
+	sqlDB := newTestDB(t)
+	registry := machines.NewRegistry(sqlDB)
+	if err := registry.EnsureDefaultMachine(); err != nil {
+		t.Fatalf("EnsureDefaultMachine: %v", err)
+	}
+	defaultHost := "default-machine.invalid"
+	if _, err := registry.UpdateMachine(1, machines.MachineInput{Host: &defaultHost}, nil); err != nil {
+		t.Fatalf("UpdateMachine: %v", err)
+	}
+	name, typ, host := "Orphaned", "gaggimate", "orphaned.invalid"
+	created, err := registry.CreateMachine(machines.MachineInput{Name: &name, Type: &typ, Host: &host})
+	if err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+
+	fake := &fakeAdapter{}
+	provider := erroringAdapterProvider{ok: fake, failIDs: map[int64]bool{created.ID: true}}
+	p := NewPoller(registry, provider, sse.NewHub(), newDisabledHAClient())
+	demo := NewDemoService(sqlDB, shots.NewRepository(sqlDB), library.NewRepository(sqlDB))
+	h := NewHandlers(p, demo, testAPIToken)
+	mux := newSystemMux(h)
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/status?machineId=%d", created.ID), nil)
+	req.Header.Set("X-GLP-Token", testAPIToken)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	body := decodeMap(t, rec.Body.Bytes())
+
+	if body["machineHostname"] != "orphaned.invalid" {
+		t.Errorf("machineHostname = %v, want orphaned.invalid (the requested machine)", body["machineHostname"])
+	}
+	msg, ok := body["lastMachineError"].(string)
+	if !ok || msg == "" {
+		t.Fatalf("lastMachineError = %v, want a non-empty GetAdapter-failure message describing the requested machine", body["lastMachineError"])
+	}
+	// Before the fix, a GetAdapter failure left lastMachineError/
+	// lastMachineError describing the DEFAULT machine (nil here, since the
+	// fake adapter's default-machine poll never ran) while machineHostname
+	// above already named the requested one -- the mismatch this test
+	// guards against.
 }

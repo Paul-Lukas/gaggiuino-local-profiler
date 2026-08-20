@@ -54,19 +54,26 @@ func buildStatusMachines(list []machines.Machine, defaultReachable *bool, defaul
 	return out
 }
 
+// normalizeHost prepends "http://" to raw when it has no scheme yet, then
+// parses it -- the "does this look like a bare host or a full URL" quirk
+// both hostnameOnly and apiURLAndHostnameFor below need to handle identically
+// (#901 code review: they used to duplicate this verbatim).
+func normalizeHost(raw string) (*url.URL, error) {
+	withScheme := raw
+	lower := strings.ToLower(raw)
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		withScheme = "http://" + raw
+	}
+	return url.Parse(withScheme)
+}
+
 // hostnameOnly ports routes/system.js's local hostnameOf(rawHost) helper:
 // resolves a machineHostname the same way the default-machine path
 // (apiURLAndHostnameFor) always has (strip protocol, keep hostname only) —
 // used for GET /api/status's ?machineId-scoped branch too, so both paths
 // report hostname in the same shape.
 func hostnameOnly(rawHost string) string {
-	raw := strings.TrimSpace(rawHost)
-	withScheme := raw
-	lower := strings.ToLower(raw)
-	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
-		withScheme = "http://" + raw
-	}
-	u, err := url.Parse(withScheme)
+	u, err := normalizeHost(strings.TrimSpace(rawHost))
 	if err != nil {
 		return rawHost
 	}
@@ -109,12 +116,7 @@ func apiURLAndHostnameFor(host string) (*string, string) {
 	if raw == "" {
 		return nil, ""
 	}
-	withScheme := raw
-	lower := strings.ToLower(raw)
-	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
-		withScheme = "http://" + raw
-	}
-	u, err := url.Parse(withScheme)
+	u, err := normalizeHost(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		fallback := "http://gaggia.intern/api/shots"
 		return &fallback, "gaggia.intern"

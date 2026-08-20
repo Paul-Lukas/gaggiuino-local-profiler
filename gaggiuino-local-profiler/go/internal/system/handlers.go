@@ -257,20 +257,30 @@ func (h *Handlers) getStatus(w http.ResponseWriter, r *http.Request) {
 		if id, perr := strconv.ParseInt(raw, 10, 64); perr == nil {
 			if requested, rerr := registry.ResolveMachine(&id); rerr == nil && requested != nil && !requested.IsDefault {
 				machineHostname = hostnameOnly(requested.Host)
-				if adapter, aerr := h.poller.adapters.GetAdapter(requested); aerr == nil {
+				// routes/system.js's equivalent branch wraps getAdapter()
+				// AND adapter.getStatus() in the same try/catch, so a
+				// GetAdapter failure (e.g. an orphaned registry row with an
+				// empty/unknown Type from an incomplete migration) reports
+				// as a probe failure for THIS machine, same as a reachable
+				// probe that errors out -- never silently falls through to
+				// leave machineReachable/lastMachineError describing the
+				// default machine while machineHostname above already
+				// switched to the requested one (#901 code review).
+				adapter, aerr := h.poller.adapters.GetAdapter(requested)
+				if aerr == nil {
 					ctx, cancel := context.WithTimeout(r.Context(), machineStatusProbeTimeout)
-					_, serr := adapter.GetStatus(ctx, requested)
+					_, aerr = adapter.GetStatus(ctx, requested)
 					cancel()
-					if serr == nil {
-						reachable := true
-						machineReachable = &reachable
-						lastMachineError = nil
-					} else {
-						reachable := false
-						machineReachable = &reachable
-						msg := serr.Error()
-						lastMachineError = &msg
-					}
+				}
+				if aerr == nil {
+					reachable := true
+					machineReachable = &reachable
+					lastMachineError = nil
+				} else {
+					reachable := false
+					machineReachable = &reachable
+					msg := aerr.Error()
+					lastMachineError = &msg
 				}
 			}
 		}
