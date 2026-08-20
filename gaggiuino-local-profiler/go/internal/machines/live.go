@@ -21,18 +21,21 @@ import (
 // same rationale the Node original's header comment gives (staying within
 // the firmware's WS_MAX_CONNECTIONS=3 budget regardless of poll frequency).
 //
-// New in this port (closing the loop the task brief asked for): every
-// cache update also Publish()es onto the shared internal/sse.Hub as an
-// EventLiveSnapshot event, the producer internal/sse's Phase 1b Prime/Hub
-// scaffolding was left expecting (see internal/sse/doc.go). The payload
-// shape here — {machineHost, sensorSnap} or {machineHost, sysState} — is
-// this package's own machine-adapter-level snapshot, NOT necessarily the
-// same shape openapi.yaml's LiveData schema documents for a *future*
-// system-domain port of lib/poll.js's own LIVE_SNAPSHOT emission (which
-// blends in shot-in-progress datapoints from a different source entirely —
-// see routes/system.js's buildLiveDataResponse). Reconciling the two into
-// one payload shape is system-domain work, out of this package's scope —
-// see doc.go.
+// Phase 1e (when this file was first written) had this file also
+// Publish()ing every cache update directly onto the shared internal/sse.Hub
+// as an EventLiveSnapshot event — an explicitly-flagged stand-in ("the
+// payload shape here ... is NOT necessarily the same shape openapi.yaml's
+// LiveData schema documents ... reconciling the two is system-domain
+// work"). Phase 1g (#901, go/internal/system) did that reconciliation:
+// only lib/poll.js's own emitLiveSnapshot() ever publishes LIVE_SNAPSHOT
+// in Node — the WS client (this file's Node original,
+// lib/gaggiuino-live-client.js) only ever updates a cache lib/poll.js
+// reads from via lib/live-transport.js, never publishes itself. This file
+// now matches that: `hub` is kept (constructor signature unchanged, still
+// threaded through from cmd/server) only because a later phase may want a
+// narrower, WS-session-specific SSE event of its own; nothing in this file
+// calls Hub.Publish today. See go/internal/system/doc.go's "Reconciling
+// with Phase 1e's live.go" section for the full story.
 //
 // A persistent GaggiMate equivalent (ws-client.js's GaggiMateLiveClient
 // class) is deliberately NOT ported: every REST endpoint in this phase's
@@ -163,8 +166,9 @@ func (c *gaggiuinoLiveClient) run(ctx context.Context, baseURL string, s *gaggiu
 }
 
 // connectOnce dials once and reads frames until the connection closes or
-// errors, updating s's cache (and publishing to the SSE hub) for every
-// d_sensor_snap/d_sys_state push — ports connect()'s ws.on('message', ...).
+// errors, updating s's cache for every d_sensor_snap/d_sys_state push —
+// ports connect()'s ws.on('message', ...). No longer publishes onto the
+// SSE hub directly — see this file's header comment.
 func (c *gaggiuinoLiveClient) connectOnce(ctx context.Context, baseURL string, s *gaggiuinoLiveSession) {
 	wsURL, err := gaggiuinoWSURL(baseURL)
 	if err != nil {
@@ -201,7 +205,6 @@ func (c *gaggiuinoLiveClient) connectOnce(ctx context.Context, baseURL string, s
 			s.sensorSnap = &snap
 			s.sensorSnapAt = time.Now()
 			s.mu.Unlock()
-			c.publish(baseURL, map[string]any{"machineHost": baseURL, "sensorSnap": &snap})
 		case pushSysState:
 			var state proto.SystemStateDto
 			if err := state.Unmarshal(envelope.Data); err != nil {
@@ -211,16 +214,8 @@ func (c *gaggiuinoLiveClient) connectOnce(ctx context.Context, baseURL string, s
 			s.sysState = &state
 			s.sysStateAt = time.Now()
 			s.mu.Unlock()
-			c.publish(baseURL, map[string]any{"machineHost": baseURL, "sysState": &state})
 		}
 	}
-}
-
-func (c *gaggiuinoLiveClient) publish(baseURL string, data any) {
-	if c.hub == nil {
-		return
-	}
-	c.hub.Publish(sse.Event{Type: sse.EventLiveSnapshot, Data: data})
 }
 
 // freshOrNil ports gaggiuino-live-client.js's freshOrNull(): a cached value

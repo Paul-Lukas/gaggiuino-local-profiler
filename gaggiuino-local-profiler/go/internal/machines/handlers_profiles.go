@@ -10,13 +10,17 @@ import (
 // (GET /api/machine/profiles, POST /api/machine/profile/set,
 // GET/POST/PUT/DELETE /api/machine/profile[/{id}]). NOT ported: the
 // default-machine special case that reads defaultRuntime.machineStatus
-// (lib/poll.js's cache) instead of calling adapter.GetStatus() directly —
-// that cache doesn't exist in this Go binary yet (system domain, still
-// Phase 0). Every machine, default or not, goes through the `else` branch
-// here (a live adapter.GetStatus() call) — see doc.go for the full
-// rationale; the user-visible difference is one extra round trip to the
-// machine on this one endpoint for the default machine specifically, not
-// a behavior change to the response shape.
+// (lib/poll.js's cache) instead of calling adapter.GetStatus() directly.
+// go/internal/system's RuntimeState now exists (#901 Phase 1g) and holds
+// that exact cache, but this package doesn't depend on it (system depends
+// on machines, not the reverse — see system/doc.go's layering) so wiring
+// this optimization in would need this package to accept an optional
+// cache-reader callback the way internal/orders now does for its own
+// system dependency. Every machine, default or not, still goes through the
+// `else` branch here (a live adapter.GetStatus() call) — see doc.go for
+// the full rationale; the user-visible difference is one extra round trip
+// to the machine on this one endpoint for the default machine
+// specifically, not a behavior change to the response shape.
 
 func (h *Handlers) registerProfileRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/machine/profiles", h.listMachineProfiles)

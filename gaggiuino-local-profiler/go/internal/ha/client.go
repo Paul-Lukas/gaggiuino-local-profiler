@@ -1,31 +1,33 @@
-// Package ha ports the subset of lib/ha.js the Phase 1f orders domain
-// needs: SendNotify (mobile-app push via HA's notify.* services),
-// GetNotifyServices (for the notify-service picker), and GetPersons (for
-// the shop-open/closed broadcast's "only notify devices currently home"
-// filter and the notify-mapping customer list). getSwitchState,
-// getHaLanguage, callHaService, and getHaState are NOT ported here — no
-// Phase 1f route reaches them (getHaLanguage backs lib/notify-i18n.js,
-// which nothing in orders/maintenance/backup calls; getSwitchState backs
-// lib/poll.js's preheat polling, part of the still-unported system domain;
-// callHaService/getHaState back Settings-page MQTT discovery, not part of
-// this phase's HTTP surface at all).
+// Package ha ports lib/ha.js: SendNotify (mobile-app push via HA's
+// notify.* services), GetNotifyServices (for the notify-service picker),
+// and GetPersons (for the shop-open/closed broadcast's "only notify
+// devices currently home" filter and the notify-mapping customer list) —
+// all Phase 1f (orders domain) additions — plus GetSwitchState,
+// CallHaService, and GetHaLanguage, added in Phase 1g (#901, system
+// domain) for lib/poll.js's checkAndApplyMachinePower/
+// _checkReadyByPreheat and lib/preheat.js's _checkPreheatNotify.
+// getHaState is still NOT ported — nothing in either phase's HTTP surface
+// reaches it (it only backs Settings-page MQTT discovery in Node).
 //
 // This package did not exist before Phase 1f: earlier phases (shots,
 // library, machines) never needed to call the Home Assistant REST API
 // itself, only to be reached *through* HA Ingress (internal/auth). Every
-// function here degrades to a no-op/empty-result when no token is
-// configured, exactly like the Node original — never an error, since HA
-// integration is optional (direct-port mode with no Supervisor and no
-// GLP_HA_URL/GLP_HA_TOKEN is a fully supported configuration).
+// function here degrades to a no-op/empty-result (or, for CallHaService,
+// an error) when no token is configured, exactly like the Node original —
+// never a panic, since HA integration is optional (direct-port mode with
+// no Supervisor and no GLP_HA_URL/GLP_HA_TOKEN is a fully supported
+// configuration).
 package ha
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,6 +40,9 @@ type Client struct {
 	apiBase string // "" when no HA connection is configured (Ingress-only / no Supervisor, no GLP_HA_URL)
 	token   string
 	http    *http.Client
+
+	langOnce sync.Once
+	lang     string
 }
 
 // NewClientFromEnv ports lib/constants.js's HA_API/HA_TOKEN derivation:
@@ -66,6 +71,12 @@ func NewClientFromEnv() *Client {
 }
 
 func (c *Client) enabled() bool { return c.token != "" }
+
+// Enabled reports whether this Client has a usable HA connection — the
+// exported form of enabled(), for callers outside this package that need
+// to gate their own logic on it (POST /api/preheat/ready-by's "switch_entity
+// nicht konfiguriert" 400, matching Node's own `!HA_TOKEN` check).
+func (c *Client) Enabled() bool { return c.enabled() }
 
 // SendNotify ports lib/ha.js's sendHaNotify(service, title, message, tag):
 // posts to HA's notify.<service> service call. Best-effort — logs (via the
@@ -99,6 +110,73 @@ func nullableString(s string) any {
 		return nil
 	}
 	return s
+}
+
+// GetSwitchState ports lib/ha.js's getSwitchState(entity): nil means
+// "unknown" — no token configured, no entity given, or the call failed —
+// matching the Node original's null return, which every caller (poll.go's
+// checkAndApplyMachinePower) treats as "skip this tick, don't act on it".
+func (c *Client) GetSwitchState(ctx context.Context, entity string) *bool {
+	if !c.enabled() || entity == "" {
+		return nil
+	}
+	var st struct {
+		State string `json:"state"`
+	}
+	if err := c.get(ctx, "/states/"+entity, &st); err != nil {
+		return nil
+	}
+	on := st.State == "on"
+	return &on
+}
+
+// CallHaService ports lib/ha.js's callHaService(domain, service, data).
+// Unlike SendNotify (fire-and-forget, every call site already treats a
+// failure as non-critical), callers here need to know whether the call
+// actually took effect — POST /api/switch/toggle and the ready-by preheat
+// watcher's auto turn-on both act on the result — so this returns the
+// error instead of swallowing it, matching callHaService's `throw` on both
+// "no token" and a failed request.
+func (c *Client) CallHaService(ctx context.Context, domain, service string, data map[string]any) error {
+	if !c.enabled() {
+		return fmt.Errorf("HA token unavailable")
+	}
+	_, err := c.post(ctx, "/services/"+domain+"/"+service, data)
+	return err
+}
+
+// haSupportedLangs mirrors getHaLanguage()'s hardcoded allow-list — any
+// other HA instance language falls back to English, not passed through.
+var haSupportedLangs = map[string]bool{"de": true, "en": true, "it": true, "fr": true, "es": true, "nl": true}
+
+// GetHaLanguage ports lib/ha.js's getHaLanguage(): the HA instance's
+// configured language, cached for the process lifetime (same as Node's
+// module-level _haLang cache — HA's own language setting doesn't change
+// without a restart). Falls back to "en", not "de", on any failure or an
+// unrecognized language — see lib/notify-i18n.js's own fallback comment
+// for why: a standalone-Docker user with no Supervisor token used to get
+// German notifications by construction regardless of their own locale.
+func (c *Client) GetHaLanguage(ctx context.Context) string {
+	c.langOnce.Do(func() {
+		c.lang = "en"
+		if !c.enabled() {
+			return
+		}
+		var cfg struct {
+			Language string `json:"language"`
+		}
+		if err := c.get(ctx, "/config", &cfg); err != nil {
+			return
+		}
+		lang := strings.ToLower(cfg.Language)
+		if len(lang) > 2 {
+			lang = lang[:2]
+		}
+		if haSupportedLangs[lang] {
+			c.lang = lang
+		}
+	})
+	return c.lang
 }
 
 // NotifyService mirrors one entry of GetNotifyServices()'s result.

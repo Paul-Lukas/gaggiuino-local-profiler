@@ -90,14 +90,15 @@
 //   - GET /api/machine/status, GET /api/preheat, POST /api/preheat/ready-by,
 //     GET /api/live/data — all four depend on lib/poll.js's hard-single-
 //     machine 1s background polling loop (defaultRuntime.machineStatus,
-//     preheat scheduling, sync-after-brew triggers), which is `system`
-//     domain and still a Phase 0 placeholder (go/internal/system). The
-//     original task brief for this phase listed GET /api/machine/status
-//     among this package's endpoints, inherited from an earlier explore
-//     report that didn't distinguish it from the genuinely machine-
-//     adapter-scoped GET /api/machine/live (which IS ported here, backed
-//     by live.go's own WS session cache, not poll.js's). Porting the
-//     polling loop itself is squarely internal/system's job.
+//     preheat scheduling), which is the `system` package's job, not this
+//     one's — now ported (#901 Phase 1g, go/internal/system). The original
+//     task brief for THIS phase (1e) listed GET /api/machine/status among
+//     this package's endpoints, inherited from an earlier explore report
+//     that didn't distinguish it from the genuinely machine-adapter-scoped
+//     GET /api/machine/live (which IS ported here, backed by live.go's own
+//     WS session cache, not poll.js's — internal/system's poll.go reads
+//     that same cache through this package's Adapter interface rather than
+//     duplicating it).
 //   - GET /api/machine/profiles' default-machine special case, which reads
 //     defaultRuntime.machineStatus (the same poll.js cache) instead of
 //     calling adapter.GetStatus() directly for the default machine only.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -22,27 +23,36 @@ import (
 // method-and-wildcard http.ServeMux, the same pattern established in
 // shots/handlers.go and library/handlers.go.
 //
-// Deliberately NOT ported: _broadcastShopState/_getPreheatInfo (the
-// shop-open/shop-closed HA-notify broadcast POST /api/orders/settings
-// triggers when `enabled` flips). Both need the default machine's live
-// runtime state (machineOn/switchOnAt — lib/machine-runtime-state.js,
-// populated by lib/poll.js's background polling loop), which belongs to
-// the still-unported system domain (go/internal/system, Phase 0 — see
-// go/README.md's "not yet implemented" list). POST /api/orders/settings
-// itself IS fully ported below (persists enabled/broadcastRecipients/
-// baristaNotifyService/notify_* toggles exactly like Node) — only the
-// notification side effect after the response is sent is missing. See
-// doc.go for the full deferral note.
+// _broadcastShopState (the shop-open/shop-closed HA-notify broadcast POST
+// /api/orders/settings triggers when `enabled` flips) IS ported below
+// (postSettings), now that internal/system (#901 Phase 1g) exists and
+// exposes the default machine's live runtime state
+// (machineOn/switchOnAt — lib/machine-runtime-state.js, populated by
+// lib/poll.js's background polling loop) this needed. It's wired via
+// SetPreheatInfoProvider's PreheatInfoFunc callback, NOT a direct import
+// of internal/system: that package's own preheat-ready-notify feature
+// would need this package's settings right back (notify_preheat_ready/
+// baristaNotifyService), and importing each other directly would close a
+// package cycle — see internal/system/doc.go's "internal/orders'
+// shop-broadcast" section for the full reasoning. cmd/server wires
+// ordersHandlers.SetPreheatInfoProvider(poller.PreheatInfo) after
+// constructing both.
 const jsonBodyLimit = 16 * 1024 // express.json({ limit: '16kb' }) — server.js's global default.
+
+// PreheatInfoFunc ports _getPreheatInfo()'s return shape: whether the
+// default machine is currently within its configured preheat window, and
+// how many minutes remain if not.
+type PreheatInfoFunc func() (ready bool, remainingMin int)
 
 // Handlers wires Service (+ Repository, the machines registry, and the HA
 // client) into net/http handlers.
 type Handlers struct {
-	service  *Service
-	repo     *Repository
-	registry *machines.Registry
-	ha       *ha.Client
-	rl       *ratelimit.KeyedLimiter
+	service     *Service
+	repo        *Repository
+	registry    *machines.Registry
+	ha          *ha.Client
+	rl          *ratelimit.KeyedLimiter
+	preheatInfo PreheatInfoFunc // nil until SetPreheatInfoProvider is called
 }
 
 // NewHandlers builds Handlers. shotsRepo/libRepo/registry are the same
@@ -57,6 +67,18 @@ func NewHandlers(repo *Repository, shotsRepo *shots.Repository, libRepo *library
 		ha:       haClient,
 		rl:       ratelimit.NewKeyed(),
 	}
+}
+
+// SetPreheatInfoProvider wires the shop-open broadcast's "is the machine
+// ready, or how many minutes until it is" text to internal/system's
+// Poller — see this file's header comment. A nil provider (the zero value,
+// before cmd/server calls this) makes _broadcastShopState's opened branch
+// report "not ready, 20 min" (loadPreheatMinutes()'s own default), rather
+// than panicking — only cmd/server's real wiring should ever leave this
+// unset, but tests that don't care about the broadcast text shouldn't have
+// to supply one either.
+func (h *Handlers) SetPreheatInfoProvider(fn PreheatInfoFunc) {
+	h.preheatInfo = fn
 }
 
 // RegisterRoutes registers every /api/orders* route onto mux, each wrapped
@@ -515,9 +537,89 @@ func (h *Handlers) postSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s)
-	// NOTE: the shop-open/closed broadcast Node fires here
-	// (_broadcastShopState(s, prev, recipients)) is deliberately not ported
-	// — see this file's header comment and doc.go.
+	recipients := stringSliceField(s, "broadcastRecipients")
+	if len(recipients) > 0 {
+		// Fire-and-forget, same as Node's un-awaited _broadcastShopState
+		// call after res.json(s) — the response must not wait on HA/person
+		// lookups.
+		go h.broadcastShopState(context.Background(), s, prev, recipients)
+	}
+}
+
+func stringSliceField(s Settings, key string) []string {
+	arr, ok := s[key].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, v := range arr {
+		if str, ok := v.(string); ok {
+			out = append(out, str)
+		}
+	}
+	return out
+}
+
+// broadcastShopState ports _broadcastShopState(s, prev, recipients): sends
+// an HA push notification to every recipient currently home (or with no
+// person mapping at all) when `enabled` flips true->false or false->true.
+func (h *Handlers) broadcastShopState(ctx context.Context, s, prev Settings, recipients []string) {
+	opened, _ := s["enabled"].(bool)
+	prevEnabled, _ := prev["enabled"].(bool)
+	closed := !opened && prevEnabled
+	opened = opened && !prevEnabled
+	if !opened && !closed {
+		return
+	}
+	if v, ok := s["notify_shop_state"].(bool); ok && !v {
+		return
+	}
+
+	filtered := recipients
+	persons := h.ha.GetPersons(ctx)
+	if len(persons) > 0 {
+		mapping, err := h.repo.GetNotifyMapping()
+		if err == nil {
+			svcToState := make(map[string]string, len(persons))
+			for _, p := range persons {
+				if svc, ok := mapping[p.HAUserID]; ok {
+					svcToState[svc] = p.State
+				}
+			}
+			kept := make([]string, 0, len(recipients))
+			for _, svc := range recipients {
+				if state, tracked := svcToState[svc]; !tracked || state == "home" {
+					kept = append(kept, svc)
+				}
+			}
+			filtered = kept
+		}
+	}
+	if len(filtered) == 0 {
+		return
+	}
+
+	if opened {
+		ready, remainingMin := false, 20
+		if h.preheatInfo != nil {
+			ready, remainingMin = h.preheatInfo()
+		}
+		title := "⏳ Kaffee öffnet bald!"
+		body := fmt.Sprintf("Die Maschine heizt noch auf. Kaffee öffnet in ca. %d Min. — Bestellungen über das Menü Kaffeebar.", remainingMin)
+		if ready {
+			title = "☕ Kaffee ist jetzt geöffnet!"
+			body = "Die Maschine ist bereit — Bestellungen über das Menü Kaffeebar aufgeben."
+		}
+		for _, svc := range filtered {
+			_ = h.ha.SendNotify(ctx, svc, title, body, "glp_shop_open")
+		}
+		log.Printf("orders: shop-open broadcast sent to %d/%d device(s) (home filter)", len(filtered), len(recipients))
+	} else {
+		for _, svc := range filtered {
+			_ = h.ha.SendNotify(ctx, svc, "🚫 Kaffeebar geschlossen", "Die Bestellannahme wurde beendet.", "glp_shop_closed")
+		}
+		log.Printf("orders: shop-closed broadcast sent to %d/%d device(s) (home filter)", len(filtered), len(recipients))
+	}
 }
 
 // ── Queue ETA ────────────────────────────────────────────────────────────

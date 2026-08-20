@@ -1,27 +1,30 @@
 // Command server is the Go rewrite's HTTP bootstrap: it wires internal/db,
 // internal/auth, internal/ratelimit, internal/sse, internal/shots (Phase
-// 1c), internal/library (Phase 1d), internal/machines (Phase 1e), and
-// (Phase 1f, issue #901) internal/orders, internal/maintenance,
-// internal/backup, and internal/ha together into a real net/http server,
-// in the same middleware order server.js actually registers its own (read
-// that file, not a paraphrase of it — see the comment on the handler
-// chain below).
+// 1c), internal/library (Phase 1d), internal/machines (Phase 1e),
+// internal/orders, internal/maintenance, internal/backup, internal/ha
+// (Phase 1f), and internal/system (Phase 1g, issue #901) together into a
+// real net/http server, in the same middleware order server.js actually
+// registers its own (read that file, not a paraphrase of it — see the
+// comment on the handler chain below).
 //
-// Every REST domain in the original Migrationsplan is now registered: GET
-// /api/events (Phase 1b), /shots.json + /api/shots/* (Phase 1c),
-// /api/library/* (Phase 1d), the machine-registry + machine-control +
-// machine-profile domain (Phase 1e), and /api/orders/*, /api/maintenance/*,
-// GET/POST /api/backup + POST /api/restore (Phase 1f). Deliberately still
-// unrouted: internal/system's status/live/preheat endpoints (GET
-// /api/status, /api/token, /api/switch, /api/preheat*, GET /api/live/data,
-// GET /api/version) and lib/poll.js's background polling loop — a
-// separate follow-up package, see internal/system/doc.go. This binary is
-// not wired into the Docker image, CI, or the running add-on; the Node
-// app (server.js) remains the sole shipping entrypoint until the rollout
-// plan in go/README.md says otherwise.
+// Every REST domain package the original Migrationsplan named now exists
+// and is registered: GET /api/events (Phase 1b), /shots.json + /api/shots/*
+// (Phase 1c), /api/library/* (Phase 1d), the machine-registry +
+// machine-control + machine-profile domain (Phase 1e), /api/orders/*,
+// /api/maintenance/*, GET/POST /api/backup + POST /api/restore (Phase 1f),
+// and internal/system's GET /api/machine/status, GET /api/live/data,
+// GET/POST /api/preheat*, GET /api/version, POST /api/demo/{seed,end}
+// plus the background polling loop that backs them (Phase 1g). A handful
+// of routes/system.js routes remain unrouted by design — see
+// go/internal/system/doc.go's "Scope" section for exactly which and why
+// (none of them are depended on by anything this phase ported). This
+// binary is not wired into the Docker image, CI, or the running add-on;
+// the Node app (server.js) remains the sole shipping entrypoint until the
+// rollout plan in go/README.md says otherwise.
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"net/http"
@@ -41,6 +44,7 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ratelimit"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/system"
 )
 
 // defaultPort matches lib/constants.js's DEFAULT_PORT (8099) — the port the
@@ -69,10 +73,12 @@ func main() {
 
 	hub := sse.NewHub()
 	sseHandler := &sse.Handler{Hub: hub}
-	// Prime is deliberately left nil: the sync-progress/preheat/live-
-	// snapshot state it would read (lib/state.js, lib/preheat.js,
-	// lib/poll.js) belongs to Phase 1c's domain packages, which don't
-	// exist yet — see internal/sse/doc.go.
+	// Prime is wired below, once poller exists — routes/sse.js primes a
+	// newly-connected client with the current preheat-update/live-snapshot
+	// snapshot (buildPreheatResponse()/buildLiveDataResponse(), both
+	// synchronous reads) before subscribing it to the Hub. The
+	// sync-progress priming loop Node also does has no Go equivalent yet
+	// (state.syncProgress isn't ported — see internal/system/doc.go).
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/events", sseHandler)
@@ -93,6 +99,36 @@ func main() {
 	ordersRepo := orders.NewRepository(sqlDB)
 	ordersHandlers := orders.NewHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
 	ordersHandlers.RegisterRoutes(mux)
+
+	// Phase 1g (#901): the background polling loop that backs
+	// GET /api/machine/status, GET /api/live/data, GET/POST /api/preheat*,
+	// and the live-snapshot/preheat-update SSE events — see
+	// internal/system/doc.go for the full scope and what it deliberately
+	// doesn't port. poller.Start launches its own 30s HA-check/preheat
+	// tickers bound to ctx; the process runs until the OS kills it (no
+	// graceful-shutdown signal handling exists in this binary yet, same as
+	// every other domain package here), so ctx is background — cancelling
+	// it would only matter for a future clean-shutdown path.
+	poller := system.NewPoller(registry, machinesHandlers, hub, haClient)
+	poller.Start(context.Background())
+	// Closes internal/orders' shop-broadcast deferral (see
+	// internal/orders/doc.go and internal/system/doc.go's "internal/orders'
+	// shop-broadcast" section for why this is a callback, not an import).
+	ordersHandlers.SetPreheatInfoProvider(poller.PreheatInfo)
+
+	demoService := system.NewDemoService(sqlDB, shotsRepo, libRepo)
+	systemHandlers := system.NewHandlers(poller, demoService)
+	systemHandlers.RegisterRoutes(mux)
+
+	// routes/sse.js primes a newly-connected client with the current
+	// preheat/live snapshot before subscribing it to future pushes — see
+	// the Prime field's doc comment above.
+	sseHandler.Prime = func() []sse.Event {
+		return []sse.Event{
+			{Type: sse.EventPreheatUpdate, Data: poller.PreheatStatus()},
+			{Type: sse.EventLiveSnapshot, Data: poller.LiveData()},
+		}
+	}
 
 	maintenanceRepo := maintenance.NewRepository(sqlDB, libRepo)
 	maintenanceHandlers := maintenance.NewHandlers(maintenanceRepo, shotsRepo, libRepo, registry)

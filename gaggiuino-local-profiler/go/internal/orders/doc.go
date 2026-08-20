@@ -14,6 +14,15 @@
 // parameter (#547) is ported exactly and covered by
 // TestPlaceOrder_HAUserIDHeaderPrecedence/TestMine_HeaderPrecedenceOverQuery.
 //
+// _broadcastShopState/_getPreheatInfo (the shop-open/shop-closed HA push
+// notification POST /api/orders/settings fires when `enabled` flips) were
+// deferred out of this phase pending the default machine's live runtime
+// state (machineOn/switchOnAt) and are now ported (#901 Phase 1g,
+// handlers.go's broadcastShopState) — wired to internal/system's Poller
+// via the PreheatInfoFunc callback SetPreheatInfoProvider takes, not a
+// direct import (see handlers.go's header comment and
+// go/internal/system/doc.go for why a callback, not an import).
+//
 // File layout:
 //
 //	options.go     isOrdersEnabled() — a narrow, single-field read of
@@ -32,16 +41,10 @@
 //
 // # Deliberately not ported
 //
-//   - _broadcastShopState/_getPreheatInfo (the shop-open/shop-closed HA
-//     push notification POST /api/orders/settings fires when `enabled`
-//     flips): needs the default machine's live runtime state
-//     (machineOn/switchOnAt), populated by lib/poll.js's background
-//     polling loop — the still-unported system domain (go/internal/system,
-//     Phase 0, see go/README.md). Settings themselves (enabled,
-//     broadcastRecipients, baristaNotifyService, every notify_* toggle)
-//     ARE fully persisted — only the notification side effect after the
-//     response is sent is missing. Wire this in once internal/system
-//     exists and exposes the default machine's runtime state.
+//   - _checkPreheatNotify's barista "preheat ready" HA push (the OTHER
+//     preheat-related notification, distinct from the shop-broadcast
+//     above) is internal/system's, not this package's — see that
+//     package's doc.go.
 //   - internal/ha (new in this phase) ports sendHaNotify/
 //     getNotifyServices/getHaPersons only — getSwitchState/getHaLanguage/
 //     callHaService/getHaState aren't needed by any route this domain
