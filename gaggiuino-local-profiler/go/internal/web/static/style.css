@@ -298,3 +298,19 @@ body {
   color: var(--gray-500);
   margin: 0 0 var(--sp-3);
 }
+
+/* Phase 2d (#901) — Orders/Menu pages: the customer order form
+ * (templates/menu.templ) is this frontend's first <form>, reusing
+ * .filter-input for its text/select fields and .item-meta for labels rather
+ * than introducing a parallel set of form-field classes. */
+.order-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  max-width: 360px;
+}
+
+.order-form .btn {
+  margin-top: var(--sp-2);
+  align-self: flex-start;
+}

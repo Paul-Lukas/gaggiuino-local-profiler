@@ -23,6 +23,10 @@
 //	                    actions, plus GET /live (static chrome only — the
 //	                    live chart itself is static/live.js, not server-
 //	                    rendered; see that file's own doc comment)
+//	view_orders.go       (Phase 2d) orders.Order -> templates.OrderRow
+//	handlers_orders.go   (Phase 2d) GET /orders (barista queue) + its
+//	                    accept/complete/decline htmx actions, plus GET /menu
+//	                    (customer ordering form) + POST /menu/order
 //	templates/          .templ sources (own package; see templates/layout.templ)
 //	static/             vendored + first-party JS/CSS served at /web/static/*
 //	                    (Phase 2c adds live.js and vendored Chart.js)
@@ -40,10 +44,11 @@
 // the exposed port in standalone mode.
 //
 // The htmx write actions — POST /shots/{id}/trash, POST /shots/{id}/restore,
-// (Phase 2b) POST /beans/{id}/toggle-active in handlers_library.go, and
+// (Phase 2b) POST /beans/{id}/toggle-active in handlers_library.go,
 // (Phase 2c) POST /machines/{id}/default and POST /machines/{id}/delete in
-// handlers_machines.go — are NOT part of that carve-out: RequireToken's
-// bypass in
+// handlers_machines.go, and (Phase 2d) POST /orders/{id}/{accept,complete,
+// decline} and POST /menu/order in handlers_orders.go — are NOT part of
+// that carve-out: RequireToken's bypass in
 // internal/auth/auth.go is scoped to GET/HEAD requests specifically (a #901
 // code-review fix — it originally matched any non-/api/ path regardless of
 // method, which let any third-party page in the user's browser trigger

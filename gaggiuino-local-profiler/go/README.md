@@ -6,7 +6,7 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 2c (Go frontend — templ+htmx+Alpine tooling, base layout, Shots, the Library domain's pages, and now Machines + the live shot chart, on top of Phase 3b's complete backend)
+## Status: Phase 2d (Go frontend — templ+htmx+Alpine tooling, base layout, Shots, the Library domain's pages, Machines + the live shot chart, and now the Orders domain's barista queue + customer ordering form, on top of Phase 3b's complete backend)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
 packages everything else builds on. Phase 1b added a real, listening HTTP
@@ -251,10 +251,36 @@ readouts logic and the #655 machineReachable-wins-over-isLive precedence —
 and what deliberately didn't: the reference-shot overlay, the animated
 per-machine SVG icon, multi-machine live-capability gating, and i18n).
 Chart.js itself is now vendored unmodified alongside htmx/Alpine
-(`static/vendor/`, see that directory's NOTICE.md). Every other page
-(orders, maintenance) is still served by the untouched Node frontend
-(`public-src/`) — see "Frontend" for exactly what is and isn't cut over
-yet.
+(`static/vendor/`, see that directory's NOTICE.md). Phase 2d (#901) adds
+the Orders domain: `GET /orders`, the barista-facing queue (pending/accepted
+orders, with accept/complete/decline htmx actions, built on
+`internal/orders.Service`'s existing `AcceptOrder`/`CompleteOrder`/
+`DeclineOrder`), and `GET /menu`, the customer-facing ordering form (item
+select, an optional bean select sourced from `library.GetActiveBeans`, a
+note field, built on `PlaceOrder`) — both pages degrade to a plain notice
+instead of an error when `enable_orders` is off
+(`orders.IsOrdersEnabled()`, a new exported wrapper around the same
+options.json read `withOrdersGate` already used) or, for the ordering form,
+when the barista's own shop-open toggle is off. Live updates use htmx
+polling (`hx-trigger="every 10s"`, matching
+`public-src/views/orders.js`'s own `setInterval(loadOrdersView, 10000)`
+cadence) rather than the htmx SSE extension: evaluating that first (per the
+architecture note in this phase's dispatch brief) found two concrete
+blockers, not just "more scope than this package covers" — the vendored
+`static/vendor/htmx-sse-ext-2.0.10.js`'s `hx-trigger="sse:*"` handling
+parses the trigger but never calls `source.addEventListener` for it (dead
+code in this vendored version; only its `sse-swap` mechanism is fully
+wired), and `sse-swap` itself needs the SSE payload to be raw HTML while
+`internal/sse.Handler`'s `send()` unconditionally `json.Marshal`s
+`Event.Data` for every event on the shared `/api/events` stream (`live.js`'s
+own JSON consumers depend on that encoding staying JSON). A real SSE
+upgrade — either patching the vendored extension or teaching `sse.Handler`
+to pass a pre-rendered HTML payload through unmarshaled for one event type —
+is a legitimate follow-up, deliberately not attempted half-done in this
+phase; see `templates/orders.templ`'s own doc comment for the same
+reasoning in-code. Every other page (maintenance) is still served by the
+untouched Node frontend (`public-src/`) — see "Frontend" for exactly what
+is and isn't cut over yet.
 
 ## Why
 
@@ -305,7 +331,7 @@ go/
     backup/                routes/backup.js + lib/backup-crypto.js (implemented, Phase 1f)
     ha/                    lib/ha.js — SendNotify/GetNotifyServices/GetPersons/GetSwitchState/CallHaService/GetHaLanguage (implemented, Phase 1f, extended Phase 1g)
     system/                routes/system.js's token/status/live/preheat/version/demo endpoints + lib/poll.js + lib/preheat.js (implemented, Phase 1g; token/status added Phase 3b)
-    web/                   templ+htmx+Alpine frontend: GET /shots (Phase 2a) + the Library domain's pages (Phase 2b) + Machines/Live (Phase 2c)
+    web/                   templ+htmx+Alpine frontend: GET /shots (Phase 2a) + the Library domain's pages (Phase 2b) + Machines/Live (Phase 2c) + Orders/Menu (Phase 2d)
       templates/             .templ sources (own package — see internal/web/doc.go)
       static/                vendored htmx/Alpine/Chart.js + style.css + live.js, embedded via embed.FS
   Makefile                 `make generate`/`build`/`vet`/`test`/`fmt-check` — templ codegen first, every target (Phase 2a)
@@ -314,9 +340,10 @@ go/
 Every backend package under `internal/` is implemented — see
 `go/internal/system/doc.go` for the small, deliberate set of
 `routes/system.js` routes it doesn't route. `internal/web` is the one
-package still growing (Phase 2a/2b/2c together cover Shots, the Library
-domain's six pages, Machines, and the live shot chart; orders/maintenance
-remain to be ported in a later phase).
+package still growing (Phase 2a/2b/2c/2d together cover Shots, the Library
+domain's six pages, Machines, the live shot chart, and now the Orders
+domain's barista queue + customer ordering form; maintenance remains to be
+ported in a later phase).
 
 ## Frontend
 
@@ -336,7 +363,7 @@ the Docker image (build or runtime); the only external browser runtime is
 htmx (~50 KB) plus Alpine (~54 KB) plus, on the one page that needs it,
 Chart.js (~200 KB), all vendored locally, never loaded from a CDN.
 
-**Status (Phase 2a/2b/2c, #901):** the tooling foundation plus three
+**Status (Phase 2a/2b/2c/2d, #901):** the tooling foundation plus four
 domains' pages. Phase 2a's `GET /shots` is a shot-history list built on
 `internal/shots`' existing Phase 1c service layer (not its REST handlers —
 see `internal/web/doc.go`); it supports trashing a shot (with an Alpine
@@ -351,12 +378,20 @@ later phase. Phase 2c adds the Machines domain: `GET /machines` (with
 set-default and Alpine-confirmed delete htmx actions, built on
 `internal/machines.Registry` directly) and `GET /live`, the live shot chart
 — the one page that breaks from the htmx-fragment-swap pattern the other
-pages establish, per the paragraph above. Together Phase 2a/2b's pages are
-the *template* every later page follows, the same role `internal/shots`
-played for the REST domain packages; `public-src/`'s Node-served SPA
-remains the only frontend Home Assistant or a standalone install actually
-sees until a later phase flips that switch — none of Phase 2a/2b/2c is
-itself a cutover.
+pages establish, per the paragraph above. Phase 2d adds the Orders domain:
+`GET /orders` (the barista queue, with accept/complete/decline htmx actions,
+whole-queue-fragment re-renders since accepting/declining moves an order
+between sections — the same convention Phase 2c's set-default action
+established) and `GET /menu` (the customer ordering form, its one write
+action `POST /menu/order` built on `PlaceOrder`) — the first pages in this
+package to poll (`hx-trigger="every 10s"`) rather than either the plain
+htmx-fragment pattern or Phase 2c's vanilla-JS SSE consumer; see the
+"Status" section above for exactly why SSE was evaluated and deferred
+rather than half-wired. Together Phase 2a/2b's pages are the *template*
+every later page follows, the same role `internal/shots` played for the
+REST domain packages; `public-src/`'s Node-served SPA remains the only
+frontend Home Assistant or a standalone install actually sees until a later
+phase flips that switch — none of Phase 2a/2b/2c/2d is itself a cutover.
 
 **Codegen:** `.templ` sources live under `internal/web/templates/` and are
 NOT valid Go until `templ generate` runs, which writes a `_templ.go` next

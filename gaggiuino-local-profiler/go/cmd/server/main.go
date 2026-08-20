@@ -122,6 +122,17 @@ func main() {
 	ordersHandlers := orders.NewHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
 	ordersHandlers.RegisterRoutes(mux)
 
+	// Phase 2d (#901): the Orders domain's Go frontend pages — the barista
+	// queue (GET /orders, with accept/complete/decline htmx actions) and the
+	// customer ordering form (GET /menu, with its one write action) — built
+	// on the same orders.Repository/Service dependencies the JSON API above
+	// uses, via its own *orders.Service instance (see
+	// internal/web/handlers_orders.go's own doc comment for why a second
+	// instance, not ordersHandlers' internal one). Same
+	// registration-outside-/api/ auth model as every other web.*Handlers.
+	webOrdersHandlers := web.NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry)
+	webOrdersHandlers.RegisterRoutes(mux)
+
 	// Phase 1g (#901): the background polling loop that backs
 	// GET /api/machine/status, GET /api/live/data, GET/POST /api/preheat*,
 	// and the live-snapshot/preheat-update SSE events — see
