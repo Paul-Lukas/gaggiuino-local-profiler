@@ -203,3 +203,20 @@ func TestMaintenanceLog_PostAndDelete(t *testing.T) {
 		t.Errorf("delete-again status = %d; want 404", rec.Code)
 	}
 }
+
+// TestMaintenanceLog_PostRequiresTask_EmptyBody guards against a
+// Go-migration regression (#901, the flip side of
+// TestTaskDone_NoBodyIsNotAnError): POST /api/maintenance/log requires a
+// valid `task` field, so a genuinely empty request body (no bytes at all)
+// must still 400 with "Invalid task" -- httputil.DecodeJSONBody's io.EOF
+// tolerance (which lets task/done's bodyless case above succeed) must not
+// let this endpoint's required field silently pass validation instead.
+func TestMaintenanceLog_PostRequiresTask_EmptyBody(t *testing.T) {
+	h, _, _, _ := newTestHandlers(t)
+	mux := newMux(h)
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/maintenance/log", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d; want 400 for a bodyless request; body=%s", rec.Code, rec.Body.String())
+	}
+}

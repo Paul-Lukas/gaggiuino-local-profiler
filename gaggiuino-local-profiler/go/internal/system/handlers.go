@@ -1,28 +1,45 @@
 package system
 
 import (
-	"encoding/json"
-	"errors"
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/httputil"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ratelimit"
 )
 
 const jsonBodyLimit = 16 * 1024 // express.json({ limit: '16kb' }) — server.js's global default.
 
+// machineStatusProbeTimeout bounds GET /api/status's ?machineId live
+// reachability probe (#464) — short enough that one slow/unreachable
+// non-default machine can't make the whole status poll (glp-integration's
+// GlpDataCoordinator, every 10s) hang.
+const machineStatusProbeTimeout = 5 * time.Second
+
 // Handlers wires Poller + DemoService into net/http handlers — the REST
 // surface routes/system.js exposes for the endpoints this phase ports (see
-// doc.go for the full list of what's in vs. out of scope).
+// doc.go for the full list of what's in vs. out of scope). token is the
+// same *auth.LoadOrCreateToken result cmd/server passes to
+// auth.RequireToken — GET /api/token serves it back, and GET /api/status
+// recomputes X-GLP-Token validity itself (independent of Ingress) to decide
+// whether to include its authenticated-only fields (#803, mirrors
+// server.js's req.glpAuthenticated).
 type Handlers struct {
 	poller *Poller
 	demo   *DemoService
 	vc     *versionChecker
+	token  string
+	rl     *ratelimit.KeyedLimiter
 }
 
-func NewHandlers(poller *Poller, demo *DemoService) *Handlers {
-	return &Handlers{poller: poller, demo: demo, vc: newVersionChecker()}
+func NewHandlers(poller *Poller, demo *DemoService, token string) *Handlers {
+	return &Handlers{poller: poller, demo: demo, vc: newVersionChecker(), token: token, rl: ratelimit.NewKeyed()}
 }
 
 // RegisterRoutes registers every route this package owns onto mux.
@@ -34,6 +51,8 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/version", h.getVersion)
 	mux.HandleFunc("POST /api/demo/seed", h.postDemoSeed)
 	mux.HandleFunc("POST /api/demo/end", h.postDemoEnd)
+	mux.HandleFunc("GET /api/token", h.getToken)
+	mux.HandleFunc("GET /api/status", h.getStatus)
 }
 
 // machineStatus ports GET /api/machine/status: the default machine's
@@ -142,6 +161,165 @@ func (h *Handlers) postDemoEnd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "isDemo": false})
 }
 
+// getToken ports GET /api/token (#803, #533): serves the API token to any
+// caller that can reach this port, rate-limited (10/min per IP) — unless
+// the expose_api_port add-on option has been explicitly turned off for a
+// direct (non-Ingress) caller.
+//
+// This deliberately reverses the older #276 restriction to HA-internal
+// callers. Direct-port access (http://<host>:8099) is how the installable
+// PWA runs, and it has no other way to obtain a token: the UI has no token
+// input, and a token is no longer cached client-side since #524. The
+// trade-off, accepted knowingly for a home LAN: anything that can reach
+// this port can obtain the token and therefore call every endpoint, so
+// token auth is no longer a boundary within the LAN by default — reaching
+// the port at all is the boundary. expose_api_port (#803) is the opt-in
+// escape hatch instead: default true (identical to the behavior above, so
+// no existing install regresses), and only when a user explicitly sets it
+// to false does this endpoint start rejecting non-Ingress callers. See
+// routes/system.js's own (longer) version of this comment for the full
+// #276/#524/#803 history, and auth.RequireToken for why this path (like
+// GET /api/status) bypasses the app-wide token-auth middleware entirely.
+func (h *Handlers) getToken(w http.ResponseWriter, r *http.Request) {
+	ip := auth.RemoteIP(r)
+	if !h.rl.Allow("token:"+ip, 10) {
+		writeError(w, http.StatusTooManyRequests, "Rate limit exceeded")
+		return
+	}
+	if !auth.IsIngressRequest(r) && !isApiPortExposed() {
+		writeError(w, http.StatusForbidden, "API token endpoint disabled for direct-port access (expose_api_port=false); use HA Ingress")
+		return
+	}
+	var apiToken any
+	if h.token != "" {
+		apiToken = h.token
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"apiToken": apiToken})
+}
+
+// getStatus ports GET /api/status (public — no auth required per
+// openapi.yaml's `security: []`): glp-integration's config-flow discovery
+// probe and every GlpDataCoordinator poll (every 10s) depend on this
+// endpoint responding successfully, making it the actual bootstrap
+// dependency doc.go's earlier scope cut had missed (#901 Phase 3b).
+//
+// Sensitive fields (machineUrl/machineHostname/lastSyncError/
+// lastMachineError/switchEntity/isDemo) are only included when the request
+// carries a valid X-GLP-Token — recomputed here independent of Ingress,
+// exactly matching server.js's req.glpAuthenticated (set once, before the
+// Ingress bypass, from the header alone; Ingress makes the middleware let
+// the request through, it does NOT make req.glpAuthenticated true).
+//
+// Deliberately always null/zero here, pending a future sync-engine phase
+// (see doc.go's "Deliberately not ported" — lib/sync.js): lastSync,
+// syncRetryCount, lastSyncError. Nothing in this Go port tracks the
+// shot-history sync loop those three describe yet; they're present in the
+// response (matching openapi.yaml's Status schema) so a client parsing
+// them doesn't break, just permanently at their zero value until that
+// engine exists.
+func (h *Handlers) getStatus(w http.ResponseWriter, r *http.Request) {
+	registry := h.poller.registry
+
+	shotCount, err := h.demo.shots.Count()
+	if err != nil {
+		shotCount = 0
+	}
+
+	installID, err := db.EnsureInstallID(h.demo.db)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+
+	defaultMachine, err := registry.GetDefaultMachine()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	var defaultHost string
+	if defaultMachine != nil {
+		defaultHost = defaultMachine.Host
+	}
+	machineURL, machineHostname := apiURLAndHostnameFor(defaultHost)
+
+	info := h.poller.StatusInfo()
+	snap := h.poller.Runtime().Get()
+	machineReachable := info.MachineReachable
+	lastMachineError := info.LastMachineError
+
+	// #464: ?machineId for a non-default machine live-probes THAT machine
+	// (same adapter.GetStatus() call POST /api/machines/:id/test uses)
+	// instead of describing the default one. No machineId, or one that
+	// resolves back to the default machine, keeps the behavior above
+	// unchanged — this endpoint is polled unparameterized by every other
+	// caller (glp-integration included).
+	if raw := r.URL.Query().Get("machineId"); raw != "" {
+		if id, perr := strconv.ParseInt(raw, 10, 64); perr == nil {
+			if requested, rerr := registry.ResolveMachine(&id); rerr == nil && requested != nil && !requested.IsDefault {
+				machineHostname = hostnameOnly(requested.Host)
+				if adapter, aerr := h.poller.adapters.GetAdapter(requested); aerr == nil {
+					ctx, cancel := context.WithTimeout(r.Context(), machineStatusProbeTimeout)
+					_, serr := adapter.GetStatus(ctx, requested)
+					cancel()
+					if serr == nil {
+						reachable := true
+						machineReachable = &reachable
+						lastMachineError = nil
+					} else {
+						reachable := false
+						machineReachable = &reachable
+						msg := serr.Error()
+						lastMachineError = &msg
+					}
+				}
+			}
+		}
+	}
+
+	machinesList, err := registry.ListMachines()
+	if err != nil {
+		machinesList = nil
+	}
+
+	resp := map[string]any{
+		"shotCount":                   shotCount,
+		"lastSync":                    nil,
+		"syncRetryCount":              0,
+		"machineVersion":              info.CachedMachineVersion,
+		"syncInterval":                loadSyncIntervalMinutes(),
+		"haConnected":                 h.poller.ha.Enabled(),
+		"glpVersion":                  glpVersion,
+		"ordersFeature":               isOrdersEnabled(),
+		"exposeApiPort":               isApiPortExposed(),
+		"machineReachable":            machineReachable,
+		"lastMachineSuccess":          info.LastMachineSuccess,
+		"machineOn":                   snap.MachineOn,
+		"machineOnSince":              snap.SwitchOnAt,
+		"legacyMachineOptionsPending": hasUnconfirmedLegacyMachineOptions(),
+		"installId":                   installID,
+		"machines":                    buildStatusMachines(machinesList, machineReachable, snap.MachineOn),
+	}
+	if devBuild := os.Getenv("GLP_DEV_BUILD"); devBuild != "" {
+		resp["devBuild"] = devBuild
+	}
+
+	// Sensitive fields only exposed to authenticated callers (H1).
+	if auth.IsTokenValid(h.token, r.Header.Get("X-GLP-Token")) {
+		resp["machineUrl"] = machineURL
+		resp["machineHostname"] = machineHostname
+		resp["lastSyncError"] = nil
+		resp["lastMachineError"] = lastMachineError
+		var switchEntity any
+		if entity := h.poller.defaultSwitchEntity(); entity != "" {
+			switchEntity = entity
+		}
+		resp["switchEntity"] = switchEntity
+		resp["isDemo"] = h.demo.IsDemoActive()
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // ── response/body helpers (see internal/httputil: WriteJSON/WriteError were
 // byte-identical copies across every domain package's handlers.go; this
 // package's own internalError stays a one-line wrapper so every call site
@@ -157,15 +335,8 @@ func internalError(w http.ResponseWriter, err error) {
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request) (map[string]any, bool) {
-	r.Body = http.MaxBytesReader(w, r.Body, jsonBodyLimit)
-	var body map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
-			writeError(w, http.StatusRequestEntityTooLarge, "request entity too large")
-		} else {
-			writeError(w, http.StatusBadRequest, "Invalid JSON body")
-		}
+	body, ok := httputil.DecodeJSONBody[map[string]any](w, r, jsonBodyLimit)
+	if !ok {
 		return nil, false
 	}
 	if body == nil {
@@ -177,7 +348,11 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request) (map[string]any, boo
 // decodeOptionalJSONBody ports internal/orders/handlers.go's own helper of
 // the same name: a request body that's allowed to be entirely absent
 // (POST /api/preheat/ready-by's Node handler reads `req.body || {}`,
-// tolerant of no body at all) decodes to {} instead of a 400.
+// tolerant of no body at all) decodes to {} instead of a 400. decodeJSONBody
+// itself is now equally EOF-tolerant (httputil.DecodeJSONBody), so this
+// ContentLength==0 short-circuit is no longer load-bearing -- kept as a
+// distinct name at this call site for readability (it documents that an
+// absent body is expected/fine here), not because the behavior differs.
 func decodeOptionalJSONBody(w http.ResponseWriter, r *http.Request) (map[string]any, bool) {
 	if r.ContentLength == 0 {
 		return map[string]any{}, true

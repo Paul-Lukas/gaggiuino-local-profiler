@@ -94,6 +94,48 @@ func TestMenu_CreateRequiresName(t *testing.T) {
 	}
 }
 
+// TestMenu_CreateRequiresName_EmptyBody guards against a Go-migration
+// regression (#901, the same class of bug fixed for POST
+// /api/maintenance/{task}/done): a genuinely empty request body (no bytes
+// at all, distinct from `mustMarshal(t, map[string]any{})`'s literal `{}`
+// above) must still 400 with "name required" for an endpoint with a
+// required field -- httputil.DecodeJSONBody's io.EOF tolerance must not
+// let the required-field check get skipped just because there was nothing
+// to parse.
+func TestMenu_CreateRequiresName_EmptyBody(t *testing.T) {
+	h, _, _ := newTestHandlers(t)
+	mux := newMux(h)
+	rec := doJSON(t, mux, http.MethodPost, "/api/orders/menu", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d; want 400 for a bodyless create; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestMenu_Update_NoBodyIsNotAnError guards the flip side: PUT
+// /api/orders/menu/{id} is a partial-update merge with no required fields,
+// so a genuinely empty body must tolerate as {} (a no-op update) rather
+// than 400ing on it.
+func TestMenu_Update_NoBodyIsNotAnError(t *testing.T) {
+	h, _, _ := newTestHandlers(t)
+	mux := newMux(h)
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/orders/menu", mustMarshal(t, map[string]any{"name": "Flat White"}))
+	item := decodeBody(t, rec.Body.Bytes())
+	id, _ := item["id"].(string)
+	if id == "" {
+		t.Fatalf("expected id in created item: %+v", item)
+	}
+
+	rec = doJSON(t, mux, http.MethodPut, "/api/orders/menu/"+id, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 for a bodyless update; body=%s", rec.Code, rec.Body.String())
+	}
+	updated := decodeBody(t, rec.Body.Bytes())
+	if updated["name"] != "Flat White" {
+		t.Fatalf("unexpected item after bodyless update: %+v", updated)
+	}
+}
+
 // ── Settings ─────────────────────────────────────────────────────────────
 
 func TestSettings_GetPost(t *testing.T) {

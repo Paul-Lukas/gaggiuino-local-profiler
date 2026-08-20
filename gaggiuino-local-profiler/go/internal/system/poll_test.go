@@ -65,7 +65,7 @@ func TestMachineStatus_AvailableAndStale(t *testing.T) {
 	fake.setStatus(okStatus(t, `{}`, 93.5, 94, 9, 18.2, false, "Espresso", 1), nil)
 	p, sqlDB := newTestPoller(t, fake)
 	demo := NewDemoService(sqlDB, nil, nil)
-	h := NewHandlers(p, demo)
+	h := NewHandlers(p, demo, testAPIToken)
 	mux := newSystemMux(h)
 
 	// Before any poll: available:false.

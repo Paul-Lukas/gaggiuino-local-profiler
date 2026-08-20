@@ -12,6 +12,8 @@ package httputil
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"log"
 	"net/http"
 )
@@ -45,4 +47,66 @@ func WriteError(w http.ResponseWriter, status int, message string) {
 func InternalError(w http.ResponseWriter, domain string, err error) {
 	log.Printf("%s: internal error: %v", domain, err)
 	WriteError(w, http.StatusInternalServerError, "Internal server error")
+}
+
+// DecodeJSONBody decodes r's body (capped at limit bytes) into a value of
+// type T, tolerating a genuinely empty body (io.EOF) as T's zero value
+// instead of an error — matching Express's own req.body defaulting to {}
+// for a bodyless request under server.js's global express.json() middleware.
+// A non-empty but malformed body still writes 400 "Invalid JSON body"; an
+// oversized body writes 413 "request entity too large". This was
+// independently duplicated (byte-for-byte except for the EOF handling) in
+// every domain package's own decodeJSONBody(w, r) (map[string]any, bool) —
+// library, machines (see DecodeJSONBodyInto below for its pointer variant),
+// orders, shots, system, maintenance — until #901's Phase 3b code review
+// found the same latent "empty body 400s" bug (already fixed once for
+// maintenance's POST /api/maintenance/{task}/done, see that commit) waiting
+// to bite every other domain's optional-body endpoint. Callers whose
+// endpoint requires specific fields get no free validation from this —
+// same as Node, where express.json() never enforces required fields either
+// — so each such call site must keep checking for its own required fields
+// after a successful decode (see e.g. internal/library's "name required"
+// checks); decodeJSONBody returning {} on an empty body doesn't change that.
+func DecodeJSONBody[T any](w http.ResponseWriter, r *http.Request, limit int64) (T, bool) {
+	var body T
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if errors.Is(err, io.EOF) {
+			return body, true
+		}
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			WriteError(w, http.StatusRequestEntityTooLarge, "request entity too large")
+		} else {
+			WriteError(w, http.StatusBadRequest, "Invalid JSON body")
+		}
+		var zero T
+		return zero, false
+	}
+	return body, true
+}
+
+// DecodeJSONBodyInto is DecodeJSONBody's pointer-target counterpart, for
+// callers that pre-populate v with defaults before decoding (internal/machines'
+// decodeJSONBody(w, r, v) callers construct a struct literal with its own
+// zero-value-but-meaningful defaults, then decode into &that — a fresh T
+// returned by value, as DecodeJSONBody does, would discard those defaults).
+// Already tolerated a genuinely empty body as "v keeps its defaults" before
+// this extraction (internal/machines never had the #901 empty-body bug);
+// unified here purely to remove the duplication, behavior unchanged.
+func DecodeJSONBodyInto(w http.ResponseWriter, r *http.Request, limit int64, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		if errors.Is(err, io.EOF) {
+			return true
+		}
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			WriteError(w, http.StatusRequestEntityTooLarge, "request entity too large")
+		} else {
+			WriteError(w, http.StatusBadRequest, "Invalid JSON body")
+		}
+		return false
+	}
+	return true
 }

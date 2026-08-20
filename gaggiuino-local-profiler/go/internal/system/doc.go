@@ -10,12 +10,22 @@
 // (startLivePolling/stopLivePolling/pollLive/pollViaGaggiuinoStatus,
 // checkAndApplyMachinePower/backgroundHaCheck) plus lib/preheat.js's
 // buildPreheatResponse/setReadyByTarget/isTempStable/save-load state and
-// the ready-by auto turn-on watcher (_checkReadyByPreheat).
+// the ready-by auto turn-on watcher (_checkReadyByPreheat). Phase 3b
+// (#901) added GET /api/token and GET /api/status: Phase 1g's own "not
+// required to make the endpoints above correct" reasoning for deferring
+// them turned out wrong once verified against a real glp-integration
+// install — GET /api/token is the ONLY way any consumer (glp-integration's
+// GlpAuth, the installable PWA) ever obtains a working X-GLP-Token, and
+// GET /api/status is glp-integration's config-flow discovery probe AND
+// every GlpDataCoordinator poll's first call — without both, nothing
+// downstream of Phase 1g's own endpoints was ever reachable by a real
+// client. See handlers.go's getToken/getStatus doc comments for exactly
+// which fields those two report and which (lastSync/syncRetryCount/
+// lastSyncError) are still permanently null/0 pending a future sync-engine
+// phase.
 //
-// Explicitly out of this phase's scope (not in the task brief's endpoint
-// list, and NOT required to make the endpoints above correct) —
-// GET /api/status, GET /api/token, GET/POST /api/switch(/toggle),
-// POST /api/sync, GET /api/openapi.json, GET /api/menu (that one is
+// Still explicitly out of scope — GET/POST /api/switch(/toggle), POST
+// /api/sync, GET /api/openapi.json, GET /api/menu (that one is
 // internal/orders' GetMenu already), and the H2 debug-only
 // GET /api/debug/machine. These remain unrouted; a future pass can add
 // them without touching anything this phase built, since none of the
@@ -34,11 +44,22 @@
 //	             pure functions, unit-tested without any I/O.
 //	poll.go      Poller — lib/poll.js's polling loop + checkAndApplyMachinePower/
 //	             backgroundHaCheck, plus lib/state.js's module-level
-//	             fields this package needs (pollGlobalState).
+//	             fields this package needs (pollGlobalState), plus
+//	             StatusInfo() (Phase 3b) snapshotting the subset GET
+//	             /api/status reads.
 //	preheat.go   lib/preheat.js: buildPreheatResponse, SetReadyByTarget,
 //	             checkReadyByPreheat, save/load preheat_state.json.
 //	options.go   loadPreheatMinutes() — a narrow options.json read, same
-//	             pattern as internal/orders/options.go's isOrdersEnabled().
+//	             pattern as internal/orders/options.go's isOrdersEnabled();
+//	             Phase 3b added the same narrow-read pattern for
+//	             isApiPortExposed()/loadSyncIntervalMinutes()/its own
+//	             isOrdersEnabled() duplicate, all GET /api/status fields.
+//	status.go    Phase 3b: GET /api/status's pure-logic pieces —
+//	             statusMachine/buildStatusMachines (the `machines` array),
+//	             apiURLAndHostnameFor/hostnameOnly (machineUrl/
+//	             machineHostname string formatting), and
+//	             hasUnconfirmedLegacyMachineOptions (a documented stub —
+//	             see its own doc comment for why).
 //	version.go   lib/version-check.js — GET /api/version's GitHub-release
 //	             check.
 //	demo.go      lib/services/DemoService.js + lib/demo-seed.js — POST
@@ -95,7 +116,10 @@
 //     fetchMachineVersion is a *fallback path* for when polling itself
 //     isn't running, e.g. switch off). None of them are reachable from any
 //     endpoint this phase ports; the shot-history sync engine is its own
-//     future phase.
+//     future phase. GET /api/status's lastSync/syncRetryCount/
+//     lastSyncError fields (Phase 3b, #901) are consequently always
+//     null/0 in this Go port — they describe exactly this unported engine
+//     — see handlers.go's getStatus doc comment.
 //   - lib/connectivity-stats.js's rolling-window debug-log summary
 //     (recordConnectivity/summarizeConnectivity) — pure logging
 //     diagnostics, not part of any response contract.
@@ -113,10 +137,16 @@
 //     this package (see below) for its own shop-broadcast — adding the
 //     reverse dependency too, in the same phase, would need a second round
 //     of callback plumbing this phase's budget didn't cover. Tracked as a
-//     follow-up alongside GET /api/status/GET /api/switch above.
-//   - GET /api/status, GET /api/token, GET/POST /api/switch(/toggle),
-//     POST /api/sync, GET /api/openapi.json, GET /api/debug/machine — see
-//     "Scope" above.
+//     follow-up alongside GET/POST /api/switch above.
+//   - lib/machines/options-adoption.js's adoptOptionChanges() (the write
+//     side of reconciling a legacy machine_host/switch_entity add-on
+//     option into the registry) — GET /api/status's
+//     legacyMachineOptionsPending field (Phase 3b) is consequently a
+//     documented always-false stub; see status.go's
+//     hasUnconfirmedLegacyMachineOptions doc comment for why porting the
+//     read side alone isn't meaningful without it.
+//   - GET/POST /api/switch(/toggle), POST /api/sync, GET
+//     /api/openapi.json, GET /api/debug/machine — see "Scope" above.
 //
 // # internal/orders' shop-broadcast (closed in this phase)
 //

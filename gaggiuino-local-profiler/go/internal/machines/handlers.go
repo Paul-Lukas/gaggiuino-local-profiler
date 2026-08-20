@@ -1,7 +1,6 @@
 package machines
 
 import (
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -109,20 +108,7 @@ func internalError(w http.ResponseWriter, err error) {
 // `{}`, matching Express's req.body ?? {} convention throughout
 // routes/machine-control.js).
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, jsonBodyLimit)
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		if errors.Is(err, io.EOF) {
-			return true // empty body — v keeps its zero value
-		}
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
-			writeError(w, http.StatusRequestEntityTooLarge, "request entity too large")
-		} else {
-			writeError(w, http.StatusBadRequest, "Invalid JSON body")
-		}
-		return false
-	}
-	return true
+	return httputil.DecodeJSONBodyInto(w, r, jsonBodyLimit, v)
 }
 
 // readRawJSONBody reads r's body as raw bytes (bounded to jsonBodyLimit)

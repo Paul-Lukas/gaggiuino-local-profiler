@@ -276,3 +276,40 @@ func TestHandlers_MachineProfileCRUD_EndToEnd(t *testing.T) {
 		t.Fatalf("expected an empty remaining list after deleting the only profile, got %+v", deleteResult)
 	}
 }
+
+// TestDecodeJSONBody_EmptyBodyKeepsDefaults and
+// TestDecodeJSONBody_MalformedBodyStill400s pin decodeJSONBody's behavior
+// (#901's httputil.DecodeJSONBodyInto extraction) at the unit level rather
+// than through a full HTTP endpoint: this package's decodeJSONBody already
+// tolerated a genuinely empty body before the #901 dedup (unlike every
+// other domain's own decodeJSONBody, which all 400ed on it) -- these two
+// tests prove the extraction into internal/httputil didn't change that
+// behavior, without needing a working machine adapter/registry fixture
+// just to reach a POST /api/machine/* handler.
+func TestDecodeJSONBody_EmptyBodyKeepsDefaults(t *testing.T) {
+	body := struct {
+		Foo string `json:"foo"`
+	}{Foo: "default"}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/x", nil)
+	if !decodeJSONBody(rec, req, &body) {
+		t.Fatalf("decodeJSONBody returned false for an empty body; want true (tolerant, #901)")
+	}
+	if body.Foo != "default" {
+		t.Fatalf("body.Foo = %q, want preserved default %q", body.Foo, "default")
+	}
+}
+
+func TestDecodeJSONBody_MalformedBodyStill400s(t *testing.T) {
+	var body struct {
+		Foo string `json:"foo"`
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader("{not valid json"))
+	if decodeJSONBody(rec, req, &body) {
+		t.Fatalf("decodeJSONBody returned true for malformed JSON; want false (400)")
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}

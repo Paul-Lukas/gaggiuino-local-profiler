@@ -96,3 +96,67 @@ func TestLoadPreheatMinutes_FallsBackWhenFileMissing(t *testing.T) {
 		t.Fatalf("loadPreheatMinutes() = %d, want 12 (GLP_PREHEAT_TIME)", got)
 	}
 }
+
+// TestIsApiPortExposed_DefaultsOpen is the #803 regression: a missing
+// options.json, one that doesn't parse, and a valid one that simply lacks
+// the expose_api_port key (an install predating #803) must all resolve to
+// true — only a literal JSON `false` may close it. See #901's getToken doc
+// comment for why an accidental default-closed here would repeat the
+// v2.19.1 regression.
+func TestIsApiPortExposed_DefaultsOpen(t *testing.T) {
+	resetPreheatMinutesCacheForTest(t)
+
+	defaultOptionsFile = filepath.Join(t.TempDir(), "does-not-exist.json")
+	t.Setenv("GLP_EXPOSE_API_PORT", "")
+	if !isApiPortExposed() {
+		t.Error("missing options.json: isApiPortExposed() = false, want true (default open)")
+	}
+
+	path := filepath.Join(t.TempDir(), "options.json")
+	if err := os.WriteFile(path, []byte(`{"sync_interval":5}`), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	defaultOptionsFile = path
+	if !isApiPortExposed() {
+		t.Error("expose_api_port key absent: isApiPortExposed() = false, want true")
+	}
+
+	if err := os.WriteFile(path, []byte(`{"expose_api_port":false}`), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if isApiPortExposed() {
+		t.Error("expose_api_port:false: isApiPortExposed() = true, want false")
+	}
+
+	t.Setenv("GLP_EXPOSE_API_PORT", "false")
+	defaultOptionsFile = filepath.Join(t.TempDir(), "still-does-not-exist.json")
+	if isApiPortExposed() {
+		t.Error("GLP_EXPOSE_API_PORT=false with no options.json: isApiPortExposed() = true, want false")
+	}
+}
+
+func TestLoadSyncIntervalMinutes(t *testing.T) {
+	resetPreheatMinutesCacheForTest(t)
+
+	defaultOptionsFile = filepath.Join(t.TempDir(), "does-not-exist.json")
+	t.Setenv("GLP_SYNC_INTERVAL", "")
+	if got := loadSyncIntervalMinutes(); got != 5 {
+		t.Fatalf("missing file: loadSyncIntervalMinutes() = %d, want 5", got)
+	}
+
+	path := filepath.Join(t.TempDir(), "options.json")
+	if err := os.WriteFile(path, []byte(`{"sync_interval":15}`), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	defaultOptionsFile = path
+	if got := loadSyncIntervalMinutes(); got != 15 {
+		t.Fatalf("loadSyncIntervalMinutes() = %d, want 15", got)
+	}
+
+	if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if got := loadSyncIntervalMinutes(); got != 5 {
+		t.Fatalf("sync_interval key absent: loadSyncIntervalMinutes() = %d, want 5 (no env fallback once the file itself parses)", got)
+	}
+}

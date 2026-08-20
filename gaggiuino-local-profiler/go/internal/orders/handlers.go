@@ -2,7 +2,6 @@ package orders
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -144,15 +143,8 @@ func internalError(w http.ResponseWriter, err error) {
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request) (map[string]any, bool) {
-	r.Body = http.MaxBytesReader(w, r.Body, jsonBodyLimit)
-	var body map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
-			writeError(w, http.StatusRequestEntityTooLarge, "request entity too large")
-		} else {
-			writeError(w, http.StatusBadRequest, "Invalid JSON body")
-		}
+	body, ok := httputil.DecodeJSONBody[map[string]any](w, r, jsonBodyLimit)
+	if !ok {
 		return nil, false
 	}
 	if body == nil {

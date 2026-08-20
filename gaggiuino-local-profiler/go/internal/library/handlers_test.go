@@ -78,6 +78,45 @@ func TestBean_CreateRequiresName(t *testing.T) {
 	}
 }
 
+// TestBean_CreateRequiresName_EmptyBody guards against a Go-migration
+// regression (#901): a genuinely empty request body (no bytes at all,
+// distinct from TestBean_CreateRequiresName's literal `{}` above) must
+// still 400 with "name required" -- httputil.DecodeJSONBody's io.EOF
+// tolerance must not let the required-field check get skipped just
+// because there was nothing to parse.
+func TestBean_CreateRequiresName_EmptyBody(t *testing.T) {
+	h, _, _ := newTestHandlers(t)
+	mux := newMux(h)
+	rec := doJSON(t, mux, http.MethodPost, "/api/library/bean", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for a bodyless create; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestBean_Update_NoBodyIsNotAnError guards the flip side: PUT
+// /api/library/bean/{id} is a partial-update merge with no required
+// fields, so a genuinely empty body must tolerate as {} (a no-op update)
+// rather than 400ing on it -- see maintenance's
+// TestTaskDone_NoBodyIsNotAnError (#901) for the original instance of this
+// bug and httputil.DecodeJSONBody's doc comment for the shared fix.
+func TestBean_Update_NoBodyIsNotAnError(t *testing.T) {
+	h, _, _ := newTestHandlers(t)
+	mux := newMux(h)
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/library/bean", mustMarshal(t, map[string]any{"name": "Kenya AA"}))
+	bean := decodeBody(t, rec.Body.Bytes())
+	id := int64(bean["id"].(float64))
+
+	rec = doJSON(t, mux, http.MethodPut, "/api/library/bean/"+itoa(id), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for a bodyless update; body=%s", rec.Code, rec.Body.String())
+	}
+	updated := decodeBody(t, rec.Body.Bytes())
+	if updated["name"] != "Kenya AA" {
+		t.Fatalf("unexpected bean after bodyless update: %+v", updated)
+	}
+}
+
 func TestBean_CreateUpdateDeleteLifecycle(t *testing.T) {
 	h, _, _ := newTestHandlers(t)
 	mux := newMux(h)

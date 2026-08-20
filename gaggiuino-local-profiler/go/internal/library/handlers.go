@@ -1,8 +1,6 @@
 package library
 
 import (
-	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -127,15 +125,8 @@ func internalError(w http.ResponseWriter, err error) {
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request) (Entity, bool) {
-	r.Body = http.MaxBytesReader(w, r.Body, jsonBodyLimit)
-	var body Entity
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		var mbe *http.MaxBytesError
-		if errors.As(err, &mbe) {
-			writeError(w, http.StatusRequestEntityTooLarge, "request entity too large")
-		} else {
-			writeError(w, http.StatusBadRequest, "Invalid JSON body")
-		}
+	body, ok := httputil.DecodeJSONBody[Entity](w, r, jsonBodyLimit)
+	if !ok {
 		return nil, false
 	}
 	if body == nil {

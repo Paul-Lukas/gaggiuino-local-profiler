@@ -6,7 +6,7 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 1g (system domain + background polling — every REST domain package from the migration plan now exists and is routed)
+## Status: Phase 3b (system domain + background polling + the two bootstrap-critical endpoints Phase 1g had deferred — every REST domain package from the migration plan now exists and is routed)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
 packages everything else builds on. Phase 1b added a real, listening HTTP
@@ -187,23 +187,39 @@ library domain on top of that same pattern:
   HA-notify-broadcast deferral flagged in Phase 1f, wired via a
   `PreheatInfoFunc` callback (not a direct import, which would close a
   package cycle against this domain's own still-deferred
-  `_checkPreheatNotify`). Deliberately NOT ported: `lib/sync.js` entirely
-  (the shot-history sync engine — its own future phase),
-  `lib/connectivity-stats.js`'s debug-log summary, `_checkPreheatNotify`
-  (the barista "preheat ready" push notification — needs a read dependency
-  on `internal/orders`' settings this phase's budget didn't cover), and a
-  handful of `routes/system.js` routes not in this phase's endpoint list
-  (`GET /api/status`, `GET /api/token`, `GET`/`POST /api/switch(/toggle)`,
-  `POST /api/sync`, `GET /api/openapi.json`, `GET /api/debug/machine`) —
-  see `internal/system/doc.go`'s "Scope" section for the full reasoning on
+  `_checkPreheatNotify`). Phase 3b (#901) added `GET /api/token` and
+  `GET /api/status`, found missing when verifying a standalone Go backend
+  against a real `glp-integration` install: `GET /api/token` is the only
+  way any consumer (glp-integration's `GlpAuth`, the installable PWA) ever
+  obtains a working `X-GLP-Token`, and `GET /api/status` is
+  glp-integration's discovery probe and every `GlpDataCoordinator` poll's
+  first call — Phase 1g's own "not required to make the endpoints above
+  correct" scope cut had missed that both are load-bearing for every real
+  client, not just this phase's own six endpoints. `GET /api/status`'s
+  `lastSync`/`syncRetryCount`/`lastSyncError` fields stay permanently
+  null/0 in this Go port, same reason as the next paragraph.
+  Deliberately NOT ported: `lib/sync.js` entirely (the shot-history sync
+  engine — its own future phase, and the reason for the three always-null
+  fields above), `lib/connectivity-stats.js`'s debug-log summary,
+  `_checkPreheatNotify` (the barista "preheat ready" push notification —
+  needs a read dependency on `internal/orders`' settings this phase's
+  budget didn't cover), `lib/machines/options-adoption.js`'s
+  `adoptOptionChanges()` (so `GET /api/status`'s
+  `legacyMachineOptionsPending` is a documented always-false stub), and a
+  handful of `routes/system.js` routes not in any phase's endpoint list
+  (`GET`/`POST /api/switch(/toggle)`, `POST /api/sync`,
+  `GET /api/openapi.json`, `GET /api/debug/machine`) — see
+  `internal/system/doc.go`'s "Scope" section for the full reasoning on
   each.
 
 Every REST domain package named in the original migration plan now exists
-and routes the endpoints its phase brief scoped it to — see
-`internal/system/doc.go` for the small number of `routes/system.js` routes
-that remain unrouted by design, none of them depended on by anything any
-phase has built. `go build ./...`, `go vet ./...`, `gofmt -l .`, and
-`go test ./...` (including `-race`) are all green.
+and routes the endpoints its phase brief scoped it to, including the two
+bootstrap-critical endpoints (`GET /api/token`, `GET /api/status`) Phase 1g
+had originally deferred — see `internal/system/doc.go` for the small
+number of `routes/system.js` routes that remain unrouted by design, none
+of them depended on by anything any phase has built. `go build ./...`,
+`go vet ./...`, `gofmt -l .`, and `go test ./...` (including `-race`) are
+all green.
 
 ## Why
 
@@ -253,7 +269,7 @@ go/
     maintenance/           routes/maintenance.js + LibraryService/LibraryRepository's maintenance-table methods (implemented, Phase 1f)
     backup/                routes/backup.js + lib/backup-crypto.js (implemented, Phase 1f)
     ha/                    lib/ha.js — SendNotify/GetNotifyServices/GetPersons/GetSwitchState/CallHaService/GetHaLanguage (implemented, Phase 1f, extended Phase 1g)
-    system/                routes/system.js's status/live/preheat/version/demo endpoints + lib/poll.js + lib/preheat.js (implemented, Phase 1g)
+    system/                routes/system.js's token/status/live/preheat/version/demo endpoints + lib/poll.js + lib/preheat.js (implemented, Phase 1g; token/status added Phase 3b)
 ```
 
 Every package under `internal/` is now implemented — see

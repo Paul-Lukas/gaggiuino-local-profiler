@@ -19,6 +19,13 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
 )
 
+// testAPIToken is the fixed X-GLP-Token every test in this package's
+// Handlers are constructed with — a fake value (not a real
+// auth.LoadOrCreateToken result), used only so getToken/getStatus's
+// auth.IsTokenValid checks have something deterministic to compare
+// against.
+const testAPIToken = "test-token-not-a-real-secret"
+
 // newTestDB opens a throwaway on-disk SQLite DB, same fixture pattern
 // every other domain package's tests use (see e.g.
 // internal/machines/helpers_test.go's newTestRegistry).

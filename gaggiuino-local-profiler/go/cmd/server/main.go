@@ -117,7 +117,7 @@ func main() {
 	ordersHandlers.SetPreheatInfoProvider(poller.PreheatInfo)
 
 	demoService := system.NewDemoService(sqlDB, shotsRepo, libRepo)
-	systemHandlers := system.NewHandlers(poller, demoService)
+	systemHandlers := system.NewHandlers(poller, demoService, token)
 	systemHandlers.RegisterRoutes(mux)
 
 	// routes/sse.js primes a newly-connected client with the current

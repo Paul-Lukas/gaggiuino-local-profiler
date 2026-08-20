@@ -12,9 +12,10 @@ import (
 // needed; Phase 1f (orders/maintenance/backup) added the machineId-scoped
 // variants, FindAll, GetAnnotatedDoses, GetAnnotation, GetLatestID,
 // GetTrashEntry, SetTrashEntry, WipeAll and Upsert those later domains
-// actually call. Still deliberately not ported: upsertMany, getMaxId,
-// count, getAllAnnotations, getMachineId — those are import/sync-path only
-// (no HTTP route reaches them yet in any phase so far); add them alongside
+// actually call; Phase 3b (#901) added Count for GET /api/status's
+// shotCount. Still deliberately not ported: upsertMany, getMaxId,
+// getAllAnnotations, getMachineId — those are import/sync-path only (no
+// HTTP route reaches them yet in any phase so far); add them alongside
 // whichever later domain (sync/import) actually calls them.
 type Repository struct {
 	db *sql.DB
@@ -209,6 +210,19 @@ func (r *Repository) GetLatestID(machineID int64) (id int64, ok bool, err error)
 		return 0, false, fmt.Errorf("shots: getting latest id: %w", err)
 	}
 	return id, true, nil
+}
+
+// Count ports ShotRepository.js's count(): a plain `SELECT COUNT(*) FROM
+// shots`, deliberately including trashed rows (no `NOT IN (SELECT shot_id
+// FROM trash)` filter — mirrors the Node original exactly, not
+// FindAllExcludingTrash's convention). GET /api/status's shotCount field
+// (#901 Phase 3b) is its only caller.
+func (r *Repository) Count() (int, error) {
+	var n int
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM shots`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("shots: counting: %w", err)
+	}
+	return n, nil
 }
 
 // GetTrashEntry ports ShotRepository.js's getTrashEntry(shotId): a single

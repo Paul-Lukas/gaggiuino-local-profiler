@@ -138,6 +138,21 @@ func TestShotDefaults_ValidationError(t *testing.T) {
 	}
 }
 
+// TestShotDefaults_NoBodyIsNotAnError guards against a Go-migration
+// regression (#901): every field ValidateShotDefaults checks is optional,
+// so a genuinely empty request body (no bytes at all) must decode to {}
+// and save all-empty defaults, not 400 with "Invalid JSON body" --
+// httputil.DecodeJSONBody's io.EOF tolerance is what makes that possible.
+func TestShotDefaults_NoBodyIsNotAnError(t *testing.T) {
+	h, _, _ := newTestHandlers(t)
+	mux := newMux(h)
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/shots/defaults", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for a bodyless request; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // ── /api/shots/{id} ────────────────────────────────────────────────────
 
 func TestGetShot_NullForInvalidAndMissingID(t *testing.T) {
@@ -222,6 +237,23 @@ func TestAnnotate_HappyPathAndPersists(t *testing.T) {
 	annotation := toMap(ann["annotation"])
 	if annotation["coffee"] != "Bean" {
 		t.Errorf("expected persisted annotation.coffee = Bean, got %+v", annotation)
+	}
+}
+
+// TestAnnotate_NoBodyIsNotAnError guards against a Go-migration
+// regression (#901): every field ValidateAnnotation checks is optional, so
+// a genuinely empty request body (no bytes at all) must decode to {} and
+// save an empty annotation, not 400 with "Invalid JSON body".
+func TestAnnotate_NoBodyIsNotAnError(t *testing.T) {
+	h, _, sqlDB := newTestHandlers(t)
+	mux := newMux(h)
+
+	dur := int64(300)
+	insertShot(t, sqlDB, 1, 1000, &dur, "V60", nil, nil)
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/shots/1/annotate", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 for a bodyless request; body=%s", rec.Code, rec.Body.String())
 	}
 }
 

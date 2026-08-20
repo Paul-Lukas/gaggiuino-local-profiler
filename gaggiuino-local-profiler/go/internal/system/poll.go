@@ -69,15 +69,9 @@ type pollGlobalState struct {
 
 	machineReachable *bool // nil = never checked (#274)
 	// lastMachineError/lastMachineSuccess mirror lib/state.js's fields of
-	// the same name, and openapi.yaml already documents them as GET
-	// /api/status's `lastMachineError`/`lastMachineSuccess` fields — but
-	// that endpoint isn't routed by this phase (see doc.go's "Scope": out
-	// of this phase's brief, tracked as a follow-up), so nothing reads
-	// these yet. #901 code review: kept rather than deleted specifically
-	// because the capture logic below (including redactURLs' host
-	// redaction) is already correct for that documented contract; deleting
-	// it would just mean re-deriving the identical thing when /api/status
-	// is finally ported.
+	// the same name — openapi.yaml documents them as GET /api/status's
+	// `lastMachineError`/`lastMachineSuccess` fields, read via StatusInfo()
+	// (Phase 3b, #901) since that endpoint's own Go port.
 	lastMachineError     *string
 	lastMachineSuccess   *int64
 	cachedMachineVersion *string
@@ -142,6 +136,28 @@ func NewPoller(registry *machines.Registry, adapters AdapterProvider, hub *sse.H
 // Runtime exposes the default machine's RuntimeState to handlers.go
 // (GET /api/machine/status) and preheat.go.
 func (p *Poller) Runtime() *RuntimeState { return p.runtime }
+
+// StatusInfo is the subset of pollGlobalState GET /api/status reports —
+// see that struct's own field comments (lastMachineError/lastMachineSuccess
+// were kept, unread, specifically for this endpoint back in Phase 1g).
+type StatusInfo struct {
+	MachineReachable     *bool
+	LastMachineError     *string
+	LastMachineSuccess   *int64
+	CachedMachineVersion *string
+}
+
+// StatusInfo snapshots pollGlobalState's fields GET /api/status needs.
+func (p *Poller) StatusInfo() StatusInfo {
+	p.state.mu.Lock()
+	defer p.state.mu.Unlock()
+	return StatusInfo{
+		MachineReachable:     p.state.machineReachable,
+		LastMachineError:     p.state.lastMachineError,
+		LastMachineSuccess:   p.state.lastMachineSuccess,
+		CachedMachineVersion: p.state.cachedMachineVersion,
+	}
+}
 
 // Start ports server.js's startup sequence for this domain: load any
 // persisted preheat session, run one unconditional checkAndApplyMachinePower
