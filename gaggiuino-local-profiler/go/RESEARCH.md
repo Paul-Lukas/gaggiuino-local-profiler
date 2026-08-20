@@ -1,8 +1,7 @@
 # Phase 0 Research Spikes
 
-Companion to `go/README.md` and the migration plan at
-`~/.claude/plans/folgendes-m-chte-ich-als-shimmying-hartmanis.md`. Findings
-only — no code in this package depends on anything below yet.
+Companion to `go/README.md`. Findings only — no code in this package
+depends on anything below yet.
 
 ## 1. Protobuf sources for the Gaggiuino firmware protocol
 

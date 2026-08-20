@@ -16,20 +16,28 @@ client yet.
 
 ## Why
 
-Full context — motivation, target architecture, migration strategy phase by
-phase, and the non-negotiable security-parity requirements (ingress trust
-model, token auth, SSRF guards, rate limiting, the 404/501 status-code
-semantics, bool-as-string quirks glp-integration depends on) — lives in the
-migration plan:
+Replace Node/Express + better-sqlite3 with a single static Go binary
+(`net/http` + `modernc.org/sqlite`, no CGo) to eliminate the multi-arch
+`better-sqlite3` rebuild pain on Home Assistant's ARM hardware, cut the
+resource footprint, and remove the npm supply-chain surface.
 
-`~/.claude/plans/folgendes-m-chte-ich-als-shimmying-hartmanis.md`
+This is a rollout, not a rewrite-and-flip: the plan is to ship the Go
+binary first on the dev channel as an opt-in beta alongside the existing
+Node image, promote it to the stable/main add-on only once it's proven
+itself there, and keep Node as the fallback until then — no big-bang cutover.
+Two things anchor that compatibility bar:
 
-In short: replace Node/Express + better-sqlite3 with a single static Go
-binary (`net/http` + `modernc.org/sqlite`, no CGo) to eliminate the
-multi-arch `better-sqlite3` rebuild pain on Home Assistant's ARM hardware,
-cut the resource footprint, and remove the npm supply-chain surface — without
-breaking `glp-integration`, `glp-lovelace-card`, `glp-order-card`, HA
-Ingress, standalone Docker, or any existing `/data/glp.db`.
+- `openapi.yaml` at the repo root is the frozen contract — every Go endpoint
+  must match paths, methods, status codes, and response shapes exactly, so
+  `glp-integration`, `glp-lovelace-card`, and `glp-order-card` don't need to
+  care which binary answers a request.
+- The existing `/data/glp.db` SQLite file must keep opening unchanged — no
+  data migration, only schema compatibility (see `internal/db/doc.go`).
+
+Security parity with the Node app's ingress-trust model (HA Ingress vs.
+direct-port trust boundary, `X-GLP-Token` auth, SSRF guards on machine
+hosts, rate limiting) is non-negotiable and must be replicated 1:1, not
+approximated — see `internal/auth/doc.go`.
 
 ## Layout
 
@@ -41,6 +49,7 @@ go/
   internal/
     db/                    lib/db.js — schema + migrations
     auth/                  server.js's ingress-trust + token-auth + rate-limit
+    system/                routes/system.js's status/live/preheat endpoints + lib/poll.js
     sse/                   routes/sse.js — /api/events
     shots/                 routes/shots.js + ShotService/ShotRepository
     library/               routes/library/*.js + LibraryService

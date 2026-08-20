@@ -6,8 +6,6 @@
 // logic.
 //
 // Phase 0 placeholder only. This model must be replicated 1:1, not
-// "sinngemäß nachgebaut" — see the Sicherheits-Parität section of the
-// migration plan at
-// ~/.claude/plans/folgendes-m-chte-ich-als-shimmying-hartmanis.md.
-// No implementation yet.
+// "sinngemäß nachgebaut" — see go/README.md for the migration's
+// security-parity requirement. No implementation yet.
 package auth

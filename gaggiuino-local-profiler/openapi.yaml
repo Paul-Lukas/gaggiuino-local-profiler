@@ -29,6 +29,15 @@ components:
         `/data/api_token.txt`. Retrieve from `GET /api/status`.
         Requests via HA Ingress bypass this check (HA session is sufficient).
         `GET /api/status` is always public.
+    tokenQueryAuth:
+      type: apiKey
+      in: query
+      name: token
+      description: >
+        Same token as `tokenAuth`, accepted as a `?token=` query parameter
+        instead of the `X-GLP-Token` header. Only honored on `GET
+        /api/events`, since a browser-native EventSource connection can't
+        set custom headers — every other route requires the header.
 
   schemas:
 
@@ -538,6 +547,7 @@ components:
             type: object
             description: Live brew datapoint
         seq: { type: integer, description: Sequence counter — increments on each update }
+        machineReachable: { type: boolean, nullable: true, description: "#655: distinguishes a powered-off machine (false) from an idle-but-reachable one (isLive:false, machineReachable:true) — without it both looked identical" }
 
     # ── Backup ────────────────────────────────────────────────────────────
 
@@ -1612,10 +1622,17 @@ paths:
     get:
       tags: [Orders]
       summary: Orders placed by a specific HA user (max 10, most recent first)
+      description: >
+        The `X-GLP-HA-User-ID` header, when present, is preferred over the
+        `haUserId` query parameter (same precedence as `POST /api/orders`,
+        #547). The query parameter is only used as a fallback in direct-port
+        mode, where there is no HA proxy to set the header. At least one of
+        the two must resolve to a non-empty value.
       parameters:
         - name: haUserId
           in: query
-          required: true
+          required: false
+          description: Fallback when the `X-GLP-HA-User-ID` header isn't set.
           schema: { type: string }
       responses:
         "200":
@@ -2504,6 +2521,12 @@ paths:
         available unchanged — the frontend falls back to polling them if this
         stream doesn't work. Not exposed in the OpenAPI response schemas
         below since this is a raw multiplexed text stream, not JSON.
+        Auth: accepts either the usual `X-GLP-Token` header or, only on this
+        route, the token as a `?token=` query parameter — EventSource can't
+        set custom headers, so this is the one exception to header-only auth.
+      security:
+        - tokenAuth: []
+        - tokenQueryAuth: []
       responses:
         "200":
           description: "text/event-stream — see event types above"

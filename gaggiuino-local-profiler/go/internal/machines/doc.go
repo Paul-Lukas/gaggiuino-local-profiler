@@ -5,12 +5,14 @@
 // lib/machines/* adapter layer (Gaggiuino WebSocket/protobuf client,
 // GaggiMate adapter, registry.resolveMachine convention).
 //
-// The 404="feature disabled" vs. 501="adapter unsupported" status-code
-// semantics for the settings/control proxy must be preserved exactly — see
-// the migration plan's Sicherheits-Parität section at
-// ~/.claude/plans/folgendes-m-chte-ich-als-shimmying-hartmanis.md. The
-// Gaggiuino firmware protobuf schema this package's WS client will need is
-// tracked as a separate research spike — see go/RESEARCH.md.
+// The settings/control proxy's 501="adapter unsupported" status code
+// (requireSettingsProxySupport in routes/machine-control.js, returned when
+// an adapter's capabilities().settingsProxy is false, e.g. GaggiMate) must
+// be preserved exactly. This package has no "feature disabled" 404 case of
+// its own — that pattern (isOrdersEnabled) belongs to the orders package;
+// see go/internal/orders/doc.go. The Gaggiuino firmware protobuf schema
+// this package's WS client will need is tracked as a separate research
+// spike — see go/RESEARCH.md.
 //
 // Phase 0 placeholder only. No implementation yet.
 package machines
