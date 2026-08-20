@@ -79,16 +79,25 @@ type DeriveInput struct {
 	SysState   *proto.SystemStateDto
 }
 
-// DeriveResult mirrors deriveMachineState()'s return shape.
+// DeriveResult mirrors deriveMachineState()'s return shape. #901 code
+// review: Pressure/Temperature/Weight/TargetTemperature/PumpFlow used to
+// also live here as flat fields, duplicating the exact same
+// poll-tick-sourced values MachineStatus already carries (ms.Pressure :=
+// pressure, etc., below) — two representations of one value with nothing
+// enforcing they stay in sync. DeriveResult is never JSON-marshaled itself
+// (only MachineStatus is, via machineStatusResponse), so there's no API
+// compatibility reason to keep the duplicates; poll.go's
+// pollViaGaggiuinoStatus now reads result.MachineStatus.* directly instead.
+// IsBrewing/ProfileName stay flat: IsBrewing does equal
+// MachineStatus.BrewSwitchState (same reasoning would apply), but
+// ProfileName does NOT — it's the "Unknown"-defaulted display value poll.go
+// needs for liveAccumState/logging, while MachineStatus.ProfileName is the
+// nil-on-empty JSON field, a genuinely different representation, not a
+// duplicate.
 type DeriveResult struct {
-	IsBrewing         bool
-	Pressure          float64
-	Temperature       float64
-	Weight            float64
-	PumpFlow          float64
-	TargetTemperature float64
-	ProfileName       string
-	MachineStatus     MachineStatus
+	IsBrewing     bool
+	ProfileName   string
+	MachineStatus MachineStatus
 }
 
 // deriveMachineState ports lib/machine-state.js's deriveMachineState(status,
@@ -153,14 +162,9 @@ func deriveMachineState(in DeriveInput) DeriveResult {
 	}
 
 	return DeriveResult{
-		IsBrewing:         isBrewing,
-		Pressure:          pressure,
-		Temperature:       temperature,
-		Weight:            weight,
-		PumpFlow:          pumpFlow,
-		TargetTemperature: targetTemperature,
-		ProfileName:       profileName,
-		MachineStatus:     ms,
+		IsBrewing:     isBrewing,
+		ProfileName:   profileName,
+		MachineStatus: ms,
 	}
 }
 

@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/httputil"
 )
 
 const jsonBodyLimit = 16 * 1024 // express.json({ limit: '16kb' }) — server.js's global default.
@@ -140,30 +142,18 @@ func (h *Handlers) postDemoEnd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "isDemo": false})
 }
 
-// ── response/body helpers (mirrors internal/orders/handlers.go's — each
-// domain package duplicates this small set rather than sharing one, the
-// convention every phase so far has followed) ───────────────────────────
+// ── response/body helpers (see internal/httputil: WriteJSON/WriteError were
+// byte-identical copies across every domain package's handlers.go; this
+// package's own internalError stays a one-line wrapper so every call site
+// below keeps its existing internalError(w, err) shape) ──────────────────
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"Internal server error"}`))
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	w.Write(b)
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
-}
+var (
+	writeJSON  = httputil.WriteJSON
+	writeError = httputil.WriteError
+)
 
 func internalError(w http.ResponseWriter, err error) {
-	log.Printf("system: internal error: %v", err)
-	writeError(w, http.StatusInternalServerError, "Internal server error")
+	httputil.InternalError(w, "system", err)
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request) (map[string]any, bool) {

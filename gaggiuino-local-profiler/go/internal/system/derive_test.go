@@ -66,11 +66,11 @@ func TestDeriveMachineState_SensorSnapPreferredOverREST(t *testing.T) {
 	if !res.IsBrewing {
 		t.Fatal("expected IsBrewing=true (REST-sourced, unaffected by SensorSnap)")
 	}
-	if res.Temperature != 93.2 || res.Pressure != 8.8 || res.Weight != 18.4 || res.PumpFlow != 2.5 {
-		t.Errorf("expected SensorSnap values to win, got temp=%v pressure=%v weight=%v pumpFlow=%v",
-			res.Temperature, res.Pressure, res.Weight, res.PumpFlow)
-	}
 	ms := res.MachineStatus
+	if ms.Temperature != 93.2 || ms.Pressure != 8.8 || ms.Weight != 18.4 {
+		t.Errorf("expected SensorSnap values to win, got temp=%v pressure=%v weight=%v",
+			ms.Temperature, ms.Pressure, ms.Weight)
+	}
 	if ms.PumpFlow == nil || *ms.PumpFlow != 2.5 {
 		t.Errorf("MachineStatus.PumpFlow = %v, want 2.5", ms.PumpFlow)
 	}

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/httputil"
 )
 
 // This file ports routes/shots.js's Express router onto Go 1.22+'s
@@ -67,24 +69,12 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/shots/{id}/image", h.deleteImage)
 }
 
-// ── response helpers ────────────────────────────────────────────────────
+// ── response helpers (see internal/httputil) ─────────────────────────────
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"Internal server error"}`))
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	w.Write(b)
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
-}
+var (
+	writeJSON  = httputil.WriteJSON
+	writeError = httputil.WriteError
+)
 
 func withScore(shot Shot, detail ScoreDetail) Shot {
 	out := shot.clone()

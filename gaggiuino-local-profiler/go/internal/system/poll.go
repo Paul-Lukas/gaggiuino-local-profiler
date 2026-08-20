@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -59,11 +60,24 @@ type LiveData struct {
 // pollGlobalState ports the subset of lib/state.js's module-level fields
 // this package needs (as opposed to lib/machine-runtime-state.js's
 // per-machine RuntimeState) — mutex-guarded for the same reason
-// RuntimeState is (see its own header comment).
+// RuntimeState is (see its own header comment). See RuntimeState's doc
+// comment for this struct's mu's fixed lock ordering relative to
+// RuntimeState.mu (RuntimeState.mu first, this one second) — a #901
+// code-review minimal fix, not a full consolidation.
 type pollGlobalState struct {
 	mu sync.Mutex
 
-	machineReachable     *bool // nil = never checked (#274)
+	machineReachable *bool // nil = never checked (#274)
+	// lastMachineError/lastMachineSuccess mirror lib/state.js's fields of
+	// the same name, and openapi.yaml already documents them as GET
+	// /api/status's `lastMachineError`/`lastMachineSuccess` fields — but
+	// that endpoint isn't routed by this phase (see doc.go's "Scope": out
+	// of this phase's brief, tracked as a follow-up), so nothing reads
+	// these yet. #901 code review: kept rather than deleted specifically
+	// because the capture logic below (including redactURLs' host
+	// redaction) is already correct for that documented contract; deleting
+	// it would just mean re-deriving the identical thing when /api/status
+	// is finally ported.
 	lastMachineError     *string
 	lastMachineSuccess   *int64
 	cachedMachineVersion *string
@@ -73,11 +87,19 @@ type pollGlobalState struct {
 	// wasReachable is #725's tri-state: nil = never polled (the very first
 	// successful poll after a host is configured is NOT a "recovery" —
 	// that path belongs to routes/machines.js's own save-triggered sync,
-	// not ported here either, see doc.go).
+	// not ported here either, see doc.go). Unread until the reachability-
+	// recovery catch-up sync itself (lib/sync.js, doc.go's "Deliberately
+	// not ported" — "the shot-history sync engine is its own future
+	// phase") exists to consume the false->true transition this captures.
 	wasReachable *bool
 
 	readyByTargetAt   *int64
 	plannedSwitchOnAt *int64
+	// preheatNotifySent mirrors lib/state.js's field of the same name,
+	// cleared here on machine-off exactly like Node's stopLivePolling does.
+	// Unread until _checkPreheatNotify (doc.go's "Deliberately not
+	// ported," tracked as a follow-up) is itself ported — nothing sets it
+	// true yet, so this reset is currently a no-op every time.
 	preheatNotifySent bool
 }
 
@@ -157,15 +179,22 @@ func (p *Poller) runTicker(ctx context.Context, interval time.Duration, fn func(
 }
 
 // checkAndApplyMachinePower ports checkAndApplyMachinePower(runtime).
-// Node's early-exit branch — no switch entity configured, or no HA
-// integration at all — always just ensures live polling is running,
-// treating the machine as permanently "on" since nothing in this install
-// can tell GLP otherwise. That branch is also what Start() above relies on
-// to begin polling on a fresh boot for the common case (no HA
-// switch-control configured): calling this repeatedly on that path is a
-// harmless no-op once live polling is already active, so backgroundHaCheck's
-// own Node-side `if (!HA_TOKEN) return` gate has no Go equivalent here —
-// this function is safe to call unconditionally on every 30s tick.
+// Node's early-exit branch — `if (!entity || !HA_TOKEN)` (lib/poll.js) —
+// fires on EITHER no switch entity configured OR no HA integration at all
+// (a switch entity configured but no token to read it with is just as
+// unable to tell GLP the machine's power state), and always just ensures
+// live polling is running, treating the machine as permanently "on" since
+// nothing in this install can tell GLP otherwise. That branch is also what
+// Start() above relies on to begin polling on a fresh boot for the common
+// case (no HA switch-control configured): calling this repeatedly on that
+// path is a harmless no-op once live polling is already active, so
+// backgroundHaCheck's own Node-side `if (!HA_TOKEN) return` gate has no Go
+// equivalent here — this function is safe to call unconditionally on every
+// 30s tick. #901 code review: this used to check only `entity == ""` and
+// fall through to GetSwitchState otherwise, which always returns nil when
+// no token is configured (ha/client.go's `!c.enabled()` guard) — live
+// polling then never started for an entity-configured-but-tokenless
+// install, for the entire process lifetime.
 func (p *Poller) checkAndApplyMachinePower(ctx context.Context) error {
 	machine, err := p.registry.GetDefaultMachine()
 	if err != nil {
@@ -175,7 +204,7 @@ func (p *Poller) checkAndApplyMachinePower(ctx context.Context) error {
 	if machine != nil && machine.SwitchEntity != nil {
 		entity = *machine.SwitchEntity
 	}
-	if entity == "" {
+	if entity == "" || !p.ha.Enabled() {
 		if !p.livePollActive() {
 			p.startLivePolling()
 		}
@@ -359,14 +388,15 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 		SensorSnap: sensorSnap,
 		SysState:   sysState,
 	})
-	p.runtime.SetMachineStatus(&result.MachineStatus)
-	p.runtime.SetCurrentTemps(zeroToNil(result.Temperature), zeroToNil(result.TargetTemperature))
+	ms := result.MachineStatus
+	p.runtime.SetMachineStatus(&ms)
+	p.runtime.SetCurrentTemps(zeroToNil(ms.Temperature), zeroToNil(ms.TargetTemperature))
 
 	snap := p.runtime.Get()
-	if result.Temperature > 0 && !result.IsBrewing {
-		p.runtime.PushTempHistory(result.Temperature)
-		if snap.SwitchOnAt != nil && result.TargetTemperature > 0 &&
-			result.Temperature >= result.TargetTemperature-2 && p.runtime.IsTempStable() {
+	if ms.Temperature > 0 && !result.IsBrewing {
+		p.runtime.PushTempHistory(ms.Temperature)
+		if snap.SwitchOnAt != nil && ms.TargetTemperature > 0 &&
+			ms.Temperature >= ms.TargetTemperature-2 && p.runtime.IsTempStable() {
 			preheatMs := int64(loadPreheatMinutes()) * 60_000
 			if now-*snap.SwitchOnAt < preheatMs {
 				newOnAt := now - preheatMs
@@ -383,7 +413,7 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 
 	p.state.mu.Lock()
 	if result.IsBrewing && p.state.liveAccum == nil {
-		p.state.liveAccum = &liveAccumState{startTime: now, profileName: result.ProfileName, prevWeight: result.Weight}
+		p.state.liveAccum = &liveAccumState{startTime: now, profileName: result.ProfileName, prevWeight: ms.Weight}
 		log.Printf("system: brew started: profile %s", result.ProfileName)
 	}
 	if !result.IsBrewing && p.state.liveAccum != nil {
@@ -393,19 +423,19 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 	}
 	if result.IsBrewing && p.state.liveAccum != nil {
 		acc := p.state.liveAccum
-		elapsed := int((now - acc.startTime) / 100)
-		weightFlow := result.Weight - acc.prevWeight
+		elapsed := elapsedTenths(now, acc.startTime)
+		weightFlow := ms.Weight - acc.prevWeight
 		if weightFlow < 0 {
 			weightFlow = 0
 		}
-		acc.prevWeight = result.Weight
+		acc.prevWeight = ms.Weight
 		acc.datapoints.TimeInShot = append(acc.datapoints.TimeInShot, elapsed)
-		acc.datapoints.Pressure = append(acc.datapoints.Pressure, round10(result.Pressure))
-		acc.datapoints.Temperature = append(acc.datapoints.Temperature, round10(result.Temperature))
-		acc.datapoints.ShotWeight = append(acc.datapoints.ShotWeight, round10(result.Weight))
+		acc.datapoints.Pressure = append(acc.datapoints.Pressure, round10(ms.Pressure))
+		acc.datapoints.Temperature = append(acc.datapoints.Temperature, round10(ms.Temperature))
+		acc.datapoints.ShotWeight = append(acc.datapoints.ShotWeight, round10(ms.Weight))
 		acc.datapoints.WeightFlow = append(acc.datapoints.WeightFlow, round10(weightFlow))
-		acc.datapoints.PumpFlow = append(acc.datapoints.PumpFlow, round10(result.PumpFlow))
-		acc.datapoints.TargetTemperature = append(acc.datapoints.TargetTemperature, round10(result.TargetTemperature))
+		acc.datapoints.PumpFlow = append(acc.datapoints.PumpFlow, round10(derefFloat(ms.PumpFlow)))
+		acc.datapoints.TargetTemperature = append(acc.datapoints.TargetTemperature, round10(ms.TargetTemperature))
 	}
 	p.state.mu.Unlock()
 
@@ -413,6 +443,15 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 }
 
 func round10(v float64) int { return int(v*10 + 0.5) }
+
+// elapsedTenths ports lib/poll.js:287's `Math.round((now - startTime) /
+// 100)` (tenths-of-a-second precision timeInShot datapoints) — Node rounds,
+// a bare Go `int(x/100)` truncates toward zero, which produces a
+// systematic off-by-one offset against Node-recorded shots sharing the same
+// DB (#901 code review: 950ms elapsed rounds to 10 in Node, truncated to 9).
+func elapsedTenths(now, startTime int64) int {
+	return int(math.Round(float64(now-startTime) / 100))
+}
 
 func zeroToNil(v float64) *float64 {
 	if v == 0 {
@@ -513,7 +552,23 @@ func redactURLs(msg string) string {
 }
 
 // buildLiveDataResponse ports buildLiveDataResponse(): the single source
-// of truth for GET /api/live/data and the live-snapshot SSE payload.
+// of truth for GET /api/live/data and the live-snapshot SSE payload. Must
+// return a value wholly independent of p.state.liveAccum once unlocked: a
+// caller (emitLiveSnapshot -> Hub.Publish -> a per-subscriber buffered
+// channel, see internal/sse) can hold onto this LiveData and json.Marshal
+// it arbitrarily long after this call returns, concurrently with pollTick
+// appending to the very same datapoints slices under its own lock (#901
+// code review — a `go test -race` reproduction: returning a pointer into
+// the locked struct here, as this used to, is a data race between that
+// later Marshal and the next tick's writes). copyDatapoints below takes a
+// deep copy of the slices while still holding the lock, exactly the
+// "copy under lock, then hand out lock-free" pattern
+// internal/machines/live.go's GetLiveSensorSnapshot/GetLiveSystemState
+// follow for their own cached values (those are safe returning a bare
+// pointer instead, since a fresh poll replaces sensorSnap/sysState
+// wholesale rather than mutating the previous value in place — this
+// package's own RuntimeState.SetMachineStatus relies on the same
+// never-mutated-after-set invariant, see its doc comment).
 func (p *Poller) buildLiveDataResponse() LiveData {
 	p.state.mu.Lock()
 	defer p.state.mu.Unlock()
@@ -521,7 +576,7 @@ func (p *Poller) buildLiveDataResponse() LiveData {
 	profileName := ""
 	isLive := p.state.liveAccum != nil
 	if p.state.liveAccum != nil {
-		dp = &p.state.liveAccum.datapoints
+		dp = copyDatapoints(&p.state.liveAccum.datapoints)
 		profileName = p.state.liveAccum.profileName
 	}
 	return LiveData{
@@ -530,6 +585,20 @@ func (p *Poller) buildLiveDataResponse() LiveData {
 		Datapoints:       dp,
 		Seq:              p.state.liveSeq,
 		MachineReachable: p.state.machineReachable,
+	}
+}
+
+// copyDatapoints deep-copies src's slices — see buildLiveDataResponse's doc
+// comment for why a shallow copy (or no copy at all) isn't safe here.
+func copyDatapoints(src *liveDatapoints) *liveDatapoints {
+	return &liveDatapoints{
+		TimeInShot:        append([]int(nil), src.TimeInShot...),
+		Pressure:          append([]int(nil), src.Pressure...),
+		Temperature:       append([]int(nil), src.Temperature...),
+		ShotWeight:        append([]int(nil), src.ShotWeight...),
+		WeightFlow:        append([]int(nil), src.WeightFlow...),
+		PumpFlow:          append([]int(nil), src.PumpFlow...),
+		TargetTemperature: append([]int(nil), src.TargetTemperature...),
 	}
 }
 

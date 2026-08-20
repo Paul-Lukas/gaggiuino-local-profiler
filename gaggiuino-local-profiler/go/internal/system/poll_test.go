@@ -2,6 +2,8 @@ package system
 
 import (
 	"context"
+	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 )
@@ -134,6 +136,78 @@ func TestBrewAccumulation_LiveDataDatapoints(t *testing.T) {
 	if ld.Seq != seqBeforeStop+1 {
 		t.Errorf("Seq = %d, want %d (incremented on brew finish)", ld.Seq, seqBeforeStop+1)
 	}
+}
+
+// TestCheckAndApplyMachinePower_NoHAToken_StartsLivePollingAnyway is the
+// #901 code-review regression test for finding #1: lib/poll.js's
+// checkAndApplyMachinePower early-exits (and ensures live polling is
+// running) on `!entity || !HA_TOKEN`, not just `!entity`. A switch entity
+// configured but no HA token available must still start live polling — the
+// bug this used to have fell through to GetSwitchState instead, which
+// always returns nil when no token is configured (ha/client.go's
+// `!c.enabled()` guard), so isOn stayed nil and startLivePolling was never
+// reached for the entire process lifetime.
+func TestCheckAndApplyMachinePower_NoHAToken_StartsLivePollingAnyway(t *testing.T) {
+	fake := &fakeAdapter{}
+	fake.setStatus(okStatus(t, `{}`, 93, 94, 9, 5, false, "Espresso", 1), nil)
+	sqlDB := newTestDB(t)
+	haClient := newDisabledHAClient() // no SUPERVISOR_TOKEN/GLP_HA_URL -- Enabled() == false
+	p := newTestPollerWithHA(t, fake, sqlDB, haClient, "switch.machine")
+
+	if p.livePollActive() {
+		t.Fatal("precondition failed: live polling already active")
+	}
+	if err := p.checkAndApplyMachinePower(context.Background()); err != nil {
+		t.Fatalf("checkAndApplyMachinePower: %v", err)
+	}
+	if !p.livePollActive() {
+		t.Fatal("expected live polling to start despite a configured switch entity, because no HA token is configured")
+	}
+}
+
+// TestBuildLiveDataResponse_NoDataRaceWithConcurrentPollTick is the #901
+// code-review regression test for finding #2: buildLiveDataResponse used to
+// return a pointer straight into the lock-guarded liveAccum.datapoints
+// struct, which pollTick keeps appending to under its own, separately
+// re-acquired lock. A caller holding onto that returned LiveData (this
+// package's emitLiveSnapshot -> a Hub subscriber's buffered channel ->
+// json.Marshal, arbitrarily later — see internal/sse.Handler.send) raced
+// with the next tick's writes. Run with `go test -race`: this test only
+// proves anything under -race — without the fix in buildLiveDataResponse,
+// it fails with a DATA RACE report; with the fix (a deep copy taken under
+// lock), it passes clean.
+func TestBuildLiveDataResponse_NoDataRaceWithConcurrentPollTick(t *testing.T) {
+	fake := &fakeAdapter{}
+	p, _ := newTestPoller(t, fake)
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		weight := 0.0
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			weight++
+			fake.setStatus(okStatus(t, `{}`, 93, 94, 9, weight, true, "Test Profile", 1), nil)
+			p.pollViaGaggiuinoStatus(context.Background())
+		}
+	}()
+
+	for i := 0; i < 200; i++ {
+		ld := p.LiveData()
+		if _, err := json.Marshal(ld); err != nil {
+			t.Errorf("json.Marshal(LiveData): %v", err)
+		}
+	}
+
+	close(stop)
+	wg.Wait()
 }
 
 // TestStopLivePolling_ForcesUnreachableFalse ports stopLivePolling's #655

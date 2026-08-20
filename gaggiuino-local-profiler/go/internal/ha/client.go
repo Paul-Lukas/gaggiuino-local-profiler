@@ -156,6 +156,13 @@ var haSupportedLangs = map[string]bool{"de": true, "en": true, "it": true, "fr":
 // unrecognized language — see lib/notify-i18n.js's own fallback comment
 // for why: a standalone-Docker user with no Supervisor token used to get
 // German notifications by construction regardless of their own locale.
+//
+// No caller outside this package's own tests yet (#901 code review): this
+// is prep for _checkPreheatNotify's localized push text, which
+// go/internal/system/preheat.go's header comment documents as deliberately
+// deferred (needs a read dependency on internal/orders' settings) rather
+// than out of scope entirely — kept, not removed, for the same reason that
+// file's own preheatNotifySent field is kept.
 func (c *Client) GetHaLanguage(ctx context.Context) string {
 	c.langOnce.Do(func() {
 		c.lang = "en"

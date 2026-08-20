@@ -14,6 +14,24 @@ import "sync"
 // 1s poll tick, the 30s HA-check tick, the 30s preheat tick, and concurrent
 // HTTP handler reads (GET /api/machine/status, /api/preheat, /api/live/data)
 // all touch this concurrently in Go.
+//
+// # Lock ordering with Poller.state (pollGlobalState, see poll.go)
+//
+// preheat.go's buildPreheatResponse/savePreheatState/checkReadyByPreheat
+// each read from both this struct's mu AND Poller.state's mu to assemble
+// one coherent snapshot (the #901 code-review's finding: two independently
+// mutexed structs holding one logical "preheat state," a deliberate 1:1
+// port of lib/machine-runtime-state.js/lib/state.js's own module-level
+// split rather than a merge — see this phase's report for why a full
+// consolidation was considered and deferred, not attempted, in this fix
+// package). Every call site today acquires and fully releases one lock
+// before touching the other — neither is ever held while acquiring the
+// other, so there is no live deadlock. If a future change ever needs both
+// held at once, take them in this fixed order to keep it that way: this
+// struct's mu (RuntimeState) FIRST, Poller.state's mu (pollGlobalState)
+// SECOND — matching the majority of today's call sites (buildPreheatResponse,
+// savePreheatState). checkReadyByPreheat currently does state-then-runtime,
+// but never nested, so it isn't a counterexample to this ordering rule.
 type RuntimeState struct {
 	mu sync.Mutex
 

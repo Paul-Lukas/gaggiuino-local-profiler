@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/httputil"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
@@ -46,27 +47,15 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/maintenance/log/{id}", h.deleteLog)
 }
 
-// ── response/body helpers ───────────────────────────────────────────────
+// ── response/body helpers (see internal/httputil) ───────────────────────
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"Internal server error"}`))
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	w.Write(b)
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
-}
+var (
+	writeJSON  = httputil.WriteJSON
+	writeError = httputil.WriteError
+)
 
 func internalError(w http.ResponseWriter, err error) {
-	writeError(w, http.StatusInternalServerError, "Internal server error")
+	httputil.InternalError(w, "maintenance", err)
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request) (map[string]any, bool) {

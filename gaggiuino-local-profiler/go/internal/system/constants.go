@@ -35,8 +35,12 @@ const (
 	backgroundHaCheckInterval = 30 * time.Second
 	preheatWatchInterval      = 30 * time.Second
 
-	// preheatStateFile / defaultOptionsFile mirror PREHEAT_STATE_FILE /
-	// OPTIONS_FILE.
-	preheatStateFile   = "/data/preheat_state.json"
-	defaultOptionsFile = "/data/options.json"
+	// preheatStateFile mirrors PREHEAT_STATE_FILE.
+	preheatStateFile = "/data/preheat_state.json"
 )
+
+// defaultOptionsFile mirrors OPTIONS_FILE. A var, not a const, so
+// options_test.go can point it at a throwaway file instead of the real
+// `/data/options.json` (same testing-seam pattern as
+// internal/backup/handlers.go's restoreUnzipEntryLimit).
+var defaultOptionsFile = "/data/options.json"

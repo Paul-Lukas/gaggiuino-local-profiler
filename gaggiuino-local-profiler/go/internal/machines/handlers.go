@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/httputil"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
 )
 
@@ -90,28 +91,15 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	h.registerProfileRoutes(mux)
 }
 
-// ── response helpers (same shape as shots/library's own) ────────────────
+// ── response helpers (see internal/httputil) ─────────────────────────────
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"Internal server error"}`))
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	w.Write(b)
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
-}
+var (
+	writeJSON  = httputil.WriteJSON
+	writeError = httputil.WriteError
+)
 
 func internalError(w http.ResponseWriter, err error) {
-	writeError(w, http.StatusInternalServerError, "Internal server error")
-	_ = err // logged by caller-visible context in a real deployment; kept simple here, matching shots/library's own internalError shape
+	httputil.InternalError(w, "machines", err)
 }
 
 // decodeJSONBody reads and decodes r's body into v, bounded to

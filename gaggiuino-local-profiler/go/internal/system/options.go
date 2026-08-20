@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"strconv"
+	"sync"
+	"time"
 )
 
 // This mirrors internal/orders/options.go's isOrdersEnabled(): a narrow,
@@ -11,12 +13,49 @@ import (
 // rather than a full loadOptions() facade — see that file's doc comment
 // for the trade-off reasoning, which applies identically here.
 
+// preheatMinutesCache caches loadPreheatMinutes()'s parsed result, keyed on
+// options.json's mtime. #901 code review: loadPreheatMinutes() used to
+// re-read and re-parse the file on every call, including pollTick's 1s hot
+// path (it's also read on every preheat-update SSE push and every
+// preheat-state change) — for a value the Supervisor only ever rewrites
+// when the user edits the add-on's config in HA's UI, a handful of times a
+// year at most. A changed file is still picked up promptly: every call
+// still os.Stat's the file (cheap relative to the ReadFile+Unmarshal this
+// now skips on a cache hit) and re-parses the moment the mtime moves.
+var preheatMinutesCache struct {
+	mu      sync.Mutex
+	valid   bool // false until the first os.Stat succeeds
+	mtime   time.Time
+	minutes int
+}
+
 // loadPreheatMinutes ports `Math.max(1, parseInt(opts.preheat_time) || 20)`,
 // used by buildPreheatResponse/_checkReadyByPreheat/_checkPreheatNotify.
 // Falls back to GLP_PREHEAT_TIME (#764, standalone Docker with no
 // Supervisor) when options.json doesn't exist/parse, then to 20, matching
 // loadOptions()'s own fallback chain.
 func loadPreheatMinutes() int {
+	preheatMinutesCache.mu.Lock()
+	defer preheatMinutesCache.mu.Unlock()
+
+	info, statErr := os.Stat(defaultOptionsFile)
+	if statErr == nil && preheatMinutesCache.valid && info.ModTime().Equal(preheatMinutesCache.mtime) {
+		return preheatMinutesCache.minutes
+	}
+
+	minutes := parsePreheatMinutesFile()
+	preheatMinutesCache.valid = statErr == nil
+	if statErr == nil {
+		preheatMinutesCache.mtime = info.ModTime()
+	}
+	preheatMinutesCache.minutes = minutes
+	return minutes
+}
+
+// parsePreheatMinutesFile does loadPreheatMinutes()'s actual read+parse+
+// fallback chain — split out so loadPreheatMinutes itself only holds the
+// cache-check/cache-store logic.
+func parsePreheatMinutesFile() int {
 	if data, err := os.ReadFile(defaultOptionsFile); err == nil {
 		var opts struct {
 			PreheatTime json.Number `json:"preheat_time"`
