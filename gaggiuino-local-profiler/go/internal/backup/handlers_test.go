@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -346,4 +347,85 @@ func TestRestore_SecretsRoundTrip(t *testing.T) {
 	if preview["secretsPresent"] != true || preview["secretsRestored"] != false {
 		t.Errorf("preview with wrong passphrase = %+v", preview)
 	}
+}
+
+// withSmallUnzipLimits temporarily shrinks restoreUnzipEntryLimit/
+// restoreUnzipTotalLimit so a test can exercise the "over the limit" path
+// by writing a few KB instead of hundreds of MB — real production sizes
+// would make the zip-bomb tests themselves slow and memory-heavy (worse
+// still under -race). Restored via t.Cleanup so it never leaks into other
+// tests in this package.
+func withSmallUnzipLimits(t *testing.T, entryLimit, totalLimit int64) {
+	t.Helper()
+	prevEntry, prevTotal := restoreUnzipEntryLimit, restoreUnzipTotalLimit
+	restoreUnzipEntryLimit, restoreUnzipTotalLimit = entryLimit, totalLimit
+	t.Cleanup(func() { restoreUnzipEntryLimit, restoreUnzipTotalLimit = prevEntry, prevTotal })
+}
+
+// TestReadZip_RejectsZipBombEntry (#901 code review): a zip entry that's
+// tiny compressed but decompresses past restoreUnzipEntryLimit must be
+// rejected by readZip itself, not read fully into memory first. The payload
+// below is all-zero bytes — maximally compressible, so the compressed zip
+// stays a few dozen bytes while the decompressed size crosses the entry
+// limit — the exact shape of a zip-bomb DoS attempt, not a realistic large
+// backup.json.
+func TestReadZip_RejectsZipBombEntry(t *testing.T) {
+	withSmallUnzipLimits(t, 64*1024, 256*1024)
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	fw, err := zw.CreateHeader(&zip.FileHeader{Name: "backup.json", Method: zip.Deflate})
+	if err != nil {
+		t.Fatalf("CreateHeader: %v", err)
+	}
+	if _, err := io.CopyN(fw, zeroReader{}, restoreUnzipEntryLimit+1024); err != nil {
+		t.Fatalf("writing oversized zip entry: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("closing zip: %v", err)
+	}
+
+	if _, _, err := readZip(buf.Bytes()); err == nil {
+		t.Fatal("readZip accepted a zip entry that decompresses past restoreUnzipEntryLimit; want a clean error")
+	}
+}
+
+// TestReadZip_RejectsCumulativeOversize (#901 code review): several entries
+// each under restoreUnzipEntryLimit individually, but summing past
+// restoreUnzipTotalLimit, must also be rejected.
+func TestReadZip_RejectsCumulativeOversize(t *testing.T) {
+	withSmallUnzipLimits(t, 64*1024, 256*1024)
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	perEntry := restoreUnzipEntryLimit / 2
+	entryCount := restoreUnzipTotalLimit/perEntry + 2
+	for i := int64(0); i < entryCount; i++ {
+		fw, err := zw.CreateHeader(&zip.FileHeader{Name: fmt.Sprintf("images/%d.bin", i), Method: zip.Deflate})
+		if err != nil {
+			t.Fatalf("CreateHeader: %v", err)
+		}
+		if _, err := io.CopyN(fw, zeroReader{}, perEntry); err != nil {
+			t.Fatalf("writing zip entry %d: %v", i, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("closing zip: %v", err)
+	}
+
+	if _, _, err := readZip(buf.Bytes()); err == nil {
+		t.Fatal("readZip accepted entries summing past restoreUnzipTotalLimit; want a clean error")
+	}
+}
+
+// zeroReader yields an endless stream of zero bytes without allocating a
+// full in-memory buffer — used to build a highly-compressible (small
+// compressed, large decompressed) zip entry cheaply in tests.
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
 }

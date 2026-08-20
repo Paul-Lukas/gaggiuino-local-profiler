@@ -1,6 +1,7 @@
 package library
 
 import (
+	"reflect"
 	"time"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
@@ -113,13 +114,24 @@ func bagAtTime(bags []any, shotMs int64) Entity {
 	return nil
 }
 
+// sameBag ports the Node original's object-reference identity check (`bag
+// === activeBag`), NOT a value comparison of the bags' fields. Comparing by
+// openedAt value instead (#901 code review) is wrong: two bags of the same
+// bean that both predate #456's openedAt tracking share the zero value for
+// that field and would be misidentified as the same bag, corrupting
+// ComputeBeanRemaining's per-bag dose matching. Entity is a map, so `==`
+// isn't usable directly (maps aren't comparable in Go); reflect.Pointer
+// compares the two maps' underlying data pointers instead, which is
+// reference identity for exactly the same reason JS's `===` is on two
+// object bindings — every bag in a bean's `bags` slice is a distinct map
+// value (decoded from JSON, or built by a copying helper), so this only
+// ever reports true when a and b are literally the same bag, never a
+// same-shaped clone of it.
 func sameBag(a, b Entity) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
-	aOpened, _ := idOf(a, "openedAt")
-	bOpened, _ := idOf(b, "openedAt")
-	return aOpened == bOpened
+	return reflect.ValueOf(a).Pointer() == reflect.ValueOf(b).Pointer()
 }
 
 func strOf(v any) string {

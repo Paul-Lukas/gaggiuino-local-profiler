@@ -289,3 +289,71 @@ func TestMachineThemeRoundTrip(t *testing.T) {
 		t.Fatalf("theme did not round-trip: %+v", got.Theme)
 	}
 }
+
+// TestRestoreMachines_AllInvalid_LeavesExistingRegistryUntouched (#901 code
+// review): a backup whose `machines` section contains only invalid entries
+// (every one fails MachineInput.validate) must not wipe the existing
+// registry — restoring "nothing usable" must be a no-op, not data loss.
+func TestRestoreMachines_AllInvalid_LeavesExistingRegistryUntouched(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+	seeded, err := reg.CreateMachine(MachineInput{Name: strPtr("Kitchen"), Type: strPtr("gaggimate"), Host: strPtr("gaggimate.local")})
+	if err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+	before, err := reg.ListMachines()
+	if err != nil {
+		t.Fatalf("ListMachines before restore: %v", err)
+	}
+
+	// Every entry here fails validate(true): id<=0, and an empty
+	// name/unrecognized type respectively.
+	invalid := []Machine{
+		{ID: 0, Name: "Broken A", Type: "gaggiuino", Host: "a.local"},
+		{ID: 5, Name: "", Type: "gaggiuino", Host: "b.local"},
+		{ID: 6, Name: "Broken C", Type: "not-a-real-type", Host: "c.local"},
+	}
+	restored, err := reg.RestoreMachines(invalid)
+	if err != nil {
+		t.Fatalf("RestoreMachines: %v", err)
+	}
+	if restored != 0 {
+		t.Fatalf("restored = %d, want 0 (nothing valid to restore)", restored)
+	}
+
+	after, err := reg.ListMachines()
+	if err != nil {
+		t.Fatalf("ListMachines after restore: %v", err)
+	}
+	if len(after) != len(before) || len(after) != 1 || after[0].ID != seeded.ID || after[0].Host != "gaggimate.local" {
+		t.Fatalf("registry changed after an all-invalid restore: before=%+v after=%+v", before, after)
+	}
+}
+
+// TestRestoreMachines_ValidEntries_ReplacesRegistry documents the intended
+// contrast to the all-invalid case above: a restore with at least one valid
+// entry still wipes and re-inserts as designed.
+func TestRestoreMachines_ValidEntries_ReplacesRegistry(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+	if _, err := reg.CreateMachine(MachineInput{Name: strPtr("Old"), Type: strPtr("gaggiuino"), Host: strPtr("old.local")}); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+
+	incoming := []Machine{
+		{ID: 1, Name: "Restored", Type: "gaggimate", Host: "restored.local", IsDefault: true, Enabled: true},
+	}
+	restored, err := reg.RestoreMachines(incoming)
+	if err != nil {
+		t.Fatalf("RestoreMachines: %v", err)
+	}
+	if restored != 1 {
+		t.Fatalf("restored = %d, want 1", restored)
+	}
+
+	after, err := reg.ListMachines()
+	if err != nil {
+		t.Fatalf("ListMachines: %v", err)
+	}
+	if len(after) != 1 || after[0].Host != "restored.local" {
+		t.Fatalf("registry after restore = %+v, want only the restored machine", after)
+	}
+}

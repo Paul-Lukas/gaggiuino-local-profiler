@@ -333,21 +333,26 @@ func truncate(s string, max int) string {
 	return s
 }
 
-// AcceptOrder ports OrderService.js's acceptOrder(id, rawEta).
+// AcceptOrder ports OrderService.js's acceptOrder(id, rawEta). Reads and
+// writes only this one order row (#901 code review) rather than
+// FindActive()+SaveAll()'s whole-queue read-modify-write, which scaled
+// every accept/complete/decline with the total size of the active queue.
 func (s *Service) AcceptOrder(id string, rawEta any) (Order, error) {
-	active, err := s.repo.FindActive()
+	order, err := s.repo.FindActiveByID(id)
 	if err != nil {
 		return nil, err
 	}
-	idx, order := findOrder(active, id)
 	if order == nil {
 		return nil, newOrderError(404, "not found")
 	}
 	if status, _ := order["status"].(string); status != "pending" {
 		return nil, newOrderError(400, "not pending")
 	}
+	// Mirrors JS's `parseInt(rawEta) || 5`: 0 is falsy in JS too, so an
+	// explicit `eta: 0` must also default to 5, not merely an
+	// unparseable/absent value (#901 code review).
 	eta, ok := jsParseIntAny(rawEta)
-	if !ok {
+	if !ok || eta == 0 {
 		eta = 5
 	}
 	if eta < 1 {
@@ -359,8 +364,7 @@ func (s *Service) AcceptOrder(id string, rawEta any) (Order, error) {
 	order["status"] = "accepted"
 	order["eta"] = eta
 	order["acceptedAt"] = time.Now().UnixMilli()
-	active[idx] = order
-	if err := s.repo.SaveAll(active); err != nil {
+	if err := s.repo.Save(order); err != nil {
 		return nil, err
 	}
 	return order, nil
@@ -373,11 +377,10 @@ func (s *Service) AcceptOrder(id string, rawEta any) (Order, error) {
 // per-step structure — a failure in one must not stop the order from
 // completing.
 func (s *Service) CompleteOrder(id string) (Order, error) {
-	active, err := s.repo.FindActive()
+	order, err := s.repo.FindActiveByID(id)
 	if err != nil {
 		return nil, err
 	}
-	idx, order := findOrder(active, id)
 	if order == nil {
 		return nil, newOrderError(404, "not found")
 	}
@@ -414,8 +417,7 @@ func (s *Service) CompleteOrder(id string) (Order, error) {
 		order["shotId"] = nil
 	}
 
-	active[idx] = order
-	if err := s.repo.SaveAll(active); err != nil {
+	if err := s.repo.Save(order); err != nil {
 		return nil, err
 	}
 	return order, nil
@@ -423,11 +425,10 @@ func (s *Service) CompleteOrder(id string) (Order, error) {
 
 // DeclineOrder ports OrderService.js's declineOrder(id, rawReason).
 func (s *Service) DeclineOrder(id string, rawReason string) (Order, error) {
-	active, err := s.repo.FindActive()
+	order, err := s.repo.FindActiveByID(id)
 	if err != nil {
 		return nil, err
 	}
-	idx, order := findOrder(active, id)
 	if order == nil {
 		return nil, newOrderError(404, "not found")
 	}
@@ -438,20 +439,10 @@ func (s *Service) DeclineOrder(id string, rawReason string) (Order, error) {
 	order["status"] = "declined"
 	order["declineReason"] = truncate(rawReason, 200)
 	order["completedAt"] = time.Now().UnixMilli()
-	active[idx] = order
-	if err := s.repo.SaveAll(active); err != nil {
+	if err := s.repo.Save(order); err != nil {
 		return nil, err
 	}
 	return order, nil
-}
-
-func findOrder(orders []Order, id string) (int, Order) {
-	for i, o := range orders {
-		if oid, _ := o["id"].(string); oid == id {
-			return i, o
-		}
-	}
-	return -1, nil
 }
 
 // matchesMachine ports routes/orders.js's _matchesMachine(order,

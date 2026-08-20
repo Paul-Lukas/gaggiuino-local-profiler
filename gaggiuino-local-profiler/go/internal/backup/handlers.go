@@ -18,6 +18,7 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/maintenance"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/orders"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ratelimit"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 )
 
@@ -31,6 +32,26 @@ const (
 	restoreJSONBodyLimit = 50 * 1024 * 1024
 	restoreZipBodyLimit  = 50 * 1024 * 1024
 	postBackupBodyLimit  = 16 * 1024 // POST /api/backup's own body is tiny (sections+passphrase) — server.js's global express.json({limit:'16kb'}) default applies.
+)
+
+// restoreUnzipEntryLimit/restoreUnzipTotalLimit bound how much
+// *decompressed* data readZip will accept out of a restore zip — a
+// dimension restoreZipBodyLimit above does NOT cover, since it only caps
+// the compressed request body. Without this, a small, highly-compressible
+// zip entry (a "zip bomb") can inflate to many GB via io.ReadAll and
+// OOM-kill the process before any JSON validation on backup.json's
+// contents ever runs (#901 code review). Sized generously above
+// restoreJSONBodyLimit — a legitimate backup.json is never bigger
+// uncompressed than that same content would be as the legacy non-zip JSON
+// restore body — to leave headroom for the largest single image entry; the
+// total cap bounds the sum across every entry in the archive, so many
+// merely-large-but-not-bomb-sized entries can't add up past a sane ceiling
+// either. Package-level vars (not consts), same testing seam pattern as
+// machines/registry.go's machineHostGuard, so tests can shrink them to
+// avoid actually allocating/deflating hundreds of MB per test run.
+var (
+	restoreUnzipEntryLimit int64 = 100 * 1024 * 1024
+	restoreUnzipTotalLimit int64 = 300 * 1024 * 1024
 )
 
 // Dependencies wires every cross-domain repository this package's export/
@@ -61,7 +82,7 @@ type Dependencies struct {
 // Handlers wires Dependencies into net/http handlers.
 type Handlers struct {
 	deps Dependencies
-	rl   *keyedRateLimiter
+	rl   *ratelimit.KeyedLimiter
 }
 
 // NewHandlers builds Handlers around deps. TokenFile defaults to
@@ -70,7 +91,7 @@ func NewHandlers(deps Dependencies) *Handlers {
 	if deps.TokenFile == "" {
 		deps.TokenFile = auth.DefaultTokenFile
 	}
-	return &Handlers{deps: deps, rl: newKeyedRateLimiter()}
+	return &Handlers{deps: deps, rl: ratelimit.NewKeyed()}
 }
 
 // RegisterRoutes registers /api/backup and /api/restore onto mux.
@@ -216,22 +237,27 @@ func buildZip(g gatheredBundle) ([]byte, error) {
 }
 
 // readZip unpacks a zip archive's entries into backup.json's raw bytes
-// (error if absent) plus an images/<filename> -> bytes map.
+// (error if absent) plus an images/<filename> -> bytes map. Each entry's
+// decompressed size is bounded (both individually and cumulatively across
+// the whole archive — see restoreUnzipEntryLimit/restoreUnzipTotalLimit's
+// doc comment) so a zip-bomb entry fails cleanly here instead of exhausting
+// memory.
 func readZip(data []byte) (backupJSON []byte, images map[string][]byte, err error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid zip file: %w", err)
 	}
 	images = map[string][]byte{}
+	var totalUnzipped int64
 	for _, f := range zr.File {
 		rc, err := f.Open()
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid zip file: %w", err)
 		}
-		content, err := io.ReadAll(rc)
+		content, err := readZipEntry(rc, &totalUnzipped)
 		rc.Close()
 		if err != nil {
-			return nil, nil, fmt.Errorf("invalid zip file: %w", err)
+			return nil, nil, err
 		}
 		if f.Name == "backup.json" {
 			backupJSON = content
@@ -243,4 +269,24 @@ func readZip(data []byte) (backupJSON []byte, images map[string][]byte, err erro
 		return nil, nil, errors.New("invalid backup file (no backup.json in zip)")
 	}
 	return backupJSON, images, nil
+}
+
+// readZipEntry reads one zip entry's decompressed bytes, rejecting it once
+// either restoreUnzipEntryLimit (this entry alone) or restoreUnzipTotalLimit
+// (summed via *total across every entry read so far) is exceeded. The
+// io.LimitReader cap is set one byte above the limit so an entry that lands
+// exactly on the limit is still distinguishable from one that overflows it.
+func readZipEntry(rc io.Reader, total *int64) ([]byte, error) {
+	content, err := io.ReadAll(io.LimitReader(rc, restoreUnzipEntryLimit+1))
+	if err != nil {
+		return nil, fmt.Errorf("invalid zip file: %w", err)
+	}
+	if int64(len(content)) > restoreUnzipEntryLimit {
+		return nil, fmt.Errorf("zip entry too large uncompressed (max %d bytes)", restoreUnzipEntryLimit)
+	}
+	*total += int64(len(content))
+	if *total > restoreUnzipTotalLimit {
+		return nil, fmt.Errorf("zip archive too large uncompressed (max %d bytes total)", restoreUnzipTotalLimit)
+	}
+	return content, nil
 }

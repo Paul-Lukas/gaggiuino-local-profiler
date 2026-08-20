@@ -367,6 +367,16 @@ func (r *Registry) RestoreMachines(in []Machine) (restored int, err error) {
 		})
 	}
 
+	// #901 code review: a backup whose `machines` section is entirely
+	// unusable (every entry fails validate()) must leave the existing
+	// registry untouched rather than wiping it down to zero rows for a
+	// restore that didn't actually restore anything — matching every other
+	// section's "skip, don't destroy" handling of unusable restore data
+	// (see e.g. buildRestorePlan's per-row sanitize-or-drop loops).
+	if len(valid) == 0 {
+		return 0, nil
+	}
+
 	tx, err := r.db.Begin()
 	if err != nil {
 		return 0, fmt.Errorf("machines: starting restore tx: %w", err)

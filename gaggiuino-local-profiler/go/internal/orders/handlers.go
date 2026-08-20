@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ha"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ratelimit"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 )
 
@@ -40,7 +42,7 @@ type Handlers struct {
 	repo     *Repository
 	registry *machines.Registry
 	ha       *ha.Client
-	rl       *keyedRateLimiter
+	rl       *ratelimit.KeyedLimiter
 }
 
 // NewHandlers builds Handlers. shotsRepo/libRepo/registry are the same
@@ -53,7 +55,7 @@ func NewHandlers(repo *Repository, shotsRepo *shots.Repository, libRepo *library
 		repo:     repo,
 		registry: registry,
 		ha:       haClient,
-		rl:       newKeyedRateLimiter(),
+		rl:       ratelimit.NewKeyed(),
 	}
 }
 
@@ -127,6 +129,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func internalError(w http.ResponseWriter, err error) {
+	log.Printf("orders: internal error: %v", err)
 	writeError(w, http.StatusInternalServerError, "Internal server error")
 }
 

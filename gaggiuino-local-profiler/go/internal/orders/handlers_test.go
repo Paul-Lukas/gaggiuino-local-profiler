@@ -1,6 +1,7 @@
 package orders
 
 import (
+	"database/sql"
 	"net/http"
 	"testing"
 )
@@ -258,6 +259,77 @@ func TestOrderLifecycle_AcceptCompleteDecline(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete status = %d; body=%s", rec.Code, rec.Body.String())
 	}
+}
+
+// TestAcceptOrder_ExplicitEtaZeroDefaultsTo5 (#901 code review): mirrors
+// JS's `parseInt(rawEta) || 5` — 0 is falsy in JS, so an explicit `eta: 0`
+// must default to 5 like an absent/unparseable eta does, not clamp to 1.
+func TestAcceptOrder_ExplicitEtaZeroDefaultsTo5(t *testing.T) {
+	h, _, _ := newTestHandlers(t)
+	mux := newMux(h)
+	order := placeTestOrder(t, mux, nil)
+	id, _ := order["id"].(string)
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/orders/"+id+"/accept", mustMarshal(t, map[string]any{"eta": 0}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("accept status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	accepted := decodeBody(t, rec.Body.Bytes())
+	if eta, ok := accepted["eta"].(float64); !ok || eta != 5 {
+		t.Errorf("eta = %v; want 5 (eta:0 must default, not clamp to 1)", accepted["eta"])
+	}
+}
+
+// TestAcceptOrder_OnlyTouchesItsOwnRow (#901 code review): AcceptOrder must
+// write only the one order row it mutates, not the whole active-queue table
+// (the old FindActive()+SaveAll() shape re-marshaled and rewrote every
+// active order via INSERT OR REPLACE on every single accept/complete/
+// decline). `orders.id` is a TEXT PRIMARY KEY, not a rowid alias, so
+// SQLite's own implicit rowid is a reliable "was this exact row ever
+// rewritten" witness: INSERT OR REPLACE on a primary-key conflict always
+// deletes-then-reinserts that row, which changes its rowid — a bystander
+// row's rowid staying exactly the same before/after proves it was never
+// part of the write, which byte-comparing its `data` content alone could
+// not (encoding/json's deterministic key sorting would make an unrelated
+// row's re-marshaled bytes come back identical either way).
+func TestAcceptOrder_OnlyTouchesItsOwnRow(t *testing.T) {
+	h, _, sqlDB := newTestHandlers(t)
+	mux := newMux(h)
+
+	target := placeTestOrder(t, mux, nil)
+	targetID, _ := target["id"].(string)
+	var bystanderIDs []string
+	for i := 0; i < 3; i++ {
+		o := placeTestOrder(t, mux, nil)
+		id, _ := o["id"].(string)
+		bystanderIDs = append(bystanderIDs, id)
+	}
+
+	before := make(map[string]int64, len(bystanderIDs))
+	for _, id := range bystanderIDs {
+		before[id] = orderRowID(t, sqlDB, id)
+	}
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/orders/"+targetID+"/accept", mustMarshal(t, map[string]any{"eta": 9}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("accept status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+
+	for _, id := range bystanderIDs {
+		after := orderRowID(t, sqlDB, id)
+		if after != before[id] {
+			t.Errorf("bystander order %s's rowid changed (%d -> %d) after accepting a different order — it was rewritten", id, before[id], after)
+		}
+	}
+}
+
+func orderRowID(t *testing.T, sqlDB *sql.DB, id string) int64 {
+	t.Helper()
+	var rowid int64
+	if err := sqlDB.QueryRow(`SELECT rowid FROM orders WHERE id = ?`, id).Scan(&rowid); err != nil {
+		t.Fatalf("reading rowid for order %s: %v", id, err)
+	}
+	return rowid
 }
 
 func TestOrderLifecycle_Decline(t *testing.T) {

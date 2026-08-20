@@ -47,7 +47,7 @@ func ComputeMaintenanceStats(shotsRepo *shots.Repository, maint map[string]Task,
 		}
 		var daysSince any
 		if lastTs != 0 {
-			daysSince = (now - lastTs) / 86400000
+			daysSince = jsFloorDivDays(now - lastTs)
 		}
 		var shotsSince int
 		for _, s := range shotList {
@@ -121,6 +121,21 @@ func parseJSDate(s string) (int64, error) {
 }
 
 var errBadDate = errors.New("unparseable date")
+
+// jsFloorDivDays ports `Math.floor(deltaMs / 86400000)`: Go's integer
+// division truncates toward zero, which diverges from Math.floor for a
+// negative deltaMs (lastTs in the future — clock skew, or a hand-edited/
+// restored backup) whenever the division isn't exact, e.g. 1.5 days in the
+// future truncates to -1 in Go but must floor to -2 like Node (#901 code
+// review).
+func jsFloorDivDays(deltaMs int64) int64 {
+	const dayMs = 86400000
+	q := deltaMs / dayMs
+	if deltaMs%dayMs != 0 && deltaMs < 0 {
+		q--
+	}
+	return q
+}
 
 // jsPositiveInt ports the `task.threshold_shots`/`task.threshold_days`
 // truthiness check (`if (task.threshold_shots)`): present, non-nil, and

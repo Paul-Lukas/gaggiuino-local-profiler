@@ -50,19 +50,49 @@ func (r *Repository) FindActive() ([]Order, error) {
 	if err != nil {
 		return nil, err
 	}
-	cutoff := time.Now().Add(-ordersHistoryTTL).UnixMilli()
 	out := make([]Order, 0, len(all))
 	for _, o := range all {
-		status, _ := o["status"].(string)
-		if status == "pending" || status == "accepted" {
-			out = append(out, o)
-			continue
-		}
-		if completedAt, ok := jsNumber(o["completedAt"]); ok && completedAt > float64(cutoff) {
+		if isActiveOrder(o) {
 			out = append(out, o)
 		}
 	}
 	return out, nil
+}
+
+// isActiveOrder is FindActive's per-order inclusion test, factored out so
+// FindActiveByID can apply the identical rule to a single row without
+// loading/decoding every order in the table.
+func isActiveOrder(o Order) bool {
+	status, _ := o["status"].(string)
+	if status == "pending" || status == "accepted" {
+		return true
+	}
+	completedAt, ok := jsNumber(o["completedAt"])
+	if !ok {
+		return false
+	}
+	cutoff := time.Now().Add(-ordersHistoryTTL).UnixMilli()
+	return completedAt > float64(cutoff)
+}
+
+// FindActiveByID ports the "locate one order within the same active-queue
+// view FindActive returns" lookup AcceptOrder/CompleteOrder/DeclineOrder
+// each need (#901 code review): a single indexed SELECT by id followed by
+// isActiveOrder's check, instead of loading and decoding the whole active
+// set just to find one row by id. An id that exists in the table but has
+// aged out of the active window (done/declined beyond ordersHistoryTTL)
+// still reports as "not found" here, matching OrderService.js's own
+// `repo.findActive().find(o => o.id === id)` lookup exactly — this is a
+// narrower, indexed version of that same check, not a behavior change.
+func (r *Repository) FindActiveByID(id string) (Order, error) {
+	o, err := r.FindByID(id)
+	if err != nil || o == nil {
+		return nil, err
+	}
+	if !isActiveOrder(o) {
+		return nil, nil
+	}
+	return o, nil
 }
 
 func jsNumber(v any) (float64, bool) {
