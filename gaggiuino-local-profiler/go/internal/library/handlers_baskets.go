@@ -39,13 +39,13 @@ func (h *Handlers) createBasket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name required")
 		return
 	}
-	wallType, _ := body["wallType"].(string)
-	if wallType != "" && !basketWallTypes[wallType] {
+	wallType, _, wallTypeOK := enumStringField(body, "wallType", basketWallTypes)
+	if !wallTypeOK {
 		writeError(w, http.StatusBadRequest, "invalid wallType")
 		return
 	}
-	shape, _ := body["shape"].(string)
-	if shape != "" && !basketShapes[shape] {
+	shape, _, shapeOK := enumStringField(body, "shape", basketShapes)
+	if !shapeOK {
 		writeError(w, http.StatusBadRequest, "invalid shape")
 		return
 	}
@@ -88,19 +88,15 @@ func (h *Handlers) updateBasket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	if v, present := body["wallType"]; present {
-		s, _ := v.(string)
-		if s != "" && !basketWallTypes[s] {
-			writeError(w, http.StatusBadRequest, "invalid wallType")
-			return
-		}
+	wallType, wallTypePresent, wallTypeOK := enumStringField(body, "wallType", basketWallTypes)
+	if !wallTypeOK {
+		writeError(w, http.StatusBadRequest, "invalid wallType")
+		return
 	}
-	if v, present := body["shape"]; present {
-		s, _ := v.(string)
-		if s != "" && !basketShapes[s] {
-			writeError(w, http.StatusBadRequest, "invalid shape")
-			return
-		}
+	shape, shapePresent, shapeOK := enumStringField(body, "shape", basketShapes)
+	if !shapeOK {
+		writeError(w, http.StatusBadRequest, "invalid shape")
+		return
 	}
 	basket := lib.Baskets[idx]
 	if v, present := trimMaxOrUndefined(body, "name", 200); present {
@@ -111,13 +107,11 @@ func (h *Handlers) updateBasket(w http.ResponseWriter, r *http.Request) {
 	if v, present := trimMaxOrUndefined(body, "doseCapacity", 50); present {
 		basket["doseCapacity"] = v
 	}
-	if v, present := body["wallType"]; present {
-		s, _ := v.(string)
-		basket["wallType"] = s
+	if wallTypePresent {
+		basket["wallType"] = wallType
 	}
-	if v, present := body["shape"]; present {
-		s, _ := v.(string)
-		basket["shape"] = s
+	if shapePresent {
+		basket["shape"] = shape
 	}
 	if v, present := trimMaxOrUndefined(body, "holeCount", 50); present {
 		basket["holeCount"] = v

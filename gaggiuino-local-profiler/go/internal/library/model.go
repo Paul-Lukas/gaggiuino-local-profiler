@@ -198,6 +198,34 @@ func trimMaxOrUndefined(body Entity, key string, max int) (value string, present
 	return trimMax(v, max), true
 }
 
+// enumStringField reads body[key] and validates it against allowed,
+// mirroring the Node original's `if (v && !ALLOWED.has(v)) return 400`
+// (routes/library/{baskets,puckscreens}.js) — with one deliberate,
+// stricter divergence fixed under #901: the Node check only rejects a
+// *truthy* mismatch, so a non-string JSON value (e.g. `{"wallType": 5}`)
+// is falsy-ish only by accident and actually sails through as `undefined`
+// via optional chaining in places, while here ANY key present in the body
+// whose value isn't a string is rejected outright rather than silently
+// coerced to the Go zero value "" (which used to bypass validation
+// entirely — a present-but-empty value and an absent key were
+// indistinguishable). present reports whether key existed in body at all,
+// so callers (the update handlers) can tell "not provided, leave
+// unchanged" apart from "provided and valid".
+func enumStringField(body Entity, key string, allowed map[string]bool) (value string, present bool, ok bool) {
+	v, present := body[key]
+	if !present {
+		return "", false, true
+	}
+	s, isString := v.(string)
+	if !isString {
+		return "", true, false
+	}
+	if s != "" && !allowed[s] {
+		return "", true, false
+	}
+	return s, true, true
+}
+
 func truncateUTF8(s string, max int) string {
 	if len(s) <= max {
 		return s

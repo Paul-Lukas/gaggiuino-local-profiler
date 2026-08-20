@@ -434,6 +434,51 @@ func TestBasket_CRUD(t *testing.T) {
 	}
 }
 
+// TestBasket_EnumFieldsRejectNonStringValues guards #901: a wallType/shape
+// value that decodes to something other than a JSON string (e.g. a number)
+// used to silently fall back to Go's zero value "" and sail past
+// validation instead of getting rejected like the Node original rejects any
+// truthy, non-matching value.
+func TestBasket_EnumFieldsRejectNonStringValues(t *testing.T) {
+	h, _, _ := newTestHandlers(t)
+	mux := newMux(h)
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/library/basket", mustMarshal(t, map[string]any{"name": "x", "wallType": 5}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("create with non-string wallType: status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, mux, http.MethodPost, "/api/library/basket", mustMarshal(t, map[string]any{"name": "x", "shape": 5}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("create with non-string shape: status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, mux, http.MethodPost, "/api/library/basket", mustMarshal(t, map[string]any{"name": "VST 18g", "wallType": "precision-machined"}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	basket := decodeBody(t, rec.Body.Bytes())
+	id := int64(basket["id"].(float64))
+
+	rec = doJSON(t, mux, http.MethodPut, "/api/library/basket/"+itoa(id), mustMarshal(t, map[string]any{"wallType": 5}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("update with non-string wallType: status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, mux, http.MethodPut, "/api/library/basket/"+itoa(id), mustMarshal(t, map[string]any{"shape": 5}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("update with non-string shape: status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// The rejected updates above must not have overwritten wallType with "".
+	rec = doJSON(t, mux, http.MethodGet, "/api/library/baskets", nil)
+	arr := decodeBodyArray(t, rec.Body.Bytes())
+	if len(arr) != 1 {
+		t.Fatalf("expected 1 basket, got %+v", arr)
+	}
+	if arr[0]["wallType"] != "precision-machined" {
+		t.Fatalf("rejected update overwrote wallType: got %+v", arr[0])
+	}
+}
+
 // ── Puck screens ────────────────────────────────────────────────────────
 
 func TestPuckScreen_CRUD(t *testing.T) {
@@ -461,6 +506,41 @@ func TestPuckScreen_CRUD(t *testing.T) {
 	rec = doJSON(t, mux, http.MethodDelete, "/api/library/puckscreen/"+itoa(id), nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestPuckScreen_EnumFieldRejectsNonStringValue guards #901: a thickness
+// value that decodes to a non-string JSON value used to silently pass
+// validation as Go's zero value "" instead of getting rejected.
+func TestPuckScreen_EnumFieldRejectsNonStringValue(t *testing.T) {
+	h, _, _ := newTestHandlers(t)
+	mux := newMux(h)
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/library/puckscreen", mustMarshal(t, map[string]any{"name": "x", "thickness": 5}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("create with non-string thickness: status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, mux, http.MethodPost, "/api/library/puckscreen", mustMarshal(t, map[string]any{"name": "IMS", "thickness": "thin"}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	ps := decodeBody(t, rec.Body.Bytes())
+	id := int64(ps["id"].(float64))
+
+	rec = doJSON(t, mux, http.MethodPut, "/api/library/puckscreen/"+itoa(id), mustMarshal(t, map[string]any{"thickness": 5}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("update with non-string thickness: status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// The rejected update above must not have overwritten thickness with "".
+	rec = doJSON(t, mux, http.MethodGet, "/api/library/puckscreens", nil)
+	arr := decodeBodyArray(t, rec.Body.Bytes())
+	if len(arr) != 1 {
+		t.Fatalf("expected 1 puck screen, got %+v", arr)
+	}
+	if arr[0]["thickness"] != "thin" {
+		t.Fatalf("rejected update overwrote thickness: got %+v", arr[0])
 	}
 }
 

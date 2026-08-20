@@ -2,6 +2,7 @@ package library
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
@@ -137,16 +138,12 @@ func roundTo1(f float64) float64 {
 	return float64(int64(f*10+0.5)) / 10
 }
 
+// lowerOrEmpty ports `String(...).toLowerCase()` — strings.ToLower is
+// Unicode-case-folding-aware like JS's toLowerCase(), unlike a plain A-Z
+// byte-range fold, which left non-ASCII grinder names (e.g. "Éureka",
+// "Mühle") comparing unequal to themselves (#901).
 func lowerOrEmpty(s string) string {
-	out := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		out[i] = c
-	}
-	return string(out)
+	return strings.ToLower(s)
 }
 
 // UpsertKnownGrindSetting ports LibraryService.js's upsertKnownGrindSetting

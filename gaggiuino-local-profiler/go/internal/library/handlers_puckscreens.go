@@ -38,8 +38,8 @@ func (h *Handlers) createPuckScreen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name required")
 		return
 	}
-	thickness, _ := body["thickness"].(string)
-	if thickness != "" && !puckScreenThicknesses[thickness] {
+	thickness, _, thicknessOK := enumStringField(body, "thickness", puckScreenThicknesses)
+	if !thicknessOK {
 		writeError(w, http.StatusBadRequest, "invalid thickness")
 		return
 	}
@@ -81,12 +81,10 @@ func (h *Handlers) updatePuckScreen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	if v, present := body["thickness"]; present {
-		s, _ := v.(string)
-		if s != "" && !puckScreenThicknesses[s] {
-			writeError(w, http.StatusBadRequest, "invalid thickness")
-			return
-		}
+	thickness, thicknessPresent, thicknessOK := enumStringField(body, "thickness", puckScreenThicknesses)
+	if !thicknessOK {
+		writeError(w, http.StatusBadRequest, "invalid thickness")
+		return
 	}
 	puckScreen := lib.PuckScreens[idx]
 	if v, present := trimMaxOrUndefined(body, "name", 200); present {
@@ -94,9 +92,8 @@ func (h *Handlers) updatePuckScreen(w http.ResponseWriter, r *http.Request) {
 			puckScreen["name"] = v
 		}
 	}
-	if v, present := body["thickness"]; present {
-		s, _ := v.(string)
-		puckScreen["thickness"] = s
+	if thicknessPresent {
+		puckScreen["thickness"] = thickness
 	}
 	if v, present := trimMaxOrUndefined(body, "material", 200); present {
 		puckScreen["material"] = v
