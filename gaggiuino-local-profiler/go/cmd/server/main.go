@@ -1,20 +1,24 @@
 // Command server is the Go rewrite's HTTP bootstrap: it wires internal/db,
 // internal/auth, internal/ratelimit, internal/sse, internal/shots (Phase
-// 1c), internal/library (Phase 1d), and (Phase 1e, issue #901)
-// internal/machines together into a real net/http server, in the same
-// middleware order server.js actually registers its own (read that file,
-// not a paraphrase of it — see the comment on the handler chain below).
+// 1c), internal/library (Phase 1d), internal/machines (Phase 1e), and
+// (Phase 1f, issue #901) internal/orders, internal/maintenance,
+// internal/backup, and internal/ha together into a real net/http server,
+// in the same middleware order server.js actually registers its own (read
+// that file, not a paraphrase of it — see the comment on the handler
+// chain below).
 //
-// GET /api/events (Phase 1b), the full /shots.json + /api/shots/* domain
-// (Phase 1c), the full /api/library/* domain (Phase 1d), and the machine-
-// registry + machine-control + machine-profile domain (Phase 1e:
-// /api/machines*, /api/machine/{settings,opmode,tare,service-test,
-// profile/save,firmware/*,live,profiles,profile*}) are registered. Every
-// other REST domain (orders, maintenance, backup) is still unrouted —
-// those come in later packages. This binary is not wired into the Docker
-// image, CI, or the running add-on; the Node app (server.js) remains the
-// sole shipping entrypoint until the rollout plan in go/README.md says
-// otherwise.
+// Every REST domain in the original Migrationsplan is now registered: GET
+// /api/events (Phase 1b), /shots.json + /api/shots/* (Phase 1c),
+// /api/library/* (Phase 1d), the machine-registry + machine-control +
+// machine-profile domain (Phase 1e), and /api/orders/*, /api/maintenance/*,
+// GET/POST /api/backup + POST /api/restore (Phase 1f). Deliberately still
+// unrouted: internal/system's status/live/preheat endpoints (GET
+// /api/status, /api/token, /api/switch, /api/preheat*, GET /api/live/data,
+// GET /api/version) and lib/poll.js's background polling loop — a
+// separate follow-up package, see internal/system/doc.go. This binary is
+// not wired into the Docker image, CI, or the running add-on; the Node
+// app (server.js) remains the sole shipping entrypoint until the rollout
+// plan in go/README.md says otherwise.
 package main
 
 import (
@@ -27,9 +31,13 @@ import (
 	"time"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/backup"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ha"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/maintenance"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/orders"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ratelimit"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
@@ -73,11 +81,42 @@ func main() {
 	shotsHandlers := shots.NewHandlers(shotsRepo)
 	shotsHandlers.RegisterRoutes(mux)
 
-	libraryHandlers := library.NewHandlers(library.NewRepository(sqlDB), shotsRepo)
+	libRepo := library.NewRepository(sqlDB)
+	libraryHandlers := library.NewHandlers(libRepo, shotsRepo)
 	libraryHandlers.RegisterRoutes(mux)
 
-	machinesHandlers := machines.NewHandlers(machines.NewRegistry(sqlDB), hub)
+	registry := machines.NewRegistry(sqlDB)
+	machinesHandlers := machines.NewHandlers(registry, hub)
 	machinesHandlers.RegisterRoutes(mux)
+
+	haClient := ha.NewClientFromEnv()
+	ordersRepo := orders.NewRepository(sqlDB)
+	ordersHandlers := orders.NewHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
+	ordersHandlers.RegisterRoutes(mux)
+
+	maintenanceRepo := maintenance.NewRepository(sqlDB, libRepo)
+	maintenanceHandlers := maintenance.NewHandlers(maintenanceRepo, shotsRepo, libRepo, registry)
+	maintenanceHandlers.RegisterRoutes(mux)
+	// #901 (Phase 1f): closes the Phase 1d gap flagged in
+	// internal/library/doc.go — deleting a grinder now also removes its
+	// `grinder_{id}` maintenance-table row, via a callback (not a direct
+	// import) since internal/maintenance already imports internal/library.
+	libraryHandlers.SetOnGrinderDeleted(maintenanceRepo.DeleteGrinderTask)
+
+	backupHandlers := backup.NewHandlers(backup.Dependencies{
+		DB:              sqlDB,
+		ShotsRepo:       shotsRepo,
+		LibRepo:         libRepo,
+		OrdersRepo:      ordersRepo,
+		MaintenanceRepo: maintenanceRepo,
+		Registry:        registry,
+		// Token/TokenFile: a restored API token is persisted to
+		// tokenPath but does NOT take effect in this already-running
+		// process — see backup.Dependencies.Token's doc comment.
+		Token:     token,
+		TokenFile: tokenPath,
+	})
+	backupHandlers.RegisterRoutes(mux)
 
 	limiter := ratelimit.New(rateLimitWindow, rateLimitMax)
 

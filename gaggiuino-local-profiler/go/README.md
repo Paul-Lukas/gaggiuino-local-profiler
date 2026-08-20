@@ -6,7 +6,7 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 1e (machines domain — registry, adapters, WebSocket client)
+## Status: Phase 1f (orders, maintenance, backup domains — every REST domain from the migration plan is now routed except system)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
 packages everything else builds on. Phase 1b added a real, listening HTTP
@@ -106,10 +106,67 @@ library domain on top of that same pattern:
   dumps every decoded WS frame, or replays one recorded hex frame offline.
   Not part of the server binary or any test suite.
 
-Every other package under `internal/` (`system`, `orders`, `maintenance`,
-`backup`) is still a Phase 0 `doc.go` placeholder — no REST routes exist
-for those domains yet. `go build ./...`, `go vet ./...`, `gofmt -l .`, and
-`go test ./...` (including `-race`) are all green.
+- `internal/orders` (Phase 1f, new) — the full barista-orders REST domain:
+  menu CRUD, orders settings, queue ETA, milk stock, order placement +
+  accept/complete/decline lifecycle, notify mapping, and stats. Ports
+  `OrderService.js`'s `resolveMachineId`/`resolveBeanId`/`computeQueueEta`/
+  lifecycle methods and `OrderRepository.js`'s DB access. Every path
+  `glp-integration`'s `orders_api.py` proxy allowlists is covered and
+  contract-tested (`handlers_test.go`'s `TestProxiedPaths_Answer200`), as
+  is the `X-GLP-HA-User-ID` header's precedence over both the body field
+  and the `mine` endpoint's query parameter (#547). `GetActiveBeans`/
+  `GetActiveMilks`/`DeductMilkByName`/`ComputeBeanRemaining` — deferred out
+  of Phase 1d's scope — are now ported too, in
+  `internal/library/orders_support.go`. Deliberately NOT ported: the
+  shop-open/shop-closed HA-notify broadcast `POST /api/orders/settings`
+  triggers (needs the default machine's live runtime state from the
+  still-unported `system` domain) — settings themselves persist correctly,
+  only that notification side effect is missing — see
+  `internal/orders/doc.go`.
+- `internal/maintenance` (Phase 1f, new) — the full maintenance-tracking
+  REST domain: per-task/per-grinder due tracking with thresholds, the
+  maintenance log, and the `machineId=all` aggregate view. Ports
+  `LibraryService.js`'s `computeMaintenanceStats`/
+  `computeAllMachinesMaintenance` and `LibraryRepository.js`'s
+  maintenance-table methods, split into their own package (Node keeps them
+  in the library domain's files; this rewrite doesn't). Closes a Phase 1d
+  gap: deleting a grinder now also removes its `grinder_{id}` maintenance
+  row, wired from `internal/library` via a callback
+  (`SetOnGrinderDeleted`) rather than a direct import, since this package
+  already imports `internal/library` the other way around (grinder
+  existence checks, grinder names).
+- `internal/backup` (Phase 1f, new) — the full backup/restore REST domain:
+  `GET`/`POST /api/backup` (legacy self-contained JSON export and the zip
+  export the app's UI actually uses, both with optional section scoping
+  and passphrase-encrypted secrets), and `POST /api/restore` (dry-run
+  preview, per-section apply, zip or legacy-JSON body). Ports
+  `lib/backup-crypto.js` (AES-256-GCM-scrypt) verbatim, uses Go's stdlib
+  `archive/zip` instead of porting `lib/zip.js`'s hand-rolled DEFLATE/CRC32
+  implementation (no behavior difference — same ZIP format), and closes
+  two more cross-domain gaps flagged deferred by earlier phases:
+  `internal/machines/registry.go`'s `RestoreMachines` (flagged in
+  Phase 1e) and `internal/library`'s whole-entity restore sanitizers
+  (`SanitizeBeanFields` et al., flagged in Phase 1d — now in
+  `internal/library/restore_sanitize.go`). **One known, deliberate gap**:
+  a real restore is NOT wrapped in one all-or-nothing transaction the way
+  Node's is — each of the six backup sections (shots, maintenance, orders,
+  machines, settings, secrets) writes atomically on its own, but a failure
+  partway through a multi-section restore leaves earlier sections applied
+  and later ones not, unlike Node. `routes/debug.js`'s
+  `export-db`/`import-db` (raw SQLite file dump/restore) are explicitly
+  NOT part of this domain — see `internal/backup/doc.go` for the full
+  reasoning on both.
+- `internal/ha` (Phase 1f, new) — ports the subset of `lib/ha.js` the
+  orders domain needs: `SendNotify`, `GetNotifyServices`, `GetPersons`.
+  Degrades to a no-op/empty-result when no `SUPERVISOR_TOKEN`/`GLP_HA_URL`
+  is configured, exactly like the Node original — HA integration is
+  optional.
+
+Every REST domain named in the original migration plan is now routed
+except `system` (`system/status`, `/api/token`, `/api/preheat*`,
+`/api/live/data`, and `lib/poll.js`'s background polling loop) — still a
+Phase 0 `doc.go` placeholder. `go build ./...`, `go vet ./...`,
+`gofmt -l .`, and `go test ./...` (including `-race`) are all green.
 
 ## Why
 
@@ -144,7 +201,7 @@ go/
   README.md              — this file
   RESEARCH.md             — Phase 0 research spikes (protobuf sources, image/QR libs)
   cmd/
-    server/                main.go — HTTP bootstrap: db + auth + sse + shots + library + machines wiring
+    server/                main.go — HTTP bootstrap: db + auth + sse + shots + library + machines + orders + maintenance + backup wiring
     gaggiuino-ws-probe/     manual protobuf-decoder verification tool (not part of the server binary)
   internal/
     db/                    lib/db.js — schema + migrations
@@ -156,15 +213,14 @@ go/
     library/               routes/library/*.js + LibraryService (implemented, Phase 1d)
     machines/              routes/machines.js + machine-control.js + lib/machines/* (implemented, Phase 1e)
     machines/proto/         Gaggiuino's binary protobuf schema (implemented, Phase 1e)
-    orders/                routes/orders.js + OrderService
-    maintenance/           routes/maintenance.js
-    backup/                routes/backup.js
+    orders/                routes/orders.js + OrderService (implemented, Phase 1f)
+    maintenance/           routes/maintenance.js + LibraryService/LibraryRepository's maintenance-table methods (implemented, Phase 1f)
+    backup/                routes/backup.js + lib/backup-crypto.js (implemented, Phase 1f)
+    ha/                    lib/ha.js — SendNotify/GetNotifyServices/GetPersons (implemented, Phase 1f)
 ```
 
-The still-unimplemented packages (`system`, `orders`, `maintenance`,
-`backup`) currently contain only a `doc.go` package comment pointing at
-their Node source of truth. See each one for exactly which file(s) it
-will absorb.
+`system` is the only package left as a Phase 0 `doc.go` placeholder — see
+that file for exactly which Node file(s) it will absorb.
 
 ## Contract
 

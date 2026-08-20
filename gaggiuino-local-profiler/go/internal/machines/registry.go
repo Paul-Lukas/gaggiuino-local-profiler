@@ -312,6 +312,134 @@ func (r *Registry) DeleteMachine(id int64, onHostEvicted func(host string)) (boo
 	return true, nil
 }
 
+// RestoreMachines ports registry.js's restoreMachines(machines) (Phase 1f,
+// #901): wipes and re-inserts the whole `machines` table from a backup's
+// `machines` array, validating each entry the same way MachineInput.validate
+// does for a live POST/PUT, then enforcing exactly one is_default row
+// (lowest id wins on a tie/absence, matching the Node original). Returns
+// the count of entries actually restored (out of len(in)) — an invalid
+// entry (bad id, or a field that fails machineSchema-equivalent validation)
+// is skipped, not fatal to the rest of the restore, matching Node's
+// per-entry try/skip loop.
+//
+// Deliberately NOT ported here (see go/internal/machines/doc.go for the
+// full rationale): evictLiveSession(oldHost) for every host that existed
+// before the restore (this package's own live WS sessions reconnect/fail
+// naturally against a host that no longer resolves to any machine, rather
+// than being torn down immediately) and options-adoption.js's
+// reconcileAfterRestore() (ties a restored machine's stale host/
+// switchEntity back to the current legacy add-on options.json — that
+// facade doesn't exist in this Go port yet, see internal/orders/options.go
+// for the same options.json-facade gap noted elsewhere in this rewrite).
+func (r *Registry) RestoreMachines(in []Machine) (restored int, err error) {
+	type validated struct {
+		id              int64
+		name, typ, host string
+		switchEntity    *string
+		theme           *string
+		isDefault       bool
+		enabled         bool
+		createdAt       int64
+	}
+	valid := make([]validated, 0, len(in))
+	for _, m := range in {
+		if m.ID <= 0 {
+			continue
+		}
+		name := m.Name
+		typ := m.Type
+		host := m.Host
+		input := MachineInput{Name: &name, Type: &typ, Host: &host, SwitchEntity: m.SwitchEntity, Theme: m.Theme}
+		if err := input.validate(true); err != nil {
+			continue
+		}
+		themeStr, err := themeJSON(m.Theme)
+		if err != nil {
+			continue
+		}
+		createdAt := m.CreatedAt
+		if createdAt == 0 {
+			createdAt = time.Now().UnixMilli()
+		}
+		valid = append(valid, validated{
+			id: m.ID, name: name, typ: typ, host: host, switchEntity: m.SwitchEntity,
+			theme: themeStr, isDefault: m.IsDefault, enabled: m.Enabled, createdAt: createdAt,
+		})
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("machines: starting restore tx: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM machines`); err != nil {
+		tx.Rollback()
+		return 0, fmt.Errorf("machines: clearing table: %w", err)
+	}
+	stmt, err := tx.Prepare(
+		`INSERT INTO machines (id, name, type, host, switch_entity, theme, is_default, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+	)
+	if err != nil {
+		tx.Rollback()
+		return 0, fmt.Errorf("machines: preparing restore: %w", err)
+	}
+	for _, v := range valid {
+		if _, err := stmt.Exec(
+			v.id, v.name, v.typ, v.host, nullableString(v.switchEntity), nullableString(v.theme),
+			boolToInt(v.isDefault), boolToInt(v.enabled), v.createdAt,
+		); err != nil {
+			stmt.Close()
+			tx.Rollback()
+			return 0, fmt.Errorf("machines: restoring #%d: %w", v.id, err)
+		}
+	}
+	stmt.Close()
+
+	// Enforce exactly one is_default row (lowest id wins on a tie/absence).
+	rows, err := tx.Query(`SELECT id, is_default FROM machines ORDER BY id ASC`)
+	if err != nil {
+		tx.Rollback()
+		return 0, fmt.Errorf("machines: reading restored rows: %w", err)
+	}
+	var winnerID int64
+	haveWinner := false
+	defaultCount := 0
+	for rows.Next() {
+		var id int64
+		var isDefault bool
+		if err := rows.Scan(&id, &isDefault); err != nil {
+			rows.Close()
+			tx.Rollback()
+			return 0, fmt.Errorf("machines: scanning restored row: %w", err)
+		}
+		if !haveWinner {
+			winnerID = id
+			haveWinner = true
+		}
+		if isDefault {
+			defaultCount++
+			if defaultCount == 1 {
+				winnerID = id
+			}
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	if defaultCount != 1 && haveWinner {
+		if _, err := tx.Exec(`UPDATE machines SET is_default = (id = ?)`, winnerID); err != nil {
+			tx.Rollback()
+			return 0, fmt.Errorf("machines: correcting is_default: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("machines: committing restore: %w", err)
+	}
+	return len(valid), nil
+}
+
 // ResolveMachine ports registry.js's resolveMachine(rawId) (#679): an
 // explicit machineId if it names a known machine, otherwise the default
 // machine. rawId == nil means "no machineId given at all" (query/body

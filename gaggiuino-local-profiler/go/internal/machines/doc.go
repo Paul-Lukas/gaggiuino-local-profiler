@@ -129,11 +129,20 @@
 //     cached data is gated by requireSettingsProxySupport, and GaggiMate
 //     reports capabilities().settingsProxy == false, so it's unreachable
 //     from this phase's REST surface regardless.
-//   - lib/machines/registry.js's restoreMachines() and
-//     options-adoption.js's post-restore reconciliation hook — both
-//     routes/backup.js-triggered, backup domain, still Phase 0
-//     (go/internal/backup) — same deferral internal/library made for its
-//     own backup-only repository methods.
+//   - lib/machines/registry.js's restoreMachines() is now ported
+//     (registry.go, Phase 1f/#901) — the backup domain
+//     (go/internal/backup) calls Registry.RestoreMachines(). Deliberately
+//     NOT included in that port: evictLiveSession(oldHost) for every host
+//     that existed before the restore (a stale WS session simply reconnects/
+//     fails naturally against a host nothing identifies anymore, rather
+//     than being torn down immediately — a cosmetic timing difference, not
+//     a data-correctness one) and options-adoption.js's
+//     reconcileAfterRestore() (ties a restored machine's stale host/
+//     switchEntity back to the current legacy add-on options.json — no
+//     options.json facade exists in this Go port yet; see
+//     go/internal/orders/options.go's isOrdersEnabled() for the same gap
+//     noted from the orders domain's side). See RestoreMachines' own doc
+//     comment for the full detail.
 //
 // # Protobuf verification status
 //
