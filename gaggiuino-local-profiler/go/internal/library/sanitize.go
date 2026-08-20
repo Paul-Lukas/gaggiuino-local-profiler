@@ -9,12 +9,13 @@ import (
 
 // This file ports the individual field sanitizers from lib/sanitize-bean.js
 // that routes/library/beans.js's/baskets.js's own POST/PUT handlers call
-// directly. sanitizeBeanFields/sanitizeGrinderFields/sanitizeRecipeFields/
-// sanitizeMilkFields/sanitizeBasketFields/sanitizePuckScreenFields — the
-// "resanitize a whole restored entity" wrappers — are deliberately NOT
-// ported here: their only caller is routes/backup.js's /api/restore, which
-// belongs to the backup domain (internal/backup, still a Phase 0
-// placeholder), not this one.
+// directly. The "resanitize a whole restored entity" wrappers
+// (SanitizeBeanFields/SanitizeGrinderFields/SanitizeRecipeFields/
+// SanitizeMilkFields/SanitizeBasketFields/SanitizePuckScreenFields) live in
+// restore_sanitize.go instead (Phase 1f, #901) — their only caller is the
+// backup domain's POST /api/restore (internal/backup), a different
+// package, so they're exported there and kept in their own file rather
+// than mixed into this one.
 
 var isoAlpha2Re = regexp.MustCompile(`^[A-Z]{2}$`)
 

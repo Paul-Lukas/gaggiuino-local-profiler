@@ -28,6 +28,11 @@
 //	handlers_milks.go        routes/library/milks.js
 //	handlers_recipes.go      routes/library/recipes.js
 //	scan.go                  routes/library/scan.js
+//	orders_support.go        (Phase 1f) getActiveBeans/getActiveMilks/
+//	                          deductMilkByName/computeBeanRemaining, for the
+//	                          orders domain
+//	restore_sanitize.go      (Phase 1f) lib/sanitize-bean.js's whole-entity
+//	                          sanitizers, for the backup domain's restore path
 //
 // # Deliberately not ported in this phase
 //
@@ -41,21 +46,28 @@
 // checks, and only ever called once at process startup in server.js) — no
 // flag needed there.
 //
-// Everything else deferred is a genuine cross-domain dependency on a
-// package that's still a Phase 0 placeholder, each documented at its call
-// site:
+// Two of the three cross-domain gaps flagged in the original (Phase 1d)
+// version of this comment were closed in Phase 1f (#901):
 //
-//   - LibraryService.js's getMaintenance/saveMaintenance/getMaintenanceLog/
-//     addMaintenanceLogEntry/computeMaintenanceStats and
-//     LibraryRepository.js's matching methods belong to the maintenance
-//     domain (routes/maintenance.js -> internal/maintenance, still Phase 0).
-//     The one place this package would otherwise call into them —
-//     POST /api/library/grinder/:id/delete's cleanup of the deleted
-//     grinder's `maintenance` table row — is flagged as a genuine (if
-//     minor) behavior gap in handlers_grinders.go's deleteGrinder doc
-//     comment, NOT silently dropped: this IS live, on-every-delete
-//     business logic, not a one-time migration, so it doesn't qualify for
-//     the migrateX() exemption above.
+//   - The maintenance-table cleanup POST /api/library/grinder/:id/delete
+//     runs (dropping the deleted grinder's `grinder_{id}` row) is now
+//     wired via a callback — see handlers.go's SetOnGrinderDeleted and
+//     handlers_grinders.go's deleteGrinder. internal/maintenance now
+//     exists and already imports this package (for grinder-existence
+//     checks and names), so the wiring runs the other direction to avoid
+//     a cycle: cmd/server's main.go calls
+//     libraryHandlers.SetOnGrinderDeleted(maintenanceRepo.DeleteGrinderTask)
+//     once at startup.
+//   - computeBeanRemaining/getActiveBeans/getActiveMilks/deductMilkByName
+//     are now ported, in orders_support.go — the orders domain
+//     (internal/orders) calls them for GET /api/orders/active-beans,
+//     GET /api/orders/active-milks, and completeOrder's milk-stock
+//     deduction. checkLowStockNotify/resolveBeanForAnnotation/
+//     findBeanByName remain unported: those back the shots-annotate path's
+//     #450/#456 deferrals (still shots/doc.go's scope, not touched here).
+//
+// Still deferred, unchanged from Phase 1d:
+//
 //   - LibraryService.js's geocodeBean (region -> map coordinates via
 //     lib/geo.js, an external geocoding provider) is fire-and-forget and
 //     not part of this phase's explicit scope (unlike setBeanImage's
@@ -63,13 +75,6 @@
 //     name and IS ported, see image.go/service.go). A bean's `region`
 //     field is still stored; `location` is just never (re)computed by the
 //     Go server. Move this here once internal/geo (or equivalent) exists.
-//   - LibraryService.js's checkLowStockNotify/resolveBeanForAnnotation/
-//     findBeanByName/computeBeanRemaining/getActiveBeans/getActiveMilks/
-//     deductMilkByName are called from the shots-annotate and orders
-//     domains, not from any routes/library/*.js endpoint — out of this
-//     package's scope entirely (shots' #450/#456 deferrals already cover
-//     the annotate-time half; the orders half arrives with the orders
-//     domain).
 //   - bus.emit(EVENTS.BEAN_CHANGED, ...) (routes/library/beans.js's
 //     create/update/new-bag) is not fired: the achievements domain that
 //     listens for it doesn't exist in this rewrite yet. No user-visible

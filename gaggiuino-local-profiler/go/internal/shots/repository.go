@@ -7,14 +7,15 @@ import (
 	"time"
 )
 
-// Repository ports lib/repositories/ShotRepository.js's DB access, scoped
-// to the operations routes/shots.js's endpoints actually need in this
-// phase (machineId-scoped variants every pre-existing call site left
-// unused there — findAll(machineId), findAllExcludingTrash(machineId),
-// upsertMany, getMaxId, count, getAnnotatedDoses, getAllAnnotations,
-// getMachineId, getTrashEntry, setTrashEntry — are import/sync/backup-path
-// only, so they're deliberately not ported here; add them alongside
-// whichever later domain (machines/backup) actually calls them).
+// Repository ports lib/repositories/ShotRepository.js's DB access. Phase
+// 1c originally scoped this to only what routes/shots.js's endpoints
+// needed; Phase 1f (orders/maintenance/backup) added the machineId-scoped
+// variants, FindAll, GetAnnotatedDoses, GetAnnotation, GetLatestID,
+// GetTrashEntry, SetTrashEntry, WipeAll and Upsert those later domains
+// actually call. Still deliberately not ported: upsertMany, getMaxId,
+// count, getAllAnnotations, getMachineId — those are import/sync-path only
+// (no HTTP route reaches them yet in any phase so far); add them alongside
+// whichever later domain (sync/import) actually calls them.
 type Repository struct {
 	db *sql.DB
 }
@@ -56,6 +57,283 @@ func (r *Repository) FindAllExcludingTrash() ([]Shot, error) {
 		out = append(out, shot)
 	}
 	return out, rows.Err()
+}
+
+// FindAllExcludingTrashByMachine ports ShotRepository.js's
+// findAllExcludingTrash(machineId) with machineId actually supplied — the
+// machineId-scoped variant the type doc comment above flagged as
+// deliberately unported in Phase 1c. Needed by Phase 1f's maintenance
+// domain (computeMaintenanceStats scopes descaling/backflush/grouphead/
+// gaskets counts to one machine, see internal/maintenance/service.go).
+func (r *Repository) FindAllExcludingTrashByMachine(machineID int64) ([]Shot, error) {
+	rows, err := r.db.Query(
+		selectBase+` WHERE s.machine_id = ? AND s.id NOT IN (SELECT shot_id FROM trash) ORDER BY s.timestamp ASC`,
+		machineID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("shots: listing shots for machine %d: %w", machineID, err)
+	}
+	defer rows.Close()
+
+	var out []Shot
+	for rows.Next() {
+		shot, err := hydrateRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, shot)
+	}
+	return out, rows.Err()
+}
+
+// FindAll ports ShotRepository.js's findAll() with no machineId — every
+// shot including trashed ones, ordered by timestamp ASC. Needed by the
+// backup domain's export (routes/backup.js reads shotRepo.findAll(), not
+// the trash-excluding getAll(), so a trashed shot's full payload is still
+// part of every export — see internal/backup/doc.go).
+func (r *Repository) FindAll() ([]Shot, error) {
+	rows, err := r.db.Query(selectBase + ` ORDER BY s.timestamp ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("shots: listing all shots: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Shot
+	for rows.Next() {
+		shot, err := hydrateRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, shot)
+	}
+	return out, rows.Err()
+}
+
+// AnnotatedDose is one row of ShotRepository.js's getAnnotatedDoses():
+// lightweight (coffee, beanId, dose, timestamp) tuples for bean-consumption
+// math, avoiding hydrating full shot payloads just to sum annotated doses.
+type AnnotatedDose struct {
+	Coffee    string
+	BeanID    *int64
+	Dose      *float64
+	Timestamp int64
+}
+
+// GetAnnotatedDoses ports ShotRepository.js's getAnnotatedDoses() — used by
+// the library/orders domains' bean-stock math (computeBeanRemaining,
+// getActiveBeans).
+func (r *Repository) GetAnnotatedDoses() ([]AnnotatedDose, error) {
+	rows, err := r.db.Query(`
+		SELECT json_extract(a.data, '$.coffee') AS coffee,
+		       json_extract(a.data, '$.beanId') AS beanId,
+		       json_extract(a.data, '$.dose')   AS dose,
+		       s.timestamp                      AS timestamp
+		FROM annotations a JOIN shots s ON s.id = a.shot_id
+		WHERE json_extract(a.data, '$.coffee') IS NOT NULL
+		  AND s.id NOT IN (SELECT shot_id FROM trash)
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("shots: listing annotated doses: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AnnotatedDose
+	for rows.Next() {
+		var (
+			coffee    sql.NullString
+			beanID    sql.NullInt64
+			dose      sql.NullFloat64
+			timestamp int64
+		)
+		if err := rows.Scan(&coffee, &beanID, &dose, &timestamp); err != nil {
+			return nil, fmt.Errorf("shots: scanning annotated dose: %w", err)
+		}
+		d := AnnotatedDose{Coffee: coffee.String, Timestamp: timestamp}
+		if beanID.Valid {
+			v := beanID.Int64
+			d.BeanID = &v
+		}
+		if dose.Valid {
+			v := dose.Float64
+			d.Dose = &v
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// GetAnnotation ports ShotRepository.js's getAnnotation(shotId): the raw
+// stored annotation object, or {} if none exists — used by
+// OrderService.completeOrder's read-modify-write of the orderedBy field
+// (see internal/orders/service.go), which must merge onto whatever
+// annotation already exists rather than overwrite it wholesale.
+func (r *Repository) GetAnnotation(shotID int64) (map[string]any, error) {
+	var raw string
+	err := r.db.QueryRow(`SELECT data FROM annotations WHERE shot_id = ?`, shotID).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return map[string]any{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("shots: reading annotation for shot %d: %w", shotID, err)
+	}
+	var ann map[string]any
+	if err := json.Unmarshal([]byte(raw), &ann); err != nil {
+		return nil, fmt.Errorf("shots: decoding annotation for shot %d: %w", shotID, err)
+	}
+	if ann == nil {
+		ann = map[string]any{}
+	}
+	return ann, nil
+}
+
+// GetLatestID ports ShotRepository.js's getLatestId(machineId). machineID
+// == 0 mirrors the Node original's `machineId` falsy branch (global
+// latest, across every machine); a positive machineID scopes to that one
+// machine. ok is false when there is no matching shot (Node's `row?.id ??
+// null`).
+func (r *Repository) GetLatestID(machineID int64) (id int64, ok bool, err error) {
+	var row *sql.Row
+	if machineID != 0 {
+		row = r.db.QueryRow(
+			`SELECT id FROM shots WHERE machine_id = ? AND id NOT IN (SELECT shot_id FROM trash) ORDER BY timestamp DESC, id DESC LIMIT 1`,
+			machineID,
+		)
+	} else {
+		row = r.db.QueryRow(
+			`SELECT id FROM shots WHERE id NOT IN (SELECT shot_id FROM trash) ORDER BY timestamp DESC, id DESC LIMIT 1`,
+		)
+	}
+	if err := row.Scan(&id); err == sql.ErrNoRows {
+		return 0, false, nil
+	} else if err != nil {
+		return 0, false, fmt.Errorf("shots: getting latest id: %w", err)
+	}
+	return id, true, nil
+}
+
+// GetTrashEntry ports ShotRepository.js's getTrashEntry(shotId): a single
+// trash row's deleted_at, or (0, false) if the shot isn't trashed. Used by
+// the backup export, which needs a per-shot timestamp rather than
+// FindTrashed's full hydrated rows.
+func (r *Repository) GetTrashEntry(shotID int64) (deletedAt int64, ok bool, err error) {
+	err = r.db.QueryRow(`SELECT deleted_at FROM trash WHERE shot_id = ?`, shotID).Scan(&deletedAt)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("shots: reading trash entry for shot %d: %w", shotID, err)
+	}
+	return deletedAt, true, nil
+}
+
+// SetTrashEntry ports ShotRepository.js's setTrashEntry(shotId, deletedAt)
+// — restore-only counterpart to MoveToTrash: takes the deletedAt timestamp
+// from the backup instead of always stamping time.Now(), so a restored
+// trash entry keeps its original deletion time rather than resetting the
+// 30-day TTL clock.
+func (r *Repository) SetTrashEntry(shotID, deletedAt int64) error {
+	if _, err := r.db.Exec(`INSERT OR REPLACE INTO trash (shot_id, deleted_at) VALUES (?, ?)`, shotID, deletedAt); err != nil {
+		return fmt.Errorf("shots: setting trash entry for shot %d: %w", shotID, err)
+	}
+	return nil
+}
+
+// WipeAll ports ShotRepository.js's wipeAll() — deletes every shot,
+// annotation and trash row, used only by the backup domain's restore path
+// (a restore replaces the whole shots table, matching Node's
+// db.transaction(() => { shotRepo.wipeAll(); ... }) sequence).
+func (r *Repository) WipeAll() error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("shots: starting wipe tx: %w", err)
+	}
+	for _, stmt := range []string{`DELETE FROM annotations`, `DELETE FROM trash`, `DELETE FROM shots`} {
+		if _, err := tx.Exec(stmt); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("shots: wiping (%s): %w", stmt, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("shots: committing wipe: %w", err)
+	}
+	return nil
+}
+
+// Upsert ports ShotRepository.js's upsert(shot): writes the shots row (and,
+// if the shot object carries an `annotation` key, the annotations row too)
+// straight from a restored/imported shot object. Only used by the backup
+// domain's restore path in this phase — see internal/backup/doc.go.
+// ownerMachineID mirrors upsert()'s `shot.machineId ?? ownerOfShotId(id)`
+// fallback; #719's ownerOfShotId inference isn't ported (that needs
+// internal/machines' MACHINE_ID_OFFSET arithmetic, out of scope here), so a
+// shot with no explicit machineId defaults to machine 1 — every backup this
+// phase's restore handles was itself exported by an app version that always
+// wrote machineId, so this fallback is not expected to be reached in
+// practice.
+func (r *Repository) Upsert(shot Shot) error {
+	// jsonInt tolerates BOTH shapes this method's callers can hand it: an
+	// int64 (a Shot built in-process, e.g. by hydrateRow) or a float64 (a
+	// Shot decoded straight from JSON by encoding/json, which never
+	// produces int64 for a bare `any` destination — the shape every
+	// restore/import caller of Upsert actually has). Using shot.id()/
+	// shot.machineID() here (int64-only) silently upserted every restored
+	// shot under id=0 in practice, discovered via
+	// internal/backup's restore round-trip test.
+	jsonInt := func(v any) (int64, bool) {
+		switch t := v.(type) {
+		case int64:
+			return t, true
+		case float64:
+			return int64(t), true
+		}
+		return 0, false
+	}
+	id, _ := jsonInt(shot["id"])
+	timestamp, _ := jsonInt(shot["timestamp"])
+	var duration any
+	if d, ok := jsonInt(shot["duration"]); ok {
+		duration = d
+	}
+	var profileName any
+	if pn, ok := shot["profileName"].(string); ok && pn != "" {
+		profileName = pn
+	} else if pn, ok := shot["profile_name"].(string); ok && pn != "" {
+		profileName = pn
+	}
+	machineID := int64(1)
+	if v, ok := jsonInt(shot["machineId"]); ok {
+		machineID = v
+	}
+
+	rest := make(map[string]any, len(shot))
+	for k, v := range shot {
+		switch k {
+		case "id", "timestamp", "duration", "profile_name", "profileName", "annotation", "machineId":
+			continue
+		default:
+			rest[k] = v
+		}
+	}
+	data, err := json.Marshal(rest)
+	if err != nil {
+		return fmt.Errorf("shots: encoding restored shot %d: %w", id, err)
+	}
+	if _, err := r.db.Exec(
+		`INSERT OR REPLACE INTO shots (id, timestamp, duration, profile_name, data, machine_id) VALUES (?,?,?,?,?,?)`,
+		id, timestamp, duration, profileName, string(data), machineID,
+	); err != nil {
+		return fmt.Errorf("shots: upserting shot %d: %w", id, err)
+	}
+	if ann, ok := shot["annotation"]; ok {
+		annMap, _ := ann.(map[string]any)
+		if annMap == nil {
+			annMap = map[string]any{}
+		}
+		if err := r.SaveAnnotation(id, annMap); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // FindTrashed ports ShotRepository.js's getTrash() paired with
