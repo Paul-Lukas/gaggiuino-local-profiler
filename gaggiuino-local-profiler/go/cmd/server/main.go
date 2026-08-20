@@ -15,6 +15,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
@@ -32,6 +35,8 @@ func main() {
 	dbPath := getEnv("GLP_DB_PATH", db.DefaultPath)
 	tokenPath := getEnv("GLP_TOKEN_FILE", auth.DefaultTokenFile)
 	port := getEnv("GLP_PORT", defaultPort)
+	rateLimitWindow := time.Duration(getEnvNumber("GLP_RATE_LIMIT_WINDOW_MS", float64(ratelimit.DefaultWindow/time.Millisecond))) * time.Millisecond
+	rateLimitMax := int(getEnvNumber("GLP_RATE_LIMIT_MAX", float64(ratelimit.DefaultMax)))
 
 	sqlDB, err := db.Open(dbPath)
 	if err != nil {
@@ -54,7 +59,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/api/events", sseHandler)
 
-	limiter := ratelimit.New(ratelimit.DefaultWindow, ratelimit.DefaultMax)
+	limiter := ratelimit.New(rateLimitWindow, rateLimitMax)
 
 	// server.js's ACTUAL app.use() order — security headers (lines ~83-98),
 	// then the app-level rate limiter (line 104, deliberately ahead of auth
@@ -96,6 +101,25 @@ func getEnv(name, def string) string {
 		return v
 	}
 	return def
+}
+
+// getEnvNumber ports lib/middleware/rateLimit.js's
+// `Number(process.env.X) || default` pattern for GLP_RATE_LIMIT_WINDOW_MS/
+// GLP_RATE_LIMIT_MAX: an unset env var, one that fails to parse as a number
+// (JS's Number() returns NaN, which is falsy), or one that parses to 0
+// (also falsy in JS) all fall back to def — matching the Node original's
+// behavior exactly, including that a literal "0" override is treated the
+// same as no override.
+func getEnvNumber(name string, def float64) float64 {
+	v, ok := os.LookupEnv(name)
+	if !ok {
+		return def
+	}
+	n, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil || n == 0 {
+		return def
+	}
+	return n
 }
 
 // tcpNoDelayListener explicitly disables Nagle's algorithm on every

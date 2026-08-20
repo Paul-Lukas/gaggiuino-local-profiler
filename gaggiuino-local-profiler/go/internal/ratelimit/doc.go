@@ -11,7 +11,13 @@
 //     app.set('trust proxy', ...) either, so trusting a client-supplied
 //     header here would let a LAN client hitting the exposed port spoof its
 //     own key and dodge the limit, the same header-spoofing concern
-//     internal/auth's ingress-trust checks exist for.
+//     internal/auth's ingress-trust checks exist for. Before use as a key,
+//     an IPv6 address is masked to its /64 network prefix (bucketKey in
+//     ratelimit.go) — the same default express-rate-limit's ipKeyGenerator
+//     applies — so a client with a routed /64 (or larger) IPv6 allocation
+//     can't dodge the limit by presenting a fresh address from that block
+//     on every request; IPv4 addresses are used exactly as received, one
+//     bucket per address, matching the Node original.
 //   - /assets/* (the content-hashed Vite bundle) never counts against the
 //     budget.
 //

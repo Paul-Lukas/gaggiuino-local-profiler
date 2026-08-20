@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -57,16 +58,34 @@ func (l *Limiter) Allow(key string) bool {
 	return l.bucket(key).Allow()
 }
 
+// bucketKey ports express-rate-limit's ipKeyGenerator default behavior
+// (used by lib/middleware/rateLimit.js's keyGenerator): IPv4 addresses are
+// used as-is, one bucket per exact address, but IPv6 addresses are masked
+// down to their /64 network prefix first, so every address a client can
+// draw from a single routed /64 (or larger) allocation shares one bucket
+// instead of getting a fresh one on every request — see doc.go.
+func bucketKey(ip string) string {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ip
+	}
+	if v4 := parsed.To4(); v4 != nil {
+		return v4.String()
+	}
+	return parsed.Mask(net.CIDRMask(64, 128)).String()
+}
+
 // Middleware ports server.js's app.use(createApiRateLimiter()) registration:
-// same key (auth.RemoteIP — raw socket address only, see doc.go), same
-// /assets/* exemption, same 429 JSON error shape.
+// same key (auth.RemoteIP — raw socket address only, IPv6-/64-normalized
+// via bucketKey, see doc.go), same /assets/* exemption, same 429 JSON error
+// shape.
 func (l *Limiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/assets/") {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !l.Allow(auth.RemoteIP(r)) {
+		if !l.Allow(bucketKey(auth.RemoteIP(r))) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Too many requests"})

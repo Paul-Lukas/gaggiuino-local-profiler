@@ -113,3 +113,72 @@ func TestLimiter_Middleware_KeyIsSocketAddressOnly(t *testing.T) {
 		t.Fatalf("second request from the same socket address (different spoofed XFF): expected 429, got %d", rec2.Code)
 	}
 }
+
+func TestLimiter_Middleware_IPv6SameSlash64ShareBucket(t *testing.T) {
+	// Two different addresses drawn from the same routed /64 must share one
+	// bucket -- otherwise a client with a /64 (or larger) IPv6 allocation
+	// could dodge the limit by presenting a fresh address on every request.
+	l := New(time.Minute, 1)
+	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req1 := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req1.RemoteAddr = "[2001:db8:1234:5678::1]:1234"
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("first request: expected 200, got %d", rec1.Code)
+	}
+
+	req2 := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req2.RemoteAddr = "[2001:db8:1234:5678::dead:beef]:5678"
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusTooManyRequests {
+		t.Fatalf("second request from a different address in the same /64: expected 429, got %d", rec2.Code)
+	}
+}
+
+func TestLimiter_Middleware_IPv6DifferentSlash64GetSeparateBuckets(t *testing.T) {
+	l := New(time.Minute, 1)
+	handler := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req1 := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req1.RemoteAddr = "[2001:db8:1234:5678::1]:1234"
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("first request: expected 200, got %d", rec1.Code)
+	}
+
+	req2 := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req2.RemoteAddr = "[2001:db8:9999:0000::1]:5678"
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("request from a different /64: expected 200, got %d", rec2.Code)
+	}
+}
+
+func TestBucketKey(t *testing.T) {
+	cases := []struct {
+		name string
+		ip   string
+		want string
+	}{
+		{"ipv4 unchanged", "10.0.0.3", "10.0.0.3"},
+		{"ipv6 masked to /64", "2001:db8:1234:5678::1", "2001:db8:1234:5678::"},
+		{"ipv6 mapped-v4 unchanged", "::ffff:10.0.0.3", "10.0.0.3"},
+		{"unparseable passed through", "not-an-ip", "not-an-ip"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := bucketKey(tc.ip); got != tc.want {
+				t.Errorf("bucketKey(%q) = %q, want %q", tc.ip, got, tc.want)
+			}
+		})
+	}
+}
