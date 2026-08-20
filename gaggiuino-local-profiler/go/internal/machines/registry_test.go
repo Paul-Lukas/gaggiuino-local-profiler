@@ -109,6 +109,39 @@ func TestUpdateMachineHostChangeCallback(t *testing.T) {
 	}
 }
 
+// TestUpdateMachineTypeChangeCallback is the #901 code-review regression
+// test: onHostChanged must also fire when only Type changes (e.g.
+// "gaggiuino" -> "gaggimate") with Host held constant, so the caller can
+// evict a now-stale live session keyed by that host — not just when Host
+// itself changes.
+func TestUpdateMachineTypeChangeCallback(t *testing.T) {
+	reg, _ := newTestRegistry(t)
+	m, _ := reg.CreateMachine(MachineInput{Name: strPtr("A"), Type: strPtr("gaggiuino"), Host: strPtr("same.local")})
+
+	var evictedHost string
+	calls := 0
+	_, err := reg.UpdateMachine(m.ID, MachineInput{Type: strPtr("gaggimate")}, func(old string) {
+		calls++
+		evictedHost = old
+	})
+	if err != nil {
+		t.Fatalf("UpdateMachine: %v", err)
+	}
+	if calls != 1 || evictedHost != "same.local" {
+		t.Fatalf("onHostChanged called %d times with %q, want 1 call with \"same.local\"", calls, evictedHost)
+	}
+
+	// Updating neither Host nor Type must not fire the callback.
+	calls = 0
+	_, err = reg.UpdateMachine(m.ID, MachineInput{Name: strPtr("Renamed")}, func(old string) { calls++ })
+	if err != nil {
+		t.Fatalf("UpdateMachine (name only): %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("onHostChanged called %d times on a name-only update, want 0", calls)
+	}
+}
+
 func TestDeleteMachineGuards(t *testing.T) {
 	reg, _ := newTestRegistry(t)
 	if err := reg.EnsureDefaultMachine(); err != nil {

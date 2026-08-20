@@ -200,6 +200,30 @@ func indexOf(s, substr string) int {
 	return -1
 }
 
+// TestGaggiuinoAdapter_GetLiveSnapshot_SSRFGuarded is the #901 code-review
+// regression test: GetLiveSensorSnapshot/GetLiveSystemState previously
+// built their base URL via the unguarded normalizeBaseURL instead of
+// BaseURLFor, bypassing assertMachineHost entirely for these two methods
+// while every other adapter method went through it. Deliberately does NOT
+// call allowLoopbackMachineHost — the fake machine server is an
+// httptest.Server bound to 127.0.0.1, a loopback address the real SSRF
+// guard must reject, exercising the actual assertMachineHost path rather
+// than a stubbed-out one.
+func TestGaggiuinoAdapter_GetLiveSnapshot_SSRFGuarded(t *testing.T) {
+	fake := newFakeGaggiuinoMachine()
+	defer fake.Close()
+	a := NewGaggiuinoAdapter(newGaggiuinoLiveClient(sse.NewHub()))
+	m := testMachine(fake.URL)
+	ctx := context.Background()
+
+	if snap, err := a.GetLiveSensorSnapshot(ctx, m); err == nil || !isSSRFBlocked(err) {
+		t.Fatalf("GetLiveSensorSnapshot(loopback host) = (%v, %v), want an ErrBlocked error", snap, err)
+	}
+	if state, err := a.GetLiveSystemState(ctx, m); err == nil || !isSSRFBlocked(err) {
+		t.Fatalf("GetLiveSystemState(loopback host) = (%v, %v), want an ErrBlocked error", state, err)
+	}
+}
+
 func TestGaggiuinoAdapter_Firmware(t *testing.T) {
 	allowLoopbackMachineHost(t)
 	fake := newFakeGaggiuinoMachine()

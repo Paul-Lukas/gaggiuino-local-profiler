@@ -87,7 +87,7 @@ func TestGaggiMateAdapter_SettingsProxyUnsupported(t *testing.T) {
 	if err := a.Tare(ctx, m); err == nil {
 		t.Error("expected Tare to error for GaggiMate")
 	}
-	if a.GetLiveSensorSnapshot(m) != nil {
-		t.Error("expected GetLiveSensorSnapshot to be nil for GaggiMate")
+	if snap, err := a.GetLiveSensorSnapshot(ctx, m); snap != nil || err != nil {
+		t.Errorf("expected GetLiveSensorSnapshot to be (nil, nil) for GaggiMate, got (%v, %v)", snap, err)
 	}
 }

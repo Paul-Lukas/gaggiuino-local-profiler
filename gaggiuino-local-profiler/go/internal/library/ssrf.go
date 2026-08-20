@@ -2,10 +2,9 @@ package library
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net"
-	"strings"
+
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/netguard"
 )
 
 // This file ports lib/ssrf-guard.js's assertPublicHost — used by the
@@ -16,15 +15,10 @@ import (
 // request is allowed to proceed. assertMachineHost (the looser
 // loopback/link-local-only variant used by routes/machines.js) is NOT
 // ported here — it belongs to the not-yet-ported machines domain
-// (internal/machines).
-
-// ErrSSRFBlocked ports ssrf-guard.js's SsrfBlockedError — distinguished
-// from an ordinary resolution failure so callers can map it to its own
-// response (scan.go logs+502s on both, but distinctly, matching
-// routes/library/scan.js's own `e instanceof SsrfBlockedError` branch).
-type ErrSSRFBlocked struct{ msg string }
-
-func (e *ErrSSRFBlocked) Error() string { return e.msg }
+// (internal/machines). The actual resolve-then-check plumbing both
+// variants share now lives in internal/netguard (#901 code review) — this
+// file keeps only what's genuinely specific to this package's threat model:
+// the private/public IP predicate and the lookupIPAddr test seam.
 
 // lookupIPAddr is a package-level var (not a bare net.DefaultResolver call)
 // so tests can substitute a fake resolver instead of depending on real DNS
@@ -92,37 +86,14 @@ func isPrivateAddress(ip net.IP) bool {
 	return isPrivateIPv6(ip)
 }
 
-// assertPublicHost ports ssrf-guard.js's assertPublicHost(hostname):
-// resolves hostname (or accepts a literal IP) and returns ErrSSRFBlocked if
-// any resolved address is private/loopback/link-local. A plain error is
-// returned when the hostname can't be resolved at all — an ordinary fetch
-// failure, not a security rejection, matching the Node original's
-// distinction (scan.go's caller only special-cases ErrSSRFBlocked).
+// assertPublicHost ports ssrf-guard.js's assertPublicHost(hostname), via
+// internal/netguard's shared AssertHost.
 func assertPublicHost(ctx context.Context, hostname string) error {
-	bare := strings.TrimPrefix(strings.TrimSuffix(hostname, "]"), "[")
-	if ip := net.ParseIP(bare); ip != nil {
-		if isPrivateAddress(ip) {
-			return &ErrSSRFBlocked{fmt.Sprintf("blocked address: %s", bare)}
-		}
-		return nil
-	}
-	addrs, err := lookupIPAddr(ctx, bare)
-	if err != nil {
-		return fmt.Errorf("could not resolve host: %s: %w", bare, err)
-	}
-	if len(addrs) == 0 {
-		return fmt.Errorf("could not resolve host: %s", bare)
-	}
-	for _, a := range addrs {
-		if isPrivateAddress(a.IP) {
-			return &ErrSSRFBlocked{fmt.Sprintf("blocked address: %s (%s)", a.IP, bare)}
-		}
-	}
-	return nil
+	return netguard.AssertHost(ctx, hostname, isPrivateAddress, lookupIPAddr)
 }
 
-// isSSRFBlocked reports whether err is (or wraps) an ErrSSRFBlocked.
+// isSSRFBlocked reports whether err is (or wraps) an ErrBlocked from a
+// failed assertPublicHost call.
 func isSSRFBlocked(err error) bool {
-	var e *ErrSSRFBlocked
-	return errors.As(err, &e)
+	return netguard.IsBlocked(err)
 }

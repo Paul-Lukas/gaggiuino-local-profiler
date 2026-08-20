@@ -52,17 +52,11 @@ func gaggimateRequest(ctx context.Context, baseURL, reqType string, payload map[
 	resType := "res:" + reqType[4:]
 	rid := rand.Intn(1_000_000_000)
 
-	ctx, cancel := context.WithTimeout(ctx, gaggimateWSTimeout)
-	defer cancel()
-
-	wsURL, err := gaggimateWSURL(baseURL)
+	conn, ctx, cancel, err := wsConnect(ctx, baseURL, gaggimateWSURL, gaggimateWSTimeout)
 	if err != nil {
 		return nil, err
 	}
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to machine: %w", err)
-	}
+	defer cancel()
 	defer conn.CloseNow()
 
 	frame := map[string]any{"tp": reqType, "rid": rid}
@@ -104,17 +98,11 @@ func gaggimateRequest(ctx context.Context, baseURL, reqType string, payload map[
 // the first evt:status broadcast (unsolicited telemetry, not a
 // request/response), resolves with its fields.
 func gaggimateWaitForStatus(ctx context.Context, baseURL string, timeout time.Duration) (map[string]any, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	wsURL, err := gaggimateWSURL(baseURL)
+	conn, ctx, cancel, err := wsConnect(ctx, baseURL, gaggimateWSURL, timeout)
 	if err != nil {
 		return nil, err
 	}
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("connecting to machine: %w", err)
-	}
+	defer cancel()
 	defer conn.CloseNow()
 
 	for {

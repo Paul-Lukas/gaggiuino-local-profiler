@@ -3,6 +3,7 @@ package machines
 import (
 	"encoding/json"
 	"net/http"
+	"sync"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines/proto"
 )
@@ -280,14 +281,28 @@ func (h *Handlers) firmwareVersion(w http.ResponseWriter, r *http.Request) {
 	if !requireSettingsProxySupport(w, adapter, machine) {
 		return
 	}
-	versionsRaw, err := adapter.GetSettings(r.Context(), machine, "versions")
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+	// Ports Node's Promise.all([getSettings('versions'), getSettings('system')])
+	// (#901 code review) — the two reads are independent, so fetch them
+	// concurrently instead of paying two round-trips back to back.
+	var versionsRaw, systemRaw json.RawMessage
+	var versionsErr, systemErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		versionsRaw, versionsErr = adapter.GetSettings(r.Context(), machine, "versions")
+	}()
+	go func() {
+		defer wg.Done()
+		systemRaw, systemErr = adapter.GetSettings(r.Context(), machine, "system")
+	}()
+	wg.Wait()
+	if versionsErr != nil {
+		writeError(w, http.StatusBadGateway, versionsErr.Error())
 		return
 	}
-	systemRaw, err := adapter.GetSettings(r.Context(), machine, "system")
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+	if systemErr != nil {
+		writeError(w, http.StatusBadGateway, systemErr.Error())
 		return
 	}
 	var versions struct {
@@ -337,8 +352,18 @@ func (h *Handlers) machineLive(w http.ResponseWriter, r *http.Request) {
 	if !requireSettingsProxySupport(w, adapter, machine) {
 		return
 	}
+	sensorSnap, err := adapter.GetLiveSensorSnapshot(r.Context(), machine)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	sysState, err := adapter.GetLiveSystemState(r.Context(), machine)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"sensorSnap": adapter.GetLiveSensorSnapshot(machine),
-		"sysState":   adapter.GetLiveSystemState(machine),
+		"sensorSnap": sensorSnap,
+		"sysState":   sysState,
 	})
 }

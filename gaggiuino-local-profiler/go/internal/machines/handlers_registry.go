@@ -68,6 +68,24 @@ func (h *Handlers) createMachine(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, machine)
 }
 
+// updateMachine ports routes/machines.js's PUT /api/machines/:id.
+//
+// #901 code review flagged this handler's up-front GetMachine as a
+// "redundant" duplicate of the GetMachine Registry.UpdateMachine already
+// does internally, suggesting it be dropped and 404 left to
+// UpdateMachine's own not-found return. Verified against the Node
+// original (routes/machines.js's own PUT handler) instead of removing it
+// blindly: Node does the exact same "redundant" existence check first,
+// specifically so an unknown id 404s even when the request body also
+// fails schema validation — routes/machines.js:78-82 checks `existing`
+// before `machineSchema.partial().safeParse(req.body)`, i.e. 404 always
+// wins over 400 for a bad id + bad body. Registry.UpdateMachine's own
+// internal GetMachine (registry.go) can't cover that ordering — it only
+// runs after this handler has already decoded and validated the body — so
+// dropping this check would flip that combination's response from 404 to
+// 400, a real behavior change despite the duplicate-looking query. Kept
+// as-is; the "redundant" DB round trip is a single indexed lookup by
+// primary key, not a meaningful cost.
 func (h *Handlers) updateMachine(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID64(r)
 	if !ok {

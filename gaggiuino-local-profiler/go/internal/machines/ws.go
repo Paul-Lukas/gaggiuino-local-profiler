@@ -79,6 +79,28 @@ func gaggiuinoWSURL(baseURL string) (string, error) {
 	return fmt.Sprintf("%s://%s/ws", scheme, u.Host), nil
 }
 
+// wsConnect ports the connect-with-timeout preamble every short-lived WS
+// call in this package (wsSendAndWait/wsSendCommand here, plus
+// gaggimateRequest/gaggimateWaitForStatus in gaggimate_ws.go) used to
+// repeat verbatim: derive a timeout-bounded ctx, build the WS URL via
+// urlFor, and dial it (#901 code review). Returns the derived ctx —
+// callers must use it for Write/Read, not the ctx they passed in — and a
+// cancel func the caller must defer alongside conn.CloseNow().
+func wsConnect(ctx context.Context, baseURL string, urlFor func(string) (string, error), timeout time.Duration) (conn *websocket.Conn, dialCtx context.Context, cancel context.CancelFunc, err error) {
+	dialCtx, cancel = context.WithTimeout(ctx, timeout)
+	wsURL, err := urlFor(baseURL)
+	if err != nil {
+		cancel()
+		return nil, nil, nil, err
+	}
+	conn, _, err = websocket.Dial(dialCtx, wsURL, nil)
+	if err != nil {
+		cancel()
+		return nil, nil, nil, fmt.Errorf("connecting to machine: %w", err)
+	}
+	return conn, dialCtx, cancel, nil
+}
+
 // wsSendAndWait ports sendAndWait(baseUrl, action, requestData, responseMsgType):
 // sends one WebSocketMessageDto and decodes the payload of the first
 // matching push-response action seen, via decode. requestData may be nil
@@ -89,17 +111,11 @@ func wsSendAndWait(ctx context.Context, baseURL, action string, requestData []by
 		return fmt.Errorf("no known response action for request action %q", action)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, wsDefaultTimeout)
-	defer cancel()
-
-	wsURL, err := gaggiuinoWSURL(baseURL)
+	conn, ctx, cancel, err := wsConnect(ctx, baseURL, gaggiuinoWSURL, wsDefaultTimeout)
 	if err != nil {
 		return err
 	}
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
-	if err != nil {
-		return fmt.Errorf("connecting to machine: %w", err)
-	}
+	defer cancel()
 	defer conn.CloseNow()
 
 	req := &proto.WebSocketMessageDto{Action: action, Data: requestData}
@@ -147,17 +163,11 @@ func wsSendAndWait(ctx context.Context, baseURL, action string, requestData []by
 // its text when non-empty, matching sendCommand()'s `{ok:true, message}`
 // return for that case.
 func wsSendCommand(ctx context.Context, baseURL, action string, requestData []byte) (message string, err error) {
-	ctx, cancel := context.WithTimeout(ctx, wsDefaultTimeout)
-	defer cancel()
-
-	wsURL, err := gaggiuinoWSURL(baseURL)
+	conn, ctx, cancel, err := wsConnect(ctx, baseURL, gaggiuinoWSURL, wsDefaultTimeout)
 	if err != nil {
 		return "", err
 	}
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("connecting to machine: %w", err)
-	}
+	defer cancel()
 	defer conn.CloseNow()
 
 	req := &proto.WebSocketMessageDto{Action: action, Data: requestData}

@@ -148,7 +148,9 @@ func (a *GaggiMateAdapter) GetFirmwareProgress(ctx context.Context, m *Machine) 
 func (a *GaggiMateAdapter) TriggerFirmwareUpdate(ctx context.Context, m *Machine) (json.RawMessage, error) {
 	return nil, errSettingsProxyUnsupported
 }
-func (a *GaggiMateAdapter) GetLiveSensorSnapshot(m *Machine) *proto.SensorStateSnapshotDto {
-	return nil
+func (a *GaggiMateAdapter) GetLiveSensorSnapshot(ctx context.Context, m *Machine) (*proto.SensorStateSnapshotDto, error) {
+	return nil, nil
 }
-func (a *GaggiMateAdapter) GetLiveSystemState(m *Machine) *proto.SystemStateDto { return nil }
+func (a *GaggiMateAdapter) GetLiveSystemState(ctx context.Context, m *Machine) (*proto.SystemStateDto, error) {
+	return nil, nil
+}

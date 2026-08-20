@@ -180,13 +180,18 @@ func (r *Registry) CreateMachine(in MachineInput) (*Machine, error) {
 
 // UpdateMachine ports updateMachine(id, fields): partial update, omitted
 // fields (nil pointers) keep their current value. Returns (nil, nil) if id
-// doesn't exist. onHostChanged is invoked with the OLD host string exactly
-// when Host is set and differs from the existing value — the caller wires
-// this to live-session eviction (registry.js's evictLiveSession(existing.host)),
-// kept as an injected callback here instead of a direct dependency so this
-// package's data layer doesn't need to import its own WS-client file
-// (avoids a needless internal coupling; ws.go's evictSession has the same
-// signature).
+// doesn't exist. onHostChanged is invoked with the OLD host string whenever
+// Host changes OR Type changes (even with Host unchanged) — the caller
+// wires this to live-session eviction (registry.js's
+// evictLiveSession(existing.host)), kept as an injected callback here
+// instead of a direct dependency so this package's data layer doesn't need
+// to import its own WS-client file (avoids a needless internal coupling;
+// ws.go's evictSession has the same signature). The Type-change trigger
+// (#901 code review) matters even when Host stays the same: switching a
+// machine from "gaggiuino" to "gaggimate" must tear down the old
+// gaggiuinoLiveClient session for that host too, or its reconnect goroutine
+// keeps retrying forever against a host nothing identifies as Gaggiuino
+// anymore (GaggiMateAdapter never calls live.Disconnect on its own).
 func (r *Registry) UpdateMachine(id int64, fields MachineInput, onHostChanged func(oldHost string)) (*Machine, error) {
 	existing, err := r.GetMachine(id)
 	if err != nil {
@@ -233,7 +238,9 @@ func (r *Registry) UpdateMachine(id int64, fields MachineInput, onHostChanged fu
 		return nil, fmt.Errorf("machines: updating #%d: %w", id, err)
 	}
 
-	if fields.Host != nil && *fields.Host != existing.Host && onHostChanged != nil {
+	hostChanged := fields.Host != nil && *fields.Host != existing.Host
+	typeChanged := fields.Type != nil && *fields.Type != existing.Type
+	if (hostChanged || typeChanged) && onHostChanged != nil {
 		onHostChanged(existing.Host)
 	}
 	return r.GetMachine(id)
@@ -339,6 +346,18 @@ var machineHostGuard = assertMachineHost
 // adapters need it and there's no reason to keep the duplication Node has).
 // Re-validates the host on every call (not just at machine-save time),
 // same defense-in-depth rationale as the Node original's header comment.
+//
+// #901 code review asked whether a DNS-TTL cache belongs here to save the
+// repeat resolution: deliberately NOT added. Caching a hostname's resolved
+// address across calls is exactly the shape of a DNS-rebinding hole — a
+// hostname could resolve to a public address at cache-fill time (passing
+// machineHostGuard) and be re-pointed at a private/loopback/metadata
+// address by the time a cached result is reused, skipping the guard
+// entirely for every call after the first. Re-resolving on every call is
+// the whole point of the defense-in-depth rationale above; a cache would
+// undermine it for a marginal latency win on an already-infrequent path
+// (once per outbound machine call, not a hot loop). Security over
+// performance here.
 func BaseURLFor(ctx context.Context, m *Machine) (string, error) {
 	raw := strings.TrimSpace(m.Host)
 	normalized := raw

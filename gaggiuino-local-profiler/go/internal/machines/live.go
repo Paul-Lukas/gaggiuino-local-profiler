@@ -49,6 +49,22 @@ import (
 const (
 	liveReconnectDelay = 3 * time.Second
 	liveStaleAfter     = 15 * time.Second
+
+	// liveIdleTimeout closes a machine's persistent live WebSocket session
+	// (and stops its reconnect goroutine) after this long without a
+	// GetLiveSensorSnapshot/GetLiveSystemState call for that host (#901
+	// code review): session() opens this session as a side effect of a
+	// simple cache read, with no upper bound before the fix — a dead/
+	// unreachable host left an unbounded goroutine retrying every
+	// liveReconnectDelay forever, even after nothing was polling
+	// GET /api/machine/live anymore. 5 minutes comfortably outlives any
+	// normal gap between UI polls (the dashboard polls every few seconds
+	// while a machine's live view is open) while still bounding the leak
+	// once a client actually stops asking; a later GetLiveSensorSnapshot/
+	// GetLiveSystemState call lazily reopens the session exactly like the
+	// very first call did, so nothing user-visible changes besides the
+	// bound.
+	liveIdleTimeout = 5 * time.Minute
 )
 
 type gaggiuinoLiveSession struct {
@@ -58,7 +74,12 @@ type gaggiuinoLiveSession struct {
 	sysState     *proto.SystemStateDto
 	sysStateAt   time.Time
 
-	cancel context.CancelFunc
+	cancel    context.CancelFunc
+	idleTimer *time.Timer
+	// done is closed by run() when it returns (ctx cancelled, whether by
+	// Disconnect/DisconnectForHost or by the idle timer) — tests use this
+	// to observe termination without a time.Sleep poll loop.
+	done chan struct{}
 }
 
 // gaggiuinoLiveClient ports gaggiuino-live-client.js's module-level
@@ -68,32 +89,66 @@ type gaggiuinoLiveSession struct {
 type gaggiuinoLiveClient struct {
 	hub *sse.Hub
 
+	// idleTimeout is liveIdleTimeout in production; tests override it
+	// directly (same package, unexported field) to a short value instead
+	// of waiting out the real 5 minutes.
+	idleTimeout time.Duration
+
 	mu       sync.Mutex
 	sessions map[string]*gaggiuinoLiveSession
 }
 
 func newGaggiuinoLiveClient(hub *sse.Hub) *gaggiuinoLiveClient {
-	return &gaggiuinoLiveClient{hub: hub, sessions: make(map[string]*gaggiuinoLiveSession)}
+	return &gaggiuinoLiveClient{hub: hub, idleTimeout: liveIdleTimeout, sessions: make(map[string]*gaggiuinoLiveSession)}
 }
 
-// session ports connect(baseUrl)'s lazy-open-or-reuse behavior.
+// session ports connect(baseUrl)'s lazy-open-or-reuse behavior, plus
+// resetting the idle timer on every reuse (#901 code review) so an
+// actively-polled session never expires mid-use.
 func (c *gaggiuinoLiveClient) session(baseURL string) *gaggiuinoLiveSession {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if s, ok := c.sessions[baseURL]; ok {
+		s.touch(c.idleTimeout)
 		return s
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &gaggiuinoLiveSession{cancel: cancel}
+	s := &gaggiuinoLiveSession{cancel: cancel, done: make(chan struct{})}
 	c.sessions[baseURL] = s
+	s.idleTimer = time.AfterFunc(c.idleTimeout, func() { c.evictIdle(baseURL, s) })
 	go c.run(ctx, baseURL, s)
 	return s
 }
 
+// touch resets s's idle timer to timeout — called whenever a live read
+// actually uses this session, so idleTimeout measures time since the last
+// real caller, not time since the session was opened.
+func (s *gaggiuinoLiveSession) touch(timeout time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.idleTimer != nil {
+		s.idleTimer.Reset(timeout)
+	}
+}
+
+// evictIdle fires when s's idle timer expires: removes s from the sessions
+// map (only if it's still the current session for baseURL — a concurrent
+// Disconnect/DisconnectForHost or a brand-new session may have already
+// replaced it) and cancels its context, which stops run()'s reconnect loop.
+func (c *gaggiuinoLiveClient) evictIdle(baseURL string, s *gaggiuinoLiveSession) {
+	c.mu.Lock()
+	if cur, ok := c.sessions[baseURL]; ok && cur == s {
+		delete(c.sessions, baseURL)
+	}
+	c.mu.Unlock()
+	s.cancel()
+}
+
 // run ports connect()'s ws.on('close'/'error', scheduleReconnect) loop:
 // keep dialing baseURL, with a fixed RECONNECT_DELAY_MS pause between
-// attempts, until ctx is cancelled (by Disconnect).
+// attempts, until ctx is cancelled (by Disconnect or by the idle timer).
 func (c *gaggiuinoLiveClient) run(ctx context.Context, baseURL string, s *gaggiuinoLiveSession) {
+	defer close(s.done)
 	for {
 		if ctx.Err() != nil {
 			return
@@ -205,6 +260,11 @@ func (c *gaggiuinoLiveClient) Disconnect(baseURL string) {
 		return
 	}
 	delete(c.sessions, baseURL)
+	s.mu.Lock()
+	if s.idleTimer != nil {
+		s.idleTimer.Stop()
+	}
+	s.mu.Unlock()
 	s.cancel()
 }
 

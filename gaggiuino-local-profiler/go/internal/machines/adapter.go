@@ -80,8 +80,8 @@ type Adapter interface {
 	SaveActiveProfile(ctx context.Context, m *Machine) error
 	GetFirmwareProgress(ctx context.Context, m *Machine) (json.RawMessage, error)
 	TriggerFirmwareUpdate(ctx context.Context, m *Machine) (json.RawMessage, error)
-	GetLiveSensorSnapshot(m *Machine) *proto.SensorStateSnapshotDto
-	GetLiveSystemState(m *Machine) *proto.SystemStateDto
+	GetLiveSensorSnapshot(ctx context.Context, m *Machine) (*proto.SensorStateSnapshotDto, error)
+	GetLiveSystemState(ctx context.Context, m *Machine) (*proto.SystemStateDto, error)
 }
 
 // GetAdapter ports lib/machines/index.js's getAdapter(machine).

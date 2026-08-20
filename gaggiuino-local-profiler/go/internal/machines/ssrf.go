@@ -2,10 +2,9 @@ package machines
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net"
-	"strings"
+
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/netguard"
 )
 
 // This file ports lib/ssrf-guard.js's assertMachineHost — the narrower of
@@ -15,20 +14,10 @@ import (
 // content — the opposite threat model, so only loopback/link-local/cloud-
 // metadata addresses are blocked here, NOT the RFC1918 ranges
 // assertPublicHost blocks (a real Gaggiuino/GaggiMate machine lives in
-// exactly those ranges, #336).
-
-// ErrSSRFBlocked mirrors internal/library's own error type (kept separate,
-// not shared, so this package doesn't need to import library — see
-// internal/library/ssrf.go's own header comment for why assertMachineHost
-// wasn't ported there instead).
-type ErrSSRFBlocked struct{ msg string }
-
-func (e *ErrSSRFBlocked) Error() string { return e.msg }
-
-func isSSRFBlocked(err error) bool {
-	var e *ErrSSRFBlocked
-	return errors.As(err, &e)
-}
+// exactly those ranges, #336). The actual resolve-then-check plumbing both
+// variants share now lives in internal/netguard (#901 code review) — this
+// file keeps only what's genuinely specific to this package's threat model:
+// the loopback/metadata predicate and the lookupIPAddr test seam.
 
 // lookupIPAddr is a package-level var so tests can substitute a fake
 // resolver instead of depending on real DNS or real address literals.
@@ -76,26 +65,13 @@ func isLoopbackOrMetadataAddress(ip net.IP) bool {
 }
 
 // assertMachineHost ports ssrf-guard.js's assertMachineHost(hostname), via
-// its shared _assertHostPasses helper.
+// internal/netguard's shared AssertHost.
 func assertMachineHost(ctx context.Context, hostname string) error {
-	bare := strings.TrimPrefix(strings.TrimSuffix(hostname, "]"), "[")
-	if ip := net.ParseIP(bare); ip != nil {
-		if isLoopbackOrMetadataAddress(ip) {
-			return &ErrSSRFBlocked{fmt.Sprintf("blocked address: %s", bare)}
-		}
-		return nil
-	}
-	addrs, err := lookupIPAddr(ctx, bare)
-	if err != nil {
-		return fmt.Errorf("could not resolve host: %s: %w", bare, err)
-	}
-	if len(addrs) == 0 {
-		return fmt.Errorf("could not resolve host: %s", bare)
-	}
-	for _, a := range addrs {
-		if isLoopbackOrMetadataAddress(a.IP) {
-			return &ErrSSRFBlocked{fmt.Sprintf("blocked address: %s (%s)", a.IP, bare)}
-		}
-	}
-	return nil
+	return netguard.AssertHost(ctx, hostname, isLoopbackOrMetadataAddress, lookupIPAddr)
+}
+
+// isSSRFBlocked reports whether err is (or wraps) an ErrBlocked from a
+// failed assertMachineHost call.
+func isSSRFBlocked(err error) bool {
+	return netguard.IsBlocked(err)
 }

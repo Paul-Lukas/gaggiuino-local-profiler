@@ -269,19 +269,25 @@ func (a *GaggiuinoAdapter) TriggerFirmwareUpdate(ctx context.Context, m *Machine
 
 // GetLiveSensorSnapshot/GetLiveSystemState port the adapter's synchronous
 // cache reads (see live.go — no I/O happens directly here, same as the
-// Node original's own header comment on these two methods).
-func (a *GaggiuinoAdapter) GetLiveSensorSnapshot(m *Machine) *proto.SensorStateSnapshotDto {
-	baseURL, ok := normalizeBaseURL(m.Host)
-	if !ok {
-		return nil
+// Node original's own header comment on these two methods). Like every
+// other adapter method, the base URL goes through BaseURLFor — NOT the
+// unguarded normalizeBaseURL — so these two live-cache reads run through
+// the same SSRF check (assertMachineHost) as every outbound call this
+// adapter makes; a machine record with a blocked host must be rejected
+// here too, not just on its REST/WS control-plane methods (#901 code
+// review — these two previously bypassed the guard entirely).
+func (a *GaggiuinoAdapter) GetLiveSensorSnapshot(ctx context.Context, m *Machine) (*proto.SensorStateSnapshotDto, error) {
+	baseURL, err := BaseURLFor(ctx, m)
+	if err != nil {
+		return nil, err
 	}
-	return a.live.GetLiveSensorSnapshot(baseURL)
+	return a.live.GetLiveSensorSnapshot(baseURL), nil
 }
 
-func (a *GaggiuinoAdapter) GetLiveSystemState(m *Machine) *proto.SystemStateDto {
-	baseURL, ok := normalizeBaseURL(m.Host)
-	if !ok {
-		return nil
+func (a *GaggiuinoAdapter) GetLiveSystemState(ctx context.Context, m *Machine) (*proto.SystemStateDto, error) {
+	baseURL, err := BaseURLFor(ctx, m)
+	if err != nil {
+		return nil, err
 	}
-	return a.live.GetLiveSystemState(baseURL)
+	return a.live.GetLiveSystemState(baseURL), nil
 }
