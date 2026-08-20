@@ -6,7 +6,7 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 2a (Go frontend foundation — templ+htmx+Alpine tooling, base layout, and the first working page, on top of Phase 3b's complete backend)
+## Status: Phase 2b (Go frontend — templ+htmx+Alpine tooling, base layout, Shots, and the Library domain's pages, on top of Phase 3b's complete backend)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
 packages everything else builds on. Phase 1b added a real, listening HTTP
@@ -226,10 +226,16 @@ templ+htmx+Alpine tooling foundation described in the "Frontend" section
 below, plus one fully working page (`GET /shots`, built on
 `internal/shots`' existing Phase 1c service layer) as the template every
 later page follows — the same role `internal/shots` played for the REST
-domain packages above. Every other page (library, machines, orders,
-maintenance, the live shot chart) is still served by the untouched Node
-frontend (`public-src/`) — see "Frontend" for exactly what is and isn't
-cut over yet.
+domain packages above. Phase 2b (#901) follows that template for the
+Library domain: `GET /beans` (plus its one htmx write action,
+toggle-active) and read-only list pages for Grinders, Baskets, Puck
+Screens, Milks, and Recipes, all built on `internal/library`'s existing
+Repository/service functions (`ComputeGrinderWearStats`,
+`ComputeBeanRemaining`, the now-exported `ToggleBeanActive`) rather than
+its REST handlers. Every other page (machines, orders, maintenance, the
+live shot chart) is still served by the untouched Node frontend
+(`public-src/`) — see "Frontend" for exactly what is and isn't cut over
+yet.
 
 ## Why
 
@@ -280,7 +286,7 @@ go/
     backup/                routes/backup.js + lib/backup-crypto.js (implemented, Phase 1f)
     ha/                    lib/ha.js — SendNotify/GetNotifyServices/GetPersons/GetSwitchState/CallHaService/GetHaLanguage (implemented, Phase 1f, extended Phase 1g)
     system/                routes/system.js's token/status/live/preheat/version/demo endpoints + lib/poll.js + lib/preheat.js (implemented, Phase 1g; token/status added Phase 3b)
-    web/                   templ+htmx+Alpine frontend foundation + GET /shots (implemented, Phase 2a)
+    web/                   templ+htmx+Alpine frontend: GET /shots (Phase 2a) + the Library domain's pages (Phase 2b)
       templates/             .templ sources (own package — see internal/web/doc.go)
       static/                vendored htmx/Alpine + style.css, embedded via embed.FS
   Makefile                 `make generate`/`build`/`vet`/`test`/`fmt-check` — templ codegen first, every target (Phase 2a)
@@ -289,8 +295,9 @@ go/
 Every backend package under `internal/` is implemented — see
 `go/internal/system/doc.go` for the small, deliberate set of
 `routes/system.js` routes it doesn't route. `internal/web` is the one
-package still growing (Phase 2a has one page; the rest of `public-src/`'s
-pages remain to be ported in later phases).
+package still growing (Phase 2a/2b together cover Shots and the Library
+domain's six pages; machines/orders/maintenance/the live shot chart remain
+to be ported in later phases).
 
 ## Frontend
 
@@ -309,16 +316,22 @@ anywhere in the Docker image (build or runtime); the only external browser
 runtime is htmx (~50 KB) plus Alpine (~54 KB), both vendored locally, never
 loaded from a CDN.
 
-**Status (Phase 2a, #901):** the tooling foundation plus one full page —
-`GET /shots`, a shot-history list built on `internal/shots`' existing
-Phase 1c service layer (not its REST handlers — see `internal/web/doc.go`).
-It supports trashing a shot (with an Alpine confirm step before the
-destructive htmx POST) and restoring one from the trash section, plus a
-client-side Alpine filter over profile/coffee text. This is the *template*
-for every later page, the same role `internal/shots` played for the REST
-domain packages — it is not itself a cutover: `public-src/`'s Node-served
-SPA remains the only frontend Home Assistant or a standalone install
-actually sees until a later phase flips that switch.
+**Status (Phase 2a/2b, #901):** the tooling foundation plus two domains'
+pages. Phase 2a's `GET /shots` is a shot-history list built on
+`internal/shots`' existing Phase 1c service layer (not its REST handlers —
+see `internal/web/doc.go`); it supports trashing a shot (with an Alpine
+confirm step before the destructive htmx POST) and restoring one from the
+trash section, plus a client-side Alpine filter over profile/coffee text.
+Phase 2b adds the Library domain: `GET /beans` (with its one write action,
+toggle-active, ported onto `internal/library`'s now-exported
+`ToggleBeanActive`) and read-only list pages for Grinders (with computed
+wear stats via `ComputeGrinderWearStats`), Baskets, Puck Screens, Milks,
+and Recipes — a full CRUD UI for the non-Beans entities is deferred to a
+later phase. Together these are the *template* for every later page, the
+same role `internal/shots` played for the REST domain packages — none of
+this is itself a cutover: `public-src/`'s Node-served SPA remains the only
+frontend Home Assistant or a standalone install actually sees until a
+later phase flips that switch.
 
 **Codegen:** `.templ` sources live under `internal/web/templates/` and are
 NOT valid Go until `templ generate` runs, which writes a `_templ.go` next

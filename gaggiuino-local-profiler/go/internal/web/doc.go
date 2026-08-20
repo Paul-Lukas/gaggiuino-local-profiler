@@ -10,13 +10,16 @@
 //
 // File layout:
 //
-//	doc.go            this file
-//	assets.go         embed.FS for static/ (vendored htmx/Alpine, style.css,
-//	                  glp-token.js)
-//	view.go            shots.Shot -> templates.ShotRow projection
-//	handlers.go        GET /shots + the two htmx trash/restore actions
-//	templates/         .templ sources (own package; see templates/layout.templ)
-//	static/            vendored + first-party JS/CSS served at /web/static/*
+//	doc.go              this file
+//	assets.go           embed.FS for static/ (vendored htmx/Alpine, style.css,
+//	                    glp-token.js)
+//	view.go             shots.Shot -> templates.ShotRow projection
+//	handlers.go         GET /shots + the two htmx trash/restore actions
+//	view_library.go     (Phase 2b) library.Entity -> templates' *Row projections
+//	handlers_library.go (Phase 2b) GET /beans,/grinders,/baskets,/puckscreens,
+//	                    /milks,/recipes + the toggle-active htmx action
+//	templates/          .templ sources (own package; see templates/layout.templ)
+//	static/             vendored + first-party JS/CSS served at /web/static/*
 //
 // # Auth model
 //
@@ -30,17 +33,18 @@
 // — HA Ingress's own auth in front of the add-on, or physical/LAN access to
 // the exposed port in standalone mode.
 //
-// The two htmx write actions (POST /shots/{id}/trash, POST
-// /shots/{id}/restore) are NOT part of that carve-out: RequireToken's
-// bypass in internal/auth/auth.go is scoped to GET/HEAD requests
-// specifically (a #901 code-review fix — it originally matched any
-// non-/api/ path regardless of method, which let any third-party page in
-// the user's browser trigger these writes with a plain unauthenticated
-// POST, no token or custom header required — a CSRF hole). A POST here now
-// has to either arrive through genuine HA Ingress (RequireToken's
-// IsIngressRequest bypass, which applies before the GET/HEAD check and
-// covers the add-on's primary access path unconditionally) or carry a
-// valid X-GLP-Token header, exactly like the JSON API.
+// The htmx write actions — POST /shots/{id}/trash, POST /shots/{id}/restore,
+// and (Phase 2b) POST /beans/{id}/toggle-active in handlers_library.go —
+// are NOT part of that carve-out: RequireToken's bypass in
+// internal/auth/auth.go is scoped to GET/HEAD requests specifically (a #901
+// code-review fix — it originally matched any non-/api/ path regardless of
+// method, which let any third-party page in the user's browser trigger
+// these writes with a plain unauthenticated POST, no token or custom header
+// required — a CSRF hole). A POST here now has to either arrive through
+// genuine HA Ingress (RequireToken's IsIngressRequest bypass, which applies
+// before the GET/HEAD check and covers the add-on's primary access path
+// unconditionally) or carry a valid X-GLP-Token header, exactly like the
+// JSON API.
 //
 // That header is wired in structurally, for every current and future
 // Phase-2 page, not per-button: templates/layout.templ loads

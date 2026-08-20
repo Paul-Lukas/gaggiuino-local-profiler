@@ -1,0 +1,311 @@
+package templates
+
+import "fmt"
+
+// This file is Phase 2b's (#901) Library-domain counterpart to shots.templ:
+// a read list page per entity (Beans, Grinders, Baskets, Puck Screens,
+// Milks, Recipes), modeled on public-src/views/library.js's
+// renderBeanList/renderGrinderList/renderBasketList/renderPuckScreenList/
+// renderMilkList/renderRecipeList (see internal/web/view_library.go's
+// projection functions for exactly which fields each Row type carries and
+// why). Beans is the "full pattern" page (list + one write action, toggle-
+// active, per the dispatch brief); the other five are read-only list views
+// — the dispatch brief's own scope call for this package, deferring a full
+// CRUD UI for them to a later phase.
+
+// ── Beans ──────────────────────────────────────────────────────────────
+
+// BeanRow is the display-ready projection of a library.Entity bean.
+type BeanRow struct {
+	ID          int64
+	Name        string
+	Roaster     string
+	Speciality  bool
+	Decaf       bool
+	Enabled     bool
+	RoastDate   string
+	StockG      string // "250 g" or "" when untracked
+	Remaining   string // "180 g remaining" or "" when untracked/unknown
+	BagCount    int
+}
+
+// BeansPage is GET /beans: every bean in the library, each with a
+// toggle-active htmx action — the one write action this page's dispatch
+// brief asks for, reusing internal/library.ToggleBeanActive (service.go)
+// rather than reimplementing the enabled-flag flip.
+templ BeansPage(rows []BeanRow) {
+	@Layout("Beans") {
+		<h1 class="page-title">Beans</h1>
+		if len(rows) == 0 {
+			<div class="empty-state">No beans yet.</div>
+		} else {
+			<div class="item-list" id="bean-list">
+				for _, row := range rows {
+					@beanRow(row)
+				}
+			</div>
+		}
+	}
+}
+
+// BeanFragment renders a single bean row on its own — the htmx response
+// toggleBeanActiveAction (internal/web/handlers_library.go) answers with,
+// swapped into the list in place via hx-swap="outerHTML" so the row's label/
+// styling reflect the new enabled state without a full page reload.
+templ BeanFragment(row BeanRow) {
+	@beanRow(row)
+}
+
+templ beanRow(row BeanRow) {
+	<div class={ "item-row", templ.KV("disabled", !row.Enabled) } id={ fmt.Sprintf("bean-row-%d", row.ID) }>
+		<div class="item-info">
+			<div class="item-name">
+				{ row.Name }
+				if row.Speciality {
+					<span class="badge badge-speciality">speciality</span>
+				}
+				if row.Decaf {
+					<span class="badge">decaf</span>
+				}
+				if !row.Enabled {
+					<span class="badge">disabled</span>
+				}
+			</div>
+			<div class="item-meta">
+				if row.Roaster != "" {
+					{ row.Roaster }
+				}
+				if row.RoastDate != "" {
+					{ " · roasted " + row.RoastDate }
+				}
+				if row.StockG != "" {
+					{ " · " + row.StockG }
+					if row.Remaining != "" {
+						{ " (" + row.Remaining + " left)" }
+					}
+				}
+				if row.BagCount > 1 {
+					{ fmt.Sprintf(" · %d bags", row.BagCount) }
+				}
+			</div>
+		</div>
+		<div class="item-actions">
+			<button
+				type="button"
+				class="btn"
+				hx-post={ fmt.Sprintf("/beans/%d/toggle-active", row.ID) }
+				hx-target={ fmt.Sprintf("#bean-row-%d", row.ID) }
+				hx-swap="outerHTML"
+			>
+				if row.Enabled {
+					Disable
+				} else {
+					Enable
+				}
+			</button>
+		</div>
+	</div>
+}
+
+// ── Grinders ───────────────────────────────────────────────────────────
+
+// GrinderRow is the display-ready projection of a library.Entity grinder,
+// including its computed (not stored) wear stats — see
+// library.ComputeGrinderWearStats.
+type GrinderRow struct {
+	ID              int64
+	Name            string
+	BurrType        string
+	PurchaseDate    string
+	ShotsSinceBurrs int
+	GramsSinceBurrs string // pre-formatted, e.g. "1.2 kg" or "340 g"
+}
+
+// GrindersPage is GET /grinders — a read-only list (per the dispatch
+// brief's scope call: a full CRUD UI for the non-Beans entities is a later
+// phase's work).
+templ GrindersPage(rows []GrinderRow) {
+	@Layout("Grinders") {
+		<h1 class="page-title">Grinders</h1>
+		if len(rows) == 0 {
+			<div class="empty-state">No grinders yet.</div>
+		} else {
+			<div class="item-list">
+				for _, row := range rows {
+					@grinderRow(row)
+				}
+			</div>
+		}
+	}
+}
+
+templ grinderRow(row GrinderRow) {
+	<div class="item-row">
+		<div class="item-info">
+			<div class="item-name">{ row.Name }</div>
+			<div class="item-meta">
+				if row.BurrType != "" {
+					{ row.BurrType }
+				}
+				if row.PurchaseDate != "" {
+					{ " · purchased " + row.PurchaseDate }
+				}
+				{ fmt.Sprintf(" · %d shots / %s since burr swap", row.ShotsSinceBurrs, row.GramsSinceBurrs) }
+			</div>
+		</div>
+	</div>
+}
+
+// ── Baskets ────────────────────────────────────────────────────────────
+
+// BasketRow is the display-ready projection of a library.Entity basket.
+// DoseCapacity/HoleCount are already free-text strings on the entity itself
+// (routes/library/baskets.js's `trimMax(body["doseCapacity"], 50)` et al. —
+// see internal/library/handlers_baskets.go's createBasket), not numbers this
+// package formats, matching public-src/views/library.js's renderBasketList.
+type BasketRow struct {
+	ID           int64
+	Name         string
+	WallType     string
+	Shape        string
+	DoseCapacity string
+	HoleCount    string
+}
+
+templ BasketsPage(rows []BasketRow) {
+	@Layout("Baskets") {
+		<h1 class="page-title">Baskets</h1>
+		if len(rows) == 0 {
+			<div class="empty-state">No baskets yet.</div>
+		} else {
+			<div class="item-list">
+				for _, row := range rows {
+					<div class="item-row">
+						<div class="item-info">
+							<div class="item-name">{ row.Name }</div>
+							<div class="item-meta">
+								if row.WallType != "" {
+									{ row.WallType }
+								}
+								if row.Shape != "" {
+									{ " · " + row.Shape }
+								}
+								if row.DoseCapacity != "" {
+									{ " · " + row.DoseCapacity }
+								}
+								if row.HoleCount != "" {
+									{ " · " + row.HoleCount + " holes" }
+								}
+							</div>
+						</div>
+					</div>
+				}
+			</div>
+		}
+	}
+}
+
+// ── Puck screens ───────────────────────────────────────────────────────
+
+// PuckScreenRow is the display-ready projection of a library.Entity puck
+// screen.
+type PuckScreenRow struct {
+	ID        int64
+	Name      string
+	Thickness string
+	Material  string
+}
+
+templ PuckScreensPage(rows []PuckScreenRow) {
+	@Layout("Puck Screens") {
+		<h1 class="page-title">Puck Screens</h1>
+		if len(rows) == 0 {
+			<div class="empty-state">No puck screens yet.</div>
+		} else {
+			<div class="item-list">
+				for _, row := range rows {
+					<div class="item-row">
+						<div class="item-info">
+							<div class="item-name">{ row.Name }</div>
+							<div class="item-meta">
+								if row.Thickness != "" {
+									{ row.Thickness }
+								}
+								if row.Material != "" {
+									{ " · " + row.Material }
+								}
+							</div>
+						</div>
+					</div>
+				}
+			</div>
+		}
+	}
+}
+
+// ── Milks ──────────────────────────────────────────────────────────────
+
+// MilkRow is the display-ready projection of a library.Entity milk.
+type MilkRow struct {
+	ID      int64
+	Name    string
+	Emoji   string
+	StockMl string // pre-formatted, e.g. "500 ml"
+}
+
+templ MilksPage(rows []MilkRow) {
+	@Layout("Milks") {
+		<h1 class="page-title">Milks</h1>
+		if len(rows) == 0 {
+			<div class="empty-state">No milks yet.</div>
+		} else {
+			<div class="item-list">
+				for _, row := range rows {
+					<div class="item-row">
+						<div class="item-info">
+							<div class="item-name">{ row.Emoji } { row.Name }</div>
+							if row.StockMl != "" {
+								<div class="item-meta">{ row.StockMl }</div>
+							}
+						</div>
+					</div>
+				}
+			</div>
+		}
+	}
+}
+
+// ── Recipes ────────────────────────────────────────────────────────────
+
+// RecipeRow is the display-ready projection of a library.Entity recipe.
+type RecipeRow struct {
+	ID         int64
+	Name       string
+	BrewMethod string
+	DrinkType  string
+}
+
+templ RecipesPage(rows []RecipeRow) {
+	@Layout("Recipes") {
+		<h1 class="page-title">Recipes</h1>
+		if len(rows) == 0 {
+			<div class="empty-state">No recipes yet.</div>
+		} else {
+			<div class="item-list">
+				for _, row := range rows {
+					<div class="item-row">
+						<div class="item-info">
+							<div class="item-name">{ row.Name }</div>
+							<div class="item-meta">
+								{ row.BrewMethod }
+								if row.DrinkType != "" {
+									{ " · " + row.DrinkType }
+								}
+							</div>
+						</div>
+					</div>
+				}
+			</div>
+		}
+	}
+}

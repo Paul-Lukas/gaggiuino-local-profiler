@@ -591,30 +591,17 @@ func (h *Handlers) deleteBean(w http.ResponseWriter, r *http.Request) {
 // toggleBeanActive ports POST /api/library/bean/:id/toggle-active (#578).
 func (h *Handlers) toggleBeanActive(w http.ResponseWriter, r *http.Request) {
 	id, noMatch := parseIDParam(r.PathValue("id"))
-	lib, err := h.repo.GetLibrary()
+	if noMatch {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	bean, found, err := ToggleBeanActive(h.repo, id)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	idx := -1
-	if !noMatch {
-		idx = findBeanIndex(lib, id)
-	}
-	if idx == -1 {
+	if !found {
 		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	bean := lib.Beans[idx]
-	// `bean.enabled === false ? true : false` — anything other than the
-	// exact boolean false (including absent/undefined) flips to false.
-	if b, isBool := bean["enabled"].(bool); isBool && !b {
-		bean["enabled"] = true
-	} else {
-		bean["enabled"] = false
-	}
-	lib.Beans[idx] = bean
-	if err := h.repo.SaveLibrary(lib); err != nil {
-		internalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, bean)

@@ -104,6 +104,15 @@ func main() {
 	libraryHandlers := library.NewHandlers(libRepo, shotsRepo)
 	libraryHandlers.RegisterRoutes(mux)
 
+	// Phase 2b (#901): the Library domain's Go frontend pages — Beans (plus
+	// its one htmx write action, toggle-active) and read-only lists for
+	// Grinders/Baskets/Puck Screens/Milks/Recipes, built on the same
+	// library.Repository/shots.Repository the JSON API above uses. Same
+	// registration-outside-/api/ auth model as webHandlers above — see
+	// internal/web/doc.go's "Auth model" section.
+	webLibraryHandlers := web.NewLibraryHandlers(libRepo, shotsRepo)
+	webLibraryHandlers.RegisterRoutes(mux)
+
 	registry := machines.NewRegistry(sqlDB)
 	machinesHandlers := machines.NewHandlers(registry, hub)
 	machinesHandlers.RegisterRoutes(mux)

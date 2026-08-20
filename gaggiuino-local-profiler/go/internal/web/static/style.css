@@ -165,6 +165,45 @@ body {
   text-align: center;
 }
 
+/* Phase 2b (#901) — Library pages (Beans/Grinders/Baskets/Puck Screens/
+ * Milks/Recipes): generic, entity-agnostic row classes (unlike shots.templ's
+ * shot-* classes, which are Shots-page-specific) so every library list page
+ * shares one set of rules instead of six near-duplicates. */
+.item-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+.item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--raised);
+  border-radius: var(--radius);
+}
+
+.item-row.disabled { opacity: 0.55; }
+
+.item-info { display: flex; flex-direction: column; gap: 2px; }
+
+.item-name { font-weight: 600; display: flex; align-items: center; gap: var(--sp-2); }
+
+.item-meta {
+  color: var(--gray-500);
+  font-size: var(--fs-1);
+}
+
+.item-actions { display: flex; align-items: center; gap: var(--sp-2); }
+
+.badge {
+  font-size: var(--fs-1);
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--gray-700);
+  color: var(--gray-500);
+}
+
+.badge-speciality { color: var(--accent); border-color: var(--accent); }
+
 .trash-section {
   margin-top: var(--sp-5);
   padding-top: var(--sp-4);

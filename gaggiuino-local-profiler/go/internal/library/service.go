@@ -179,6 +179,37 @@ func UpsertKnownGrindSetting(lib *Library, beanID int64, grinder, grindSetting s
 	return nil, false
 }
 
+// ToggleBeanActive ports routes/library/beans.js's POST .../toggle-active
+// handler body (#578): `bean.enabled === false ? true : false` — anything
+// other than the exact boolean false (including absent/undefined) flips to
+// false. Exported (unlike this file's other helpers) so internal/web's
+// Beans page can drive the same enabled/disabled flag through the same
+// read-mutate-save round trip its REST counterpart (handlers_beans.go's
+// toggleBeanActive, which now calls this too) uses, rather than
+// reimplementing the flip. found is false when id matches no bean, mirroring
+// the REST handler's 404.
+func ToggleBeanActive(repo *Repository, id int64) (bean Entity, found bool, err error) {
+	lib, err := repo.GetLibrary()
+	if err != nil {
+		return nil, false, err
+	}
+	idx := findBeanIndex(lib, id)
+	if idx == -1 {
+		return nil, false, nil
+	}
+	bean = lib.Beans[idx]
+	if b, isBool := bean["enabled"].(bool); isBool && !b {
+		bean["enabled"] = true
+	} else {
+		bean["enabled"] = false
+	}
+	lib.Beans[idx] = bean
+	if err := repo.SaveLibrary(lib); err != nil {
+		return nil, false, err
+	}
+	return bean, true, nil
+}
+
 // SetBeanImage ports LibraryService.js's setBeanImage: fire-and-forget after
 // a bean create with an `imageUrl` field — downloads the image once and
 // records its extension on a FRESH read of the library (not the `lib`
