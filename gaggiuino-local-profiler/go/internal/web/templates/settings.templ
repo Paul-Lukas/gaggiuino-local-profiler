@@ -76,7 +76,12 @@ templ SettingsEditableFragment(editable SettingsCategory, saveError string) {
 // wrapper — inconsistent DOM between saved and unsaved categories).
 templ settingsCategoryBlock(c SettingsCategory, saveError string) {
 	<section class="settings-block" id={ "settings-" + c.Name }>
-		<h2 class="trash-heading">{ titleCase(c.Name) }</h2>
+		<h2 class="trash-heading">
+			{ titleCase(c.Name) }
+			if !c.Editable && c.FetchError == "" {
+				<span class="badge">read-only</span>
+			}
+		</h2>
 		if c.FetchError != "" {
 			<div class="badge badge-err">{ c.FetchError }</div>
 		} else if c.Editable {
@@ -88,7 +93,7 @@ templ settingsCategoryBlock(c SettingsCategory, saveError string) {
 				<button type="submit" class="btn">Save</button>
 			</form>
 		} else {
-			<pre class="settings-json">{ c.JSON }</pre>
+			<pre class="settings-json settings-json-readonly">{ c.JSON }</pre>
 		}
 	</section>
 }

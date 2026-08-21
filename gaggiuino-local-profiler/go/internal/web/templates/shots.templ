@@ -123,17 +123,31 @@ templ shotRowTrashed(row ShotRow) {
 	</div>
 }
 
-// shotInfo is the read-only left-hand side both row variants share:
-// profile name + score, coffee/dose, grind setting, rating stars, time.
+// shotInfo is the read-only left-hand side both row variants share, laid
+// out as a Verdict header (design pass 2, #901 — see
+// public-src/style.css's .verdict-header/.verdict-line/.verdict-score-num
+// and public-src/views/shots/index.js's renderVerdictHeader for the
+// visual reference this ports; only the CSS-class structure and the
+// typography-not-badge principle are carried over, not the Node advice-
+// text computation, which needs shot-analysis logic this list page's
+// ShotRow doesn't carry). .verdict-line: the score, at display size and
+// colour-coded via the shared 3-tier scale (score-great/-ok/-bad), a
+// plain "·" separator, then the headline — this page has no dial-in
+// advice text to show, so the headline is the profile name, the one
+// summarizing field ShotRow already carries. .verdict-subline: the same
+// metadata the old .shot-meta line showed, muted, underneath. No card
+// background, no border — flow text, same as the Node original's #816
+// de-boxing.
 templ shotInfo(row ShotRow) {
 	<div class="shot-info">
-		<div class="shot-name">
-			{ row.ProfileName }
+		<div class="verdict-line">
 			if row.Score != nil {
-				<span class={ "shot-score", row.ScoreClass }>{ fmt.Sprintf("%d", *row.Score) }</span>
+				<span class={ "verdict-score-num", row.ScoreClass }>{ fmt.Sprintf("%d", *row.Score) }</span>
+				<span class="verdict-sep">·</span>
 			}
+			<span class="verdict-headline">{ row.ProfileName }</span>
 		</div>
-		<div class="shot-meta">
+		<div class="verdict-subline">
 			if row.Coffee != "" {
 				{ row.Coffee }
 			}

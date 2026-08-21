@@ -28,11 +28,17 @@
  *     data-theme="dark"), so only the default dark/amber combination is
  *     currently reachable. Turning it on later is a data-* toggle, not a
  *     CSS change.
- *   - A full Verdict-header rebuild of the Shots list (score as a large
- *     hero figure instead of an inline chip) — this pass keeps
- *     .shot-score as typography-only (no chip background), which is the
- *     safe subset of that idea; the fuller layout change touches
- *     shots.templ, not just CSS, and is scoped out here.
+ *
+ * Design pass 2 (#901) adds on top of the above:
+ *   - The Shots list's Verdict header (.verdict-line/.verdict-score-num/
+ *     .verdict-sep/.verdict-headline/.verdict-subline below) — the score
+ *     as a hero figure, not a chip, ported from public-src/style.css's
+ *     .verdict-header family. See shots.templ's shotInfo doc comment for
+ *     what carried over and what (the advice-text computation) didn't.
+ *   - A muted, non-disabled treatment for read-only Settings categories
+ *     (.settings-readonly-badge, .settings-json's dimmed text) so
+ *     editable vs. read-only categories read as a tone difference, not a
+ *     greyed-out/disabled one.
  */
 
 :root {
@@ -353,21 +359,43 @@ button, input, select, textarea { font-family: inherit; }
 
 .shot-info { display: flex; flex-direction: column; gap: 2px; }
 
-.shot-name { font-weight: 600; }
-
-.shot-meta {
-  color: var(--gray-500);
-  font-size: var(--fs-1);
+/* Verdict header (design pass 2, #901) — ported from public-src/
+ * style.css's .verdict-header family (see that file's #813/#816 comments
+ * for the "score ring became type" / "de-boxed" history this repeats).
+ * .verdict-line: score at display size + a plain "·" + the headline, one
+ * baseline-aligned row, no card, no border — flow text, not a badge. */
+.verdict-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
 }
 
-/* Verdict-lite: score reads as typography (weight + colour), not a boxed
- * chip — the safe subset of the Verdict-header idea that fits a CSS-only
- * pass. A full hero-figure treatment is a shots.templ layout change,
- * deferred (see header comment). */
-.shot-score {
+.verdict-score-num {
+  font-size: var(--fs-5);
   font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.verdict-sep {
+  font-size: var(--fs-5);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--gray-600);
+  flex-shrink: 0;
+}
+
+.verdict-headline {
   font-size: var(--fs-3);
-  margin-left: var(--sp-2);
+  font-weight: 700;
+  color: var(--gray-200);
+}
+
+.verdict-subline {
+  color: var(--gray-500);
+  font-size: var(--fs-1);
 }
 
 .score-great { color: var(--ok); }
@@ -616,6 +644,12 @@ button, input, select, textarea { font-family: inherit; }
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Read-only categories (boiler/system): a tone difference from the
+ * editable ones, not a disabled one — text steps down one gray (still
+ * --gray-400, well short of the muted --gray-500/600 labels around it) so
+ * it stays fully legible against --raised rather than fading into it. */
+.settings-json-readonly { color: var(--gray-400); }
 
 .settings-textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
