@@ -37,6 +37,7 @@ type MachineRow struct {
 templ MachinesPage(rows []MachineRow, formError string) {
 	@Layout("Machines") {
 		<h1 class="page-title">Machines</h1>
+		@defaultMachineHeader(rows)
 		<div id="machines-content">
 			@newMachineForm(formError)
 			if len(rows) == 0 {
@@ -62,6 +63,66 @@ templ MachinesContentFragment(rows []MachineRow, formError string) {
 	} else {
 		@machineList(rows)
 	}
+}
+
+// defaultMachineHeader is this page's verdict-first header (design pass 3,
+// #901): the default machine's name plus its reachable/unreachable status —
+// what most visitors of this page actually came to check — ahead of the
+// full registry list below, mirroring shots.templ's shotInfo verdict-line/
+// verdict-subline pair. Renders nothing when there's no default machine yet
+// (a fresh, empty registry) or reachability isn't known for it (only ever
+// populated for the default machine — see MachineRow's own doc comment).
+// Deliberately only in MachinesPage, not MachinesContentFragment: creating
+// a new (non-default) machine never changes the current default's own
+// name/reachability, so this header doesn't need to be part of the
+// re-rendered create fragment.
+templ defaultMachineHeader(rows []MachineRow) {
+	if d, ok := defaultMachineRow(rows); ok {
+		<div class="machine-status-header">
+			<div class="verdict-line">
+				<span class="verdict-headline">{ d.Name }</span>
+				if d.Reachable != nil {
+					<span class="verdict-sep">·</span>
+					<span class={ "verdict-status", reachableClass(d.Reachable) }>{ reachableWord(d.Reachable) }</span>
+				}
+			</div>
+			<div class="verdict-subline">
+				Default machine · { d.Type }
+				if d.Host != "" {
+					{ " · " + d.Host }
+				}
+			</div>
+		</div>
+	}
+}
+
+// defaultMachineRow finds the registry's default machine among rows — there
+// is always at most one (internal/machines.Registry enforces exactly one
+// default once any machine exists).
+func defaultMachineRow(rows []MachineRow) (MachineRow, bool) {
+	for _, r := range rows {
+		if r.IsDefault {
+			return r, true
+		}
+	}
+	return MachineRow{}, false
+}
+
+// reachableClass/reachableWord substitute a colour-coded status word for
+// the numeric score verdict-score-num normally holds — there's no scalar
+// to show here, just reachable-or-not.
+func reachableClass(reachable *bool) string {
+	if reachable != nil && *reachable {
+		return "score-great"
+	}
+	return "score-bad"
+}
+
+func reachableWord(reachable *bool) string {
+	if reachable != nil && *reachable {
+		return "reachable"
+	}
+	return "unreachable"
 }
 
 // newMachineForm mirrors internal/machines.MachineInput's POST-required

@@ -398,6 +398,23 @@ button, input, select, textarea { font-family: inherit; }
   font-size: var(--fs-1);
 }
 
+/* Machines' default-machine status word (design pass 3, #901) — sits where
+ * .verdict-score-num normally would, a colour-coded word instead of a
+ * number since there's no scalar to show; combined with .score-great/
+ * .score-bad for colour, the same "two classes, one for weight/size, one
+ * for colour" composition .verdict-score-num + a score-class already use. */
+.verdict-status {
+  font-size: var(--fs-3);
+  font-weight: 700;
+}
+
+/* Wraps defaultMachineHeader's verdict-line/verdict-subline pair — unlike
+ * shots.templ's own use of those two classes (already spaced by
+ * .shot-list's row gap), this one stands alone above #machines-content and
+ * needs its own bottom margin so the "New machine" form below doesn't sit
+ * flush against it. */
+.machine-status-header { margin-bottom: var(--sp-4); }
+
 /* Generic small metadata-sized text for htmx error fragments (writeFragmentError,
  * #901) — same size/base color formula as .verdict-subline/old .shot-meta, but
  * named for its own (non-verdict) purpose since it renders on every domain's
