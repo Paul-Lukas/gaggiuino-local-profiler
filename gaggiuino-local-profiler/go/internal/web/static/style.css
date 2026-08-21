@@ -504,6 +504,45 @@ button, input, select, textarea { font-family: inherit; }
 .badge-err  { color: var(--err);  border-color: var(--err); }
 .badge-warn { color: var(--warn); border-color: var(--warn); }
 
+/* Bean stock bar (#901 design pass 3) — ported from public-src/style.css's
+ * .lib-stock-bar/.lib-stock-bar-fill: a small proportional bar next to the
+ * remaining-grams figure, purely supplementary (the exact gram number,
+ * .item-meta's own text, stays the source of truth) — see
+ * view_library.go's toBeanRow/clampPct for the percentage this renders. */
+.stock-bar {
+  display: inline-block;
+  width: 42px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--gray-700);
+  overflow: hidden;
+  vertical-align: middle;
+  margin-left: var(--sp-2);
+}
+
+.stock-bar-fill { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.stock-bar-fill.low { background: var(--err); }
+
+/* Milk stock bar (#901 design pass 3) — ported from public-src/style.css's
+ * .lib-milk-stock-bar-wrap/.lib-milk-stock-bar; full-width rather than the
+ * bean bar's inline 42px, since a milk row has no other trailing text this
+ * needs to sit flush against — see view_library.go's milkStockPct/
+ * milkStockClass for the 2000ml-is-a-full-bar/300ml-low formula this
+ * mirrors exactly. */
+.milk-stock-bar-wrap {
+  width: 120px;
+  height: 5px;
+  margin-top: var(--sp-1);
+  border-radius: 3px;
+  background: var(--gray-700);
+  overflow: hidden;
+}
+
+.milk-stock-bar-fill { height: 100%; border-radius: 3px; }
+.milk-stock-bar-fill.ok    { background: var(--ok); }
+.milk-stock-bar-fill.low   { background: var(--warn); }
+.milk-stock-bar-fill.empty { background: var(--err); }
+
 /* New-entity forms (Library/Machines create forms): raised card, same
  * surface-step nesting principle as .item-row/.shot-row rather than a
  * bordered box. */

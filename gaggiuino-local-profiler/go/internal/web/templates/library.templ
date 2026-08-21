@@ -37,20 +37,31 @@ import "fmt"
 // These six create actions are the first ones in this package to close
 // that gap properly instead of repeating it.
 
+// stockBarWidth builds the one dynamic inline style both the bean and milk
+// stock bars use — mirrors maintenance.templ's own maintBarWidth for the
+// same reason (a CSS class can't parameterize a percentage, and the value
+// is already clamped to [0,100] by the view-layer functions that compute
+// it, so this only ever formats digits).
+func stockBarWidth(pct float64) string {
+	return fmt.Sprintf("width: %.0f%%", pct)
+}
+
 // ── Beans ──────────────────────────────────────────────────────────────
 
 // BeanRow is the display-ready projection of a library.Entity bean.
 type BeanRow struct {
-	ID          int64
-	Name        string
-	Roaster     string
-	Speciality  bool
-	Decaf       bool
-	Enabled     bool
-	RoastDate   string
-	StockG      string // "250 g" or "" when untracked
-	Remaining   string // "180 g remaining" or "" when untracked/unknown
-	BagCount    int
+	ID         int64
+	Name       string
+	Roaster    string
+	Speciality bool
+	Decaf      bool
+	Enabled    bool
+	RoastDate  string
+	StockG     string // "250 g" or "" when untracked
+	Remaining  string // "180 g remaining" or "" when untracked/unknown
+	StockPct   float64 // 0-100, only meaningful when Remaining != ""
+	StockLow   bool    // remaining < 100g — mirrors public-src's lib-inv-remaining.low
+	BagCount   int
 }
 
 // BeansPage is GET /beans: the "New bean" form plus every bean in the
@@ -138,6 +149,9 @@ templ beanRow(row BeanRow) {
 					{ " · " + row.StockG }
 					if row.Remaining != "" {
 						{ " (" + row.Remaining + " left)" }
+						<span class="stock-bar" title={ fmt.Sprintf("%.0f%%", row.StockPct) }>
+							<span class={ "stock-bar-fill", templ.KV("low", row.StockLow) } style={ stockBarWidth(row.StockPct) }></span>
+						</span>
 					}
 				}
 				if row.BagCount > 1 {
@@ -405,10 +419,12 @@ templ puckScreensContent(rows []PuckScreenRow, formError string) {
 
 // MilkRow is the display-ready projection of a library.Entity milk.
 type MilkRow struct {
-	ID      int64
-	Name    string
-	Emoji   string
-	StockMl string // pre-formatted, e.g. "500 ml"
+	ID         int64
+	Name       string
+	Emoji      string
+	StockMl    string  // pre-formatted, e.g. "500 ml"
+	StockPct   float64 // 0-100, 2000ml == a full bar — see milkStockPct
+	StockClass string  // "ok" | "low" | "empty" — see milkStockClass
 }
 
 templ MilksPage(rows []MilkRow, formError string) {
@@ -450,6 +466,9 @@ templ milksContent(rows []MilkRow, formError string) {
 						<div class="item-name">{ row.Emoji } { row.Name }</div>
 						if row.StockMl != "" {
 							<div class="item-meta">{ row.StockMl }</div>
+							<div class="milk-stock-bar-wrap">
+								<div class={ "milk-stock-bar-fill", row.StockClass } style={ stockBarWidth(row.StockPct) }></div>
+							</div>
 						}
 					</div>
 				</div>

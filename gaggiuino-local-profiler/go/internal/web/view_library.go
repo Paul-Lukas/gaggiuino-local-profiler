@@ -95,9 +95,25 @@ func toBeanRow(bean library.Entity, doseRows []shots.AnnotatedDose, allBeans []l
 		row.StockG = fmt.Sprintf("%g g", stockG)
 		if remaining, ok := library.ComputeBeanRemaining(bean, doseRows, allBeans); ok {
 			row.Remaining = fmt.Sprintf("%d g", remaining)
+			row.StockLow = remaining < 100
+			row.StockPct = clampPct(float64(remaining) / stockG * 100)
 		}
 	}
 	return row
+}
+
+// clampPct mirrors public-src/views/library.js's own
+// `Math.max(0, Math.min(100, ...))` stock-bar clamp (renderBeanList) — a bar
+// width is only ever meaningful inside [0,100], and a bean can go
+// (near-)negative remaining once consumption outpaces a stale stock_g.
+func clampPct(pct float64) float64 {
+	if pct < 0 {
+		return 0
+	}
+	if pct > 100 {
+		return 100
+	}
+	return pct
 }
 
 // formatWearGrams ports public-src/views/library.js's formatWearGrams: grams
@@ -154,10 +170,34 @@ func toMilkRow(milk library.Entity) templates.MilkRow {
 	}
 	stockMl, _ := milk["stockMl"].(float64)
 	return templates.MilkRow{
-		ID:      entityID(milk),
-		Name:    strField(milk, "name"),
-		Emoji:   emoji,
-		StockMl: fmt.Sprintf("%g ml", stockMl),
+		ID:         entityID(milk),
+		Name:       strField(milk, "name"),
+		Emoji:      emoji,
+		StockMl:    fmt.Sprintf("%g ml", stockMl),
+		StockPct:   milkStockPct(stockMl),
+		StockClass: milkStockClass(stockMl),
+	}
+}
+
+// milkStockPct/milkStockClass mirror public-src/views/library.js's
+// renderMilkList exactly: 2000ml reads as a full bar (an arbitrary but
+// stable reference capacity — milks have no stored container size of their
+// own), and the same 300ml "low" cutoff picks the bar's colour.
+func milkStockPct(stockMl float64) float64 {
+	if stockMl <= 0 {
+		return 0
+	}
+	return clampPct(stockMl / 20)
+}
+
+func milkStockClass(stockMl float64) string {
+	switch {
+	case stockMl <= 0:
+		return "empty"
+	case stockMl < 300:
+		return "low"
+	default:
+		return "ok"
 	}
 }
 
