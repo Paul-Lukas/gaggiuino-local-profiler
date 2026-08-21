@@ -36,32 +36,21 @@ func (h *Handlers) listMachines(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
+// createMachine ports POST /api/machines — a thin wrapper around
+// CreateMachineChecked (create.go), the same validate/SSRF-check/create
+// sequence internal/web's "New machine" form also calls.
 func (h *Handlers) createMachine(w http.ResponseWriter, r *http.Request) {
 	var in MachineInput
 	if !decodeJSONBody(w, r, &in) {
 		return
 	}
-	if err := in.validate(true); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid machine: "+err.Error())
-		return
-	}
-	if in.Host != nil && *in.Host != "" {
-		hostname, err := hostnameOf(*in.Host)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if err := assertMachineHost(r.Context(), hostname); err != nil {
-			if isSSRFBlocked(err) {
-				writeError(w, http.StatusBadRequest, "host not allowed")
-			} else {
-				writeError(w, http.StatusBadRequest, err.Error())
-			}
-			return
-		}
-	}
-	machine, err := h.registry.CreateMachine(in)
+	machine, err := CreateMachineChecked(r.Context(), h.registry, in)
 	if err != nil {
+		var verr *ValidationError
+		if errors.As(err, &verr) {
+			writeError(w, http.StatusBadRequest, verr.Message)
+			return
+		}
 		internalError(w, err)
 		return
 	}

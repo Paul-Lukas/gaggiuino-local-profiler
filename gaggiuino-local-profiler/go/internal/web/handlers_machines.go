@@ -5,8 +5,10 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/httputil"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ratelimit"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/system"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/web/templates"
 )
@@ -34,6 +36,7 @@ import (
 type MachinesHandlers struct {
 	registry *machines.Registry
 	poller   *system.Poller
+	rl       *ratelimit.KeyedLimiter
 }
 
 // NewMachinesHandlers builds MachinesHandlers around registry and poller —
@@ -43,7 +46,7 @@ type MachinesHandlers struct {
 // focused test) gets a Machines page with no reachable badge at all rather
 // than a nil-pointer panic — see rows()' own comment.
 func NewMachinesHandlers(registry *machines.Registry, poller *system.Poller) *MachinesHandlers {
-	return &MachinesHandlers{registry: registry, poller: poller}
+	return &MachinesHandlers{registry: registry, poller: poller, rl: ratelimit.NewKeyed()}
 }
 
 // RegisterRoutes registers this file's page and htmx-action routes onto
@@ -51,6 +54,7 @@ func NewMachinesHandlers(registry *machines.Registry, poller *system.Poller) *Ma
 // handlers.go's RegisterRoutes documents.
 func (h *MachinesHandlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /machines", h.machinesPage)
+	mux.HandleFunc("POST /machines", h.createMachineAction)
 	mux.HandleFunc("POST /machines/{id}/default", h.setDefaultAction)
 	mux.HandleFunc("POST /machines/{id}/delete", h.deleteAction)
 
@@ -97,8 +101,56 @@ func (h *MachinesHandlers) machinesPage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := templates.MachinesPage(rows).Render(r.Context(), w); err != nil {
+	if err := templates.MachinesPage(rows, "").Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering /machines: %v", err)
+	}
+}
+
+// createMachineAction ports the htmx `hx-post="machines"` interaction:
+// builds a machines.MachineInput from the submitted name/type/host fields
+// and calls machines.CreateMachineChecked (create.go) — the exact same
+// validate -> SSRF-check -> Registry.CreateMachine sequence POST
+// /api/machines' own handler now also calls. Answers 200 either way (see
+// templates/machines.templ's MachinesContentFragment doc comment for why),
+// re-rendering the form+list block with formError set on a validation/SSRF
+// failure, or cleared (and the new machine shown) on success.
+func (h *MachinesHandlers) createMachineAction(w http.ResponseWriter, r *http.Request) {
+	if !h.rl.Allow("web-machines:"+auth.RemoteIP(r), 30) {
+		h.renderMachinesFragment(w, r, "Too many requests — please slow down")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderMachinesFragment(w, r, "Invalid form submission")
+		return
+	}
+	name := r.FormValue("name")
+	typ := r.FormValue("type")
+	host := r.FormValue("host")
+	in := machines.MachineInput{Name: &name, Type: &typ, Host: &host}
+	if _, err := machines.CreateMachineChecked(r.Context(), h.registry, in); err != nil {
+		var verr *machines.ValidationError
+		if errors.As(err, &verr) {
+			h.renderMachinesFragment(w, r, verr.Message)
+			return
+		}
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	h.renderMachinesFragment(w, r, "")
+}
+
+// renderMachinesFragment re-reads the current machine list and renders
+// MachinesContentFragment with formError — shared by createMachineAction's
+// success and validation-failure paths.
+func (h *MachinesHandlers) renderMachinesFragment(w http.ResponseWriter, r *http.Request, formError string) {
+	rows, err := h.rows()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.MachinesContentFragment(rows, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /machines fragment: %v", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -84,6 +85,8 @@ func TestMachinesPage_RendersMachines(t *testing.T) {
 		"Kitchen Gaggiuino",
 		"192.168.1.50",
 		`id="machine-row-1"`,
+		`hx-post="machines"`, // the "New machine" create form (#901)
+		`name="name"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /machines body missing %q\nbody:\n%s", want, body)
@@ -105,6 +108,58 @@ func TestMachinesPage_RendersMachines(t *testing.T) {
 		t.Errorf("GET /machines: default machine (id 1) should not offer a delete action\nbody:\n%s", body)
 	}
 	assertNoRootAbsolutePaths(t, body)
+}
+
+// TestCreateMachineAction_RoundTrip drives the "New machine" form (#901)
+// end to end, built on machines.CreateMachineChecked — the exact same
+// validate -> SSRF-check -> Registry.CreateMachine sequence POST
+// /api/machines' own handler now also calls.
+func TestCreateMachineAction_RoundTrip(t *testing.T) {
+	mux, registry := newTestMachinesServer(t)
+
+	rec := doFormPost(t, mux, "/machines", url.Values{
+		"name": {"Kitchen Gaggiuino"},
+		"type": {"gaggiuino"},
+		"host": {""}, // blank host is valid — see MachineInput.validate
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /machines: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Kitchen Gaggiuino") {
+		t.Errorf("POST /machines response missing the new machine\nbody:\n%s", rec.Body.String())
+	}
+
+	list, err := registry.ListMachines()
+	if err != nil {
+		t.Fatalf("ListMachines: %v", err)
+	}
+	if len(list) != 2 { // the seeded default + the newly created one
+		t.Fatalf("registry has %d machines after create, want 2", len(list))
+	}
+}
+
+// TestCreateMachineAction_ValidationError verifies a blank name is rejected
+// by MachineInput.validate before reaching Registry.CreateMachine, answered
+// as a 200 with formError set (not a non-2xx status — see machines.templ's
+// MachinesContentFragment doc comment for why).
+func TestCreateMachineAction_ValidationError(t *testing.T) {
+	mux, registry := newTestMachinesServer(t)
+
+	rec := doFormPost(t, mux, "/machines", url.Values{"name": {""}, "type": {"gaggiuino"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /machines (blank name): status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid machine") {
+		t.Errorf("POST /machines (blank name) body missing validation error\nbody:\n%s", rec.Body.String())
+	}
+
+	list, err := registry.ListMachines()
+	if err != nil {
+		t.Fatalf("ListMachines: %v", err)
+	}
+	if len(list) != 1 { // only the seeded default machine
+		t.Errorf("registry has %d machines after a rejected create, want 1", len(list))
+	}
 }
 
 // TestSetDefaultAction_RoundTrip drives the one two-row-changing write
@@ -330,6 +385,13 @@ func TestMachinesPagesRequireAuthBehindRequireToken(t *testing.T) {
 		if rec := doAuthedRequest("GET", path, ""); rec.Code != http.StatusOK {
 			t.Errorf("GET %s without a token: status = %d, want 200", path, rec.Code)
 		}
+	}
+
+	if rec := doAuthedRequest("POST", "/machines", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("POST /machines without a token: status = %d, want 401", rec.Code)
+	}
+	if rec := doAuthedRequest("POST", "/machines", testToken); rec.Code != http.StatusOK {
+		t.Errorf("POST /machines with a valid token: status = %d, want 200, body = %s", rec.Code, rec.Body.String())
 	}
 
 	defaultPath := "/machines/" + strconv.FormatInt(second.ID, 10) + "/default"

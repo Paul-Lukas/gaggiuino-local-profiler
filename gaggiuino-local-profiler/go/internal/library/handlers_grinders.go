@@ -1,6 +1,7 @@
 package library
 
 import (
+	"errors"
 	"net/http"
 	"time"
 )
@@ -16,7 +17,9 @@ func findGrinderIndex(lib Library, id int64) int {
 	return -1
 }
 
-// createGrinder ports POST /api/library/grinder.
+// createGrinder ports POST /api/library/grinder — a thin wrapper around
+// CreateGrinder (create.go), the same logic internal/web's "New grinder"
+// form also calls.
 func (h *Handlers) createGrinder(w http.ResponseWriter, r *http.Request) {
 	if !h.rateLimitCreate(w, r) {
 		return
@@ -25,27 +28,13 @@ func (h *Handlers) createGrinder(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if trimMax(body["name"], 200) == "" {
-		writeError(w, http.StatusBadRequest, "name required")
-		return
-	}
-	lib, err := h.repo.GetLibrary()
+	grinder, err := CreateGrinder(h.repo, body)
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	purchaseDate := trimMax(body["purchaseDate"], 10)
-	burrsResetAt := trimMax(body["burrsResetAt"], 10)
-	if burrsResetAt == "" {
-		burrsResetAt = purchaseDate
-	}
-	grinder := Entity{
-		"id": newID(), "name": trimMax(body["name"], 200), "notes": trimMax(body["notes"], 1000),
-		"burrType": trimMax(body["burrType"], 200), "purchaseDate": purchaseDate,
-		"burrsResetAt": burrsResetAt,
-	}
-	lib.Grinders = append(lib.Grinders, grinder)
-	if err := h.repo.SaveLibrary(lib); err != nil {
+		var verr *ValidationError
+		if errors.As(err, &verr) {
+			writeError(w, http.StatusBadRequest, verr.Message)
+			return
+		}
 		internalError(w, err)
 		return
 	}

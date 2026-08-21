@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -74,14 +75,76 @@ func TestBeansPage_RendersBeans(t *testing.T) {
 		"disabled",
 		`hx-post="beans/1/toggle-active"`,
 		`hx-post="beans/2/toggle-active"`,
-		"Disable", // bean 1: enabled -> offers Disable
-		"Enable",  // bean 2: disabled -> offers Enable
+		"Disable",         // bean 1: enabled -> offers Disable
+		"Enable",          // bean 2: disabled -> offers Enable
+		`hx-post="beans"`, // the "New bean" create form (#901)
+		`name="name"`,
+		`name="roaster"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /beans body missing %q\nbody:\n%s", want, body)
 		}
 	}
 	assertNoRootAbsolutePaths(t, body)
+}
+
+// TestCreateBeanAction_RoundTrip drives the "New bean" form (#901) end to
+// end: a successful submission persists the bean via library.CreateBean —
+// the exact same function POST /api/library/bean's own handler now also
+// calls — and the re-rendered fragment shows it in the list with a cleared
+// form (no formError).
+func TestCreateBeanAction_RoundTrip(t *testing.T) {
+	mux, libRepo, _ := newTestLibraryServer(t)
+
+	rec := doFormPost(t, mux, "/beans", url.Values{
+		"name":     {"Kenya AA"},
+		"roaster":  {"Roaster B"},
+		"category": {"speciality"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /beans: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Kenya AA") || !strings.Contains(body, "Roaster B") {
+		t.Errorf("POST /beans response missing the new bean\nbody:\n%s", body)
+	}
+	if strings.Contains(body, "badge-err") {
+		t.Errorf("POST /beans response has an error badge on a valid submission\nbody:\n%s", body)
+	}
+	assertNoRootAbsolutePaths(t, body)
+
+	lib, err := libRepo.GetLibrary()
+	if err != nil {
+		t.Fatalf("GetLibrary: %v", err)
+	}
+	if len(lib.Beans) != 1 {
+		t.Fatalf("library has %d beans after create, want 1", len(lib.Beans))
+	}
+}
+
+// TestCreateBeanAction_ValidationError verifies a blank name is rejected by
+// library.CreateBean's own validation, answered as a 200 with formError set
+// in the re-rendered fragment (not a non-2xx status — see library.templ's
+// doc comment on why htmx's default responseHandling would otherwise drop
+// the error).
+func TestCreateBeanAction_ValidationError(t *testing.T) {
+	mux, libRepo, _ := newTestLibraryServer(t)
+
+	rec := doFormPost(t, mux, "/beans", url.Values{"name": {"  "}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /beans (blank name): status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "name required") {
+		t.Errorf("POST /beans (blank name) body missing validation error\nbody:\n%s", rec.Body.String())
+	}
+
+	lib, err := libRepo.GetLibrary()
+	if err != nil {
+		t.Fatalf("GetLibrary: %v", err)
+	}
+	if len(lib.Beans) != 0 {
+		t.Errorf("library has %d beans after a rejected create, want 0", len(lib.Beans))
+	}
 }
 
 func TestBeansPage_Empty(t *testing.T) {
@@ -210,11 +273,14 @@ func TestGrindersPage_RendersGrinders(t *testing.T) {
 		"conical",
 		"purchased 2025-01-01",
 		"1 shots / 18 g since burr swap",
+		`hx-post="grinders"`, // the "New grinder" create form (#901)
+		`name="name"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /grinders body missing %q\nbody:\n%s", want, body)
 		}
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 func TestGrindersPage_Empty(t *testing.T) {
@@ -222,6 +288,32 @@ func TestGrindersPage_Empty(t *testing.T) {
 	rec := doRequest(t, mux, "GET", "/grinders")
 	if !strings.Contains(rec.Body.String(), "No grinders yet.") {
 		t.Errorf("GET /grinders body missing empty-state message:\n%s", rec.Body.String())
+	}
+}
+
+// TestCreateGrinderAction_RoundTrip drives the "New grinder" form (#901)
+// end to end, built on library.CreateGrinder.
+func TestCreateGrinderAction_RoundTrip(t *testing.T) {
+	mux, libRepo, _ := newTestLibraryServer(t)
+
+	rec := doFormPost(t, mux, "/grinders", url.Values{
+		"name":         {"Niche Zero"},
+		"burrType":     {"conical"},
+		"purchaseDate": {"2025-01-01"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /grinders: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Niche Zero") {
+		t.Errorf("POST /grinders response missing the new grinder\nbody:\n%s", rec.Body.String())
+	}
+
+	lib, err := libRepo.GetLibrary()
+	if err != nil {
+		t.Fatalf("GetLibrary: %v", err)
+	}
+	if len(lib.Grinders) != 1 {
+		t.Fatalf("library has %d grinders after create, want 1", len(lib.Grinders))
 	}
 }
 
@@ -242,11 +334,12 @@ func TestBasketsPage_RendersBaskets(t *testing.T) {
 		t.Fatalf("GET /baskets: status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"VST 18g", "straight", "round", "18g", "20 holes"} {
+	for _, want := range []string{"VST 18g", "straight", "round", "18g", "20 holes", `hx-post="baskets"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /baskets body missing %q\nbody:\n%s", want, body)
 		}
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 func TestBasketsPage_Empty(t *testing.T) {
@@ -254,6 +347,57 @@ func TestBasketsPage_Empty(t *testing.T) {
 	rec := doRequest(t, mux, "GET", "/baskets")
 	if !strings.Contains(rec.Body.String(), "No baskets yet.") {
 		t.Errorf("GET /baskets body missing empty-state message:\n%s", rec.Body.String())
+	}
+}
+
+// TestCreateBasketAction_RoundTrip drives the "New basket" form (#901) end
+// to end, built on library.CreateBasket.
+func TestCreateBasketAction_RoundTrip(t *testing.T) {
+	mux, libRepo, _ := newTestLibraryServer(t)
+
+	rec := doFormPost(t, mux, "/baskets", url.Values{
+		"name":     {"VST 20g"},
+		"wallType": {"precision-machined"},
+		"shape":    {"straight"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /baskets: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "VST 20g") {
+		t.Errorf("POST /baskets response missing the new basket\nbody:\n%s", rec.Body.String())
+	}
+
+	lib, err := libRepo.GetLibrary()
+	if err != nil {
+		t.Fatalf("GetLibrary: %v", err)
+	}
+	if len(lib.Baskets) != 1 {
+		t.Fatalf("library has %d baskets after create, want 1", len(lib.Baskets))
+	}
+}
+
+// TestCreateBasketAction_InvalidWallTypeRejected pins CreateBasket's enum
+// validation (an exact port of the REST endpoint's own check) round trips
+// through the web form's own error path.
+func TestCreateBasketAction_InvalidWallTypeRejected(t *testing.T) {
+	mux, libRepo, _ := newTestLibraryServer(t)
+
+	rec := doFormPost(t, mux, "/baskets", url.Values{
+		"name":     {"Bad basket"},
+		"wallType": {"not-a-real-type"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /baskets (bad wallType): status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid wallType") {
+		t.Errorf("POST /baskets (bad wallType) body missing validation error\nbody:\n%s", rec.Body.String())
+	}
+	lib, err := libRepo.GetLibrary()
+	if err != nil {
+		t.Fatalf("GetLibrary: %v", err)
+	}
+	if len(lib.Baskets) != 0 {
+		t.Errorf("library has %d baskets after a rejected create, want 0", len(lib.Baskets))
 	}
 }
 
@@ -274,11 +418,12 @@ func TestPuckScreensPage_RendersPuckScreens(t *testing.T) {
 		t.Fatalf("GET /puckscreens: status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"IMS puck screen", "1.4mm", "stainless"} {
+	for _, want := range []string{"IMS puck screen", "1.4mm", "stainless", `hx-post="puckscreens"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /puckscreens body missing %q\nbody:\n%s", want, body)
 		}
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 func TestPuckScreensPage_Empty(t *testing.T) {
@@ -286,6 +431,32 @@ func TestPuckScreensPage_Empty(t *testing.T) {
 	rec := doRequest(t, mux, "GET", "/puckscreens")
 	if !strings.Contains(rec.Body.String(), "No puck screens yet.") {
 		t.Errorf("GET /puckscreens body missing empty-state message:\n%s", rec.Body.String())
+	}
+}
+
+// TestCreatePuckScreenAction_RoundTrip drives the "New puck screen" form
+// (#901) end to end, built on library.CreatePuckScreen.
+func TestCreatePuckScreenAction_RoundTrip(t *testing.T) {
+	mux, libRepo, _ := newTestLibraryServer(t)
+
+	rec := doFormPost(t, mux, "/puckscreens", url.Values{
+		"name":      {"IMS puck screen"},
+		"thickness": {"thin"},
+		"material":  {"stainless"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /puckscreens: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "IMS puck screen") {
+		t.Errorf("POST /puckscreens response missing the new puck screen\nbody:\n%s", rec.Body.String())
+	}
+
+	lib, err := libRepo.GetLibrary()
+	if err != nil {
+		t.Fatalf("GetLibrary: %v", err)
+	}
+	if len(lib.PuckScreens) != 1 {
+		t.Fatalf("library has %d puck screens after create, want 1", len(lib.PuckScreens))
 	}
 }
 
@@ -307,11 +478,12 @@ func TestMilksPage_RendersMilks(t *testing.T) {
 		t.Fatalf("GET /milks: status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Oat Milk", "🌾", "500 ml", "Whole Milk", "🥛", "1000 ml"} {
+	for _, want := range []string{"Oat Milk", "🌾", "500 ml", "Whole Milk", "🥛", "1000 ml", `hx-post="milks"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /milks body missing %q\nbody:\n%s", want, body)
 		}
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 func TestMilksPage_Empty(t *testing.T) {
@@ -319,6 +491,56 @@ func TestMilksPage_Empty(t *testing.T) {
 	rec := doRequest(t, mux, "GET", "/milks")
 	if !strings.Contains(rec.Body.String(), "No milks yet.") {
 		t.Errorf("GET /milks body missing empty-state message:\n%s", rec.Body.String())
+	}
+}
+
+// TestCreateMilkAction_RoundTrip drives the "New milk" form (#901) end to
+// end, built on library.CreateMilk — including the stockMl numeric field's
+// own strconv.ParseFloat parse step (handlers_library.go's
+// createMilkAction, the one create form that parses a non-string field
+// itself before calling into internal/library).
+func TestCreateMilkAction_RoundTrip(t *testing.T) {
+	mux, libRepo, _ := newTestLibraryServer(t)
+
+	rec := doFormPost(t, mux, "/milks", url.Values{
+		"name":    {"Oat Milk"},
+		"emoji":   {"🌾"},
+		"stockMl": {"500"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /milks: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Oat Milk") || !strings.Contains(rec.Body.String(), "500 ml") {
+		t.Errorf("POST /milks response missing the new milk\nbody:\n%s", rec.Body.String())
+	}
+
+	lib, err := libRepo.GetLibrary()
+	if err != nil {
+		t.Fatalf("GetLibrary: %v", err)
+	}
+	if len(lib.Milks) != 1 {
+		t.Fatalf("library has %d milks after create, want 1", len(lib.Milks))
+	}
+}
+
+// TestCreateMilkAction_InvalidStockRejected verifies a non-numeric stockMl
+// is rejected before ever reaching library.CreateMilk.
+func TestCreateMilkAction_InvalidStockRejected(t *testing.T) {
+	mux, libRepo, _ := newTestLibraryServer(t)
+
+	rec := doFormPost(t, mux, "/milks", url.Values{"name": {"Oat Milk"}, "stockMl": {"not-a-number"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /milks (bad stockMl): status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Invalid stock amount") {
+		t.Errorf("POST /milks (bad stockMl) body missing validation error\nbody:\n%s", rec.Body.String())
+	}
+	lib, err := libRepo.GetLibrary()
+	if err != nil {
+		t.Fatalf("GetLibrary: %v", err)
+	}
+	if len(lib.Milks) != 0 {
+		t.Errorf("library has %d milks after a rejected create, want 0", len(lib.Milks))
 	}
 }
 
@@ -339,11 +561,12 @@ func TestRecipesPage_RendersRecipes(t *testing.T) {
 		t.Fatalf("GET /recipes: status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"V60", "pourover", "filter"} {
+	for _, want := range []string{"V60", "pourover", "filter", `hx-post="recipes"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /recipes body missing %q\nbody:\n%s", want, body)
 		}
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 func TestRecipesPage_Empty(t *testing.T) {
@@ -351,6 +574,32 @@ func TestRecipesPage_Empty(t *testing.T) {
 	rec := doRequest(t, mux, "GET", "/recipes")
 	if !strings.Contains(rec.Body.String(), "No recipes yet.") {
 		t.Errorf("GET /recipes body missing empty-state message:\n%s", rec.Body.String())
+	}
+}
+
+// TestCreateRecipeAction_RoundTrip drives the "New recipe" form (#901) end
+// to end, built on library.CreateRecipe.
+func TestCreateRecipeAction_RoundTrip(t *testing.T) {
+	mux, libRepo, _ := newTestLibraryServer(t)
+
+	rec := doFormPost(t, mux, "/recipes", url.Values{
+		"name":       {"V60"},
+		"brewMethod": {"v60"},
+		"drinkType":  {"filter"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /recipes: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "V60") {
+		t.Errorf("POST /recipes response missing the new recipe\nbody:\n%s", rec.Body.String())
+	}
+
+	lib, err := libRepo.GetLibrary()
+	if err != nil {
+		t.Fatalf("GetLibrary: %v", err)
+	}
+	if len(lib.Recipes) != 1 {
+		t.Fatalf("library has %d recipes after create, want 1", len(lib.Recipes))
 	}
 }
 
@@ -413,5 +662,20 @@ func TestLibraryPagesRequireAuthBehindRequireToken(t *testing.T) {
 	}
 	if rec := doAuthedRequest("POST", "/beans/1/toggle-active", testToken); rec.Code != http.StatusOK {
 		t.Errorf("POST /beans/1/toggle-active with a valid token: status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+
+	// The six "New ..." create actions #901 adds must be behind the exact
+	// same GET/HEAD-scoped bypass — same rationale as toggle-active above,
+	// checked for every one of them since createBeanAction et al. are each
+	// their own route registration in handlers_library.go's RegisterRoutes,
+	// not a single shared one that a single check here could vouch for all
+	// six.
+	for _, path := range []string{"/beans", "/grinders", "/baskets", "/puckscreens", "/milks", "/recipes"} {
+		if rec := doAuthedRequest("POST", path, ""); rec.Code != http.StatusUnauthorized {
+			t.Errorf("POST %s without a token: status = %d, want 401", path, rec.Code)
+		}
+		if rec := doAuthedRequest("POST", path, testToken); rec.Code != http.StatusOK {
+			t.Errorf("POST %s with a valid token: status = %d, want 200, body = %s", path, rec.Code, rec.Body.String())
+		}
 	}
 }

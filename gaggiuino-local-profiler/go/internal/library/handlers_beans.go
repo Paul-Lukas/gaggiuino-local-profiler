@@ -1,6 +1,7 @@
 package library
 
 import (
+	"errors"
 	"math"
 	"net/http"
 	"strconv"
@@ -18,7 +19,9 @@ func findBeanIndex(lib Library, id int64) int {
 	return -1
 }
 
-// createBean ports POST /api/library/bean.
+// createBean ports POST /api/library/bean — a thin wrapper around
+// CreateBean (create.go), the same read-validate-save logic internal/web's
+// "New bean" form also calls.
 func (h *Handlers) createBean(w http.ResponseWriter, r *http.Request) {
 	if !h.rateLimitCreate(w, r) {
 		return
@@ -27,88 +30,16 @@ func (h *Handlers) createBean(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// `!name || typeof name !== 'string' || !name.trim()` — trimMax already
-	// collapses "not a string" and "blank after trim" to "", so a single
-	// check on the trimmed result covers every branch.
-	if trimMax(body["name"], 200) == "" {
-		writeError(w, http.StatusBadRequest, "name required")
-		return
-	}
-
-	lib, err := h.repo.GetLibrary()
+	bean, err := CreateBean(h.repo, h.imageDir, body)
 	if err != nil {
+		var verr *ValidationError
+		if errors.As(err, &verr) {
+			writeError(w, http.StatusBadRequest, verr.Message)
+			return
+		}
 		internalError(w, err)
 		return
 	}
-
-	stockG := floatOrNilFalsy(body["stock_g"])
-	origins := sanitizeOrigins(body["origins"])
-	if len(origins) == 0 {
-		if code := sanitizeOrigin(body["origin"]); code != "" {
-			origins = []any{Entity{"code": code}}
-		}
-	}
-	roastDate := trimMax(body["roastDate"], 10)
-	batchNumber := trimMax(body["batchNumber"], 50)
-
-	origin := ""
-	if len(origins) > 0 {
-		if m, ok := origins[0].(Entity); ok {
-			origin, _ = m["code"].(string)
-		}
-	}
-
-	id := newID()
-	bean := Entity{
-		"id": id, "name": trimMax(body["name"], 200), "roaster": trimMax(body["roaster"], 200),
-		"roastDate": roastDate, "notes": trimMax(body["notes"], 1000),
-		"origin": origin, "origins": origins,
-		"variety": trimMax(body["variety"], 200), "species": sanitizeSpecies(body["species"]),
-		"category": sanitizeCategory(body["category"]), "process": trimMax(body["process"], 200),
-		"flavors":    sanitizeFlavors(body["flavors"]),
-		"roastType":  sanitizeRoastType(body["roastType"]),
-		"region":     trimMax(body["region"], 200),
-		"altitude_m": sanitizeAltitude(body["altitude_m"]),
-		"importer":   trimMax(body["importer"], 200), "harvest": trimMax(body["harvest"], 50),
-		"price_eur": sanitizePrice(body["price_eur"]),
-		"producer":  trimMax(body["producer"], 200), "certification": trimMax(body["certification"], 200),
-		"brewTempC": sanitizeBrewTemp(body["brewTempC"]), "brewRatio": trimMax(body["brewRatio"], 20),
-		"brewTimeS": sanitizeBrewTime(body["brewTimeS"]), "brewNotes": trimMax(body["brewNotes"], 300),
-		"stock_g": stockG,
-		"decaf":   boolOf(body["decaf"]),
-		"enabled": sanitizeEnabled(body["enabled"]),
-	}
-	if stockG != nil || roastDate != "" || batchNumber != "" {
-		bean["bags"] = []any{Entity{
-			"id": reserveID(id + 1), "roastDate": roastDate, "stock_g": stockG,
-			"openedAt": newID(), "batchNumber": batchNumber,
-		}}
-	} else {
-		bean["bags"] = []any{}
-	}
-	if source, _ := body["source"].(string); source != "" {
-		bean["source"] = trimMax(body["source"], 200)
-	}
-	if importedAt, _ := body["importedAt"].(string); importedAt != "" {
-		bean["importedAt"] = trimMax(body["importedAt"], 10)
-	}
-	if sourceURL, _ := body["sourceUrl"].(string); sourceURL != "" {
-		bean["sourceUrl"] = safeURL(body["sourceUrl"])
-	}
-
-	lib.Beans = append(lib.Beans, bean)
-	if err := h.repo.SaveLibrary(lib); err != nil {
-		internalError(w, err)
-		return
-	}
-
-	// Fire-and-forget image download — see service.go's SetBeanImage doc
-	// comment. geocodeBean (region -> map coordinates) is deliberately NOT
-	// ported in this phase — see doc.go.
-	if imageURL, _ := body["imageUrl"].(string); imageURL != "" {
-		go SetBeanImage(h.repo, h.imageDir, id, imageURL)
-	}
-
 	writeJSON(w, http.StatusOK, bean)
 }
 

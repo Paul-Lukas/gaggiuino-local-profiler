@@ -1,6 +1,9 @@
 package library
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 // This file ports routes/library/recipes.js.
 
@@ -48,7 +51,9 @@ func brewMethodOrOther(v any) string {
 	return "other"
 }
 
-// createRecipe ports POST /api/library/recipe.
+// createRecipe ports POST /api/library/recipe — a thin wrapper around
+// CreateRecipe (create.go), the same logic internal/web's "New recipe" form
+// also calls.
 func (h *Handlers) createRecipe(w http.ResponseWriter, r *http.Request) {
 	if !h.rateLimitCreate(w, r) {
 		return
@@ -57,30 +62,13 @@ func (h *Handlers) createRecipe(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if trimMax(body["name"], 200) == "" {
-		writeError(w, http.StatusBadRequest, "name required")
-		return
-	}
-	lib, err := h.repo.GetLibrary()
+	recipe, err := CreateRecipe(h.repo, body)
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	recipe := Entity{
-		"id": newID(), "name": trimMax(body["name"], 200),
-		"brewMethod": brewMethodOrOther(body["brewMethod"]), "drinkType": trimMax(body["drinkType"], 50),
-		"targetDose_g": floatOrNilFalsy(body["targetDose_g"]), "targetYield_g": floatOrNilFalsy(body["targetYield_g"]),
-		"targetTime_s": floatOrNilFalsy(body["targetTime_s"]),
-		"waterTemp_c":  floatOrNilFalsy(body["waterTemp_c"]), "water_g": floatOrNilFalsy(body["water_g"]),
-		"ice_g":     floatOrNilFalsy(body["ice_g"]),
-		"grindSize": trimMax(body["grindSize"], 200),
-		"sourceUrl": safeURL(body["sourceUrl"]),
-		"steps":     parseSteps(body["steps"]),
-		"notes":     trimMax(body["notes"], 1000), "profileName": trimMax(body["profileName"], 200),
-		"beanName": trimMax(body["beanName"], 200),
-	}
-	lib.Recipes = append(lib.Recipes, recipe)
-	if err := h.repo.SaveLibrary(lib); err != nil {
+		var verr *ValidationError
+		if errors.As(err, &verr) {
+			writeError(w, http.StatusBadRequest, verr.Message)
+			return
+		}
 		internalError(w, err)
 		return
 	}

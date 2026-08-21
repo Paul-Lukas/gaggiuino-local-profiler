@@ -1,6 +1,9 @@
 package library
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 // This file ports routes/library/milks.js.
 
@@ -33,7 +36,9 @@ func (h *Handlers) listMilks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// createMilk ports POST /api/library/milk.
+// createMilk ports POST /api/library/milk — a thin wrapper around
+// CreateMilk (create.go), the same logic internal/web's "New milk" form
+// also calls.
 func (h *Handlers) createMilk(w http.ResponseWriter, r *http.Request) {
 	if !h.rateLimitCreate(w, r) {
 		return
@@ -42,27 +47,13 @@ func (h *Handlers) createMilk(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if trimMax(body["name"], 100) == "" {
-		writeError(w, http.StatusBadRequest, "name required")
-		return
-	}
-	lib, err := h.repo.GetLibrary()
+	milk, err := CreateMilk(h.repo, body)
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	// `emoji?.trim() || '🥛'` — no length cap on create (unlike the
-	// restore-path sanitizeMilkFields, which isn't called here).
-	emoji := trimMax(body["emoji"], 1<<30)
-	if emoji == "" {
-		emoji = "🥛"
-	}
-	milk := Entity{
-		"id": newID(), "name": trimMax(body["name"], 100),
-		"emoji": emoji, "stockMl": floatOrZero(body["stockMl"]), "updatedAt": newID(),
-	}
-	lib.Milks = append(lib.Milks, milk)
-	if err := h.repo.SaveLibrary(lib); err != nil {
+		var verr *ValidationError
+		if errors.As(err, &verr) {
+			writeError(w, http.StatusBadRequest, verr.Message)
+			return
+		}
 		internalError(w, err)
 		return
 	}

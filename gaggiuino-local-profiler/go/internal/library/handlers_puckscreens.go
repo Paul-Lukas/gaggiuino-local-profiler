@@ -1,6 +1,9 @@
 package library
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 // This file ports routes/library/puckscreens.js (#635).
 
@@ -25,7 +28,9 @@ func (h *Handlers) listPuckScreens(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, lib.PuckScreens)
 }
 
-// createPuckScreen ports POST /api/library/puckscreen.
+// createPuckScreen ports POST /api/library/puckscreen — a thin wrapper
+// around CreatePuckScreen (create.go), the same logic internal/web's "New
+// puck screen" form also calls.
 func (h *Handlers) createPuckScreen(w http.ResponseWriter, r *http.Request) {
 	if !h.rateLimitCreate(w, r) {
 		return
@@ -34,27 +39,13 @@ func (h *Handlers) createPuckScreen(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if trimMax(body["name"], 200) == "" {
-		writeError(w, http.StatusBadRequest, "name required")
-		return
-	}
-	thickness, _, thicknessOK := enumStringField(body, "thickness", puckScreenThicknesses)
-	if !thicknessOK {
-		writeError(w, http.StatusBadRequest, "invalid thickness")
-		return
-	}
-	lib, err := h.repo.GetLibrary()
+	puckScreen, err := CreatePuckScreen(h.repo, body)
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	puckScreen := Entity{
-		"id": newID(), "name": trimMax(body["name"], 200), "thickness": thickness,
-		"material": trimMax(body["material"], 200), "notes": trimMax(body["notes"], 1000),
-		"updatedAt": newID(),
-	}
-	lib.PuckScreens = append(lib.PuckScreens, puckScreen)
-	if err := h.repo.SaveLibrary(lib); err != nil {
+		var verr *ValidationError
+		if errors.As(err, &verr) {
+			writeError(w, http.StatusBadRequest, verr.Message)
+			return
+		}
 		internalError(w, err)
 		return
 	}

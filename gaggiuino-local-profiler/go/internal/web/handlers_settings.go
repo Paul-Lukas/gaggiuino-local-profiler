@@ -15,14 +15,14 @@ import (
 
 // This file is Phase 2e's (#901) Settings-domain page: GET /settings, the
 // default machine's Gaggiuino settings categories, plus one htmx write
-// action — POST /settings/display — built on machines.Adapter's
-// GetSettings/UpdateSettings, the exact same #597 settings/control proxy
-// GET/POST /api/machine/settings(/{category}) uses (see
-// internal/machines/handlers_control.go's getSettings/updateSettings). Not
-// internal/machines' own JSON handlers — this page calls machines.Adapter
-// directly via AdapterProvider below, mirroring every earlier Phase-2
-// page's "call the service/adapter layer, not the REST handler" convention
-// (internal/web/doc.go).
+// action per category — POST /settings/{category} — built on
+// machines.Adapter's GetSettings/UpdateSettings, the exact same #597
+// settings/control proxy GET/POST /api/machine/settings(/{category}) uses
+// (see internal/machines/handlers_control.go's getSettings/updateSettings).
+// Not internal/machines' own JSON handlers — this page calls
+// machines.Adapter directly via AdapterProvider below, mirroring every
+// earlier Phase-2 page's "call the service/adapter layer, not the REST
+// handler" convention (internal/web/doc.go).
 //
 // # Why every category round-trips as opaque JSON text
 //
@@ -34,24 +34,27 @@ import (
 // decoding a settings payload into a typed struct (json.RawMessage in,
 // json.RawMessage out — gaggiuino_adapter.go). This page keeps that same
 // discipline instead of building typed per-field form widgets: every
-// category is fetched as raw bytes, pretty-printed into a <textarea> for
-// the one editable category ("display"), and posted back as raw bytes
-// (machines.ValidateSettingsPayload only checks "is this a JSON object",
-// the same opaque check updateSettings itself applies — see
-// internal/machines/validation.go). A typed form would have to explicitly
-// re-derive which fields are quirky strings vs. real booleans just to not
-// corrupt them on save; a raw-text round trip needs no such logic at all,
-// per this phase's "use the existing service/adapter layer unchanged, no
-// new parsing logic" instruction.
+// category is fetched as raw bytes, pretty-printed into a <textarea>, and
+// posted back as raw bytes (machines.ValidateSettingsPayload only checks
+// "is this a JSON object", the same opaque check updateSettings itself
+// applies — see internal/machines/validation.go). A typed form would have
+// to explicitly re-derive which fields are quirky strings vs. real
+// booleans just to not corrupt them on save; a raw-text round trip needs
+// no such logic at all, per this phase's "use the existing service/adapter
+// layer unchanged, no new parsing logic" instruction.
 //
-// # Scope: one editable category, four read-only
+// # All five categories are editable
 //
-// The dispatch brief allows a single editable category if a full five-way
-// form is too much for this phase; "display" was picked as that one
-// category (boiler/led/scales/system stay read-only <pre> blocks) — small,
-// human-editable, and not safety-critical the way e.g. boiler PID/PWM
-// tuning would be. A typed, friendlier form (or making every category
-// editable) is a reasonable follow-up, not part of this package.
+// An earlier pass of this page only made "display" editable (boiler/led/
+// scales/system stayed read-only <pre> blocks) — a dispatch-brief-allowed
+// reduced scope for "a full five-way form is too much for this phase". A
+// later pass (#901, the Go web-UI Create/Edit follow-up prompted by "ich
+// kann garnix anlegen") closed that gap: every category now gets the same
+// raw-JSON <textarea> form and its own POST /settings/{category} route,
+// sharing saveAction/renderCategoryFragment below instead of duplicating
+// per-category handler code. settingsCategoryNames is both the fixed
+// fetch/render order and the allow-list saveAction checks an incoming
+// {category} path value against.
 //
 // # No per-machine switcher
 //
@@ -77,12 +80,22 @@ type AdapterProvider interface {
 	GetAdapter(m *machines.Machine) (machines.Adapter, error)
 }
 
-// settingsReadOnlyCategories/settingsEditableCategory are this page's fixed
-// category list — see this file's own doc comment for why "display" is the
-// one editable category.
-var settingsReadOnlyCategories = []string{"boiler", "led", "scales", "system"}
+// settingsCategoryNames is this page's fixed category list, fetch/render
+// order, and (for saveAction) the allow-list of {category} path values a
+// POST /settings/{category} request may name — see this file's own doc
+// comment for why every one of these five is now editable. "display" stays
+// first since it was this page's original (and most commonly touched)
+// editable category before the other four joined it.
+var settingsCategoryNames = []string{"display", "boiler", "led", "scales", "system"}
 
-const settingsEditableCategory = "display"
+func isKnownSettingsCategory(name string) bool {
+	for _, c := range settingsCategoryNames {
+		if c == name {
+			return true
+		}
+	}
+	return false
+}
 
 // SettingsHandlers wires machines.Registry + AdapterProvider into the HTML
 // handlers below.
@@ -104,7 +117,7 @@ func NewSettingsHandlers(registry *machines.Registry, adapters AdapterProvider) 
 // handlers.go's RegisterRoutes documents.
 func (h *SettingsHandlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /settings", h.settingsPage)
-	mux.HandleFunc("POST /settings/"+settingsEditableCategory, h.saveEditableAction)
+	mux.HandleFunc("POST /settings/{category}", h.saveAction)
 }
 
 // resolveDefaultAdapter looks up the registry's default machine and its
@@ -162,51 +175,53 @@ func (h *SettingsHandlers) settingsPage(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if machine == nil {
-		if err := templates.SettingsPage(false, "No machine configured", nil, templates.SettingsCategory{}, "").Render(r.Context(), w); err != nil {
+		if err := templates.SettingsPage(false, "No machine configured", nil, nil).Render(r.Context(), w); err != nil {
 			log.Printf("web: rendering /settings (no machine): %v", err)
 		}
 		return
 	}
 	if !adapter.Capabilities().SettingsProxy {
-		if err := templates.SettingsPage(false, machine.Name, nil, templates.SettingsCategory{}, "").Render(r.Context(), w); err != nil {
+		if err := templates.SettingsPage(false, machine.Name, nil, nil).Render(r.Context(), w); err != nil {
 			log.Printf("web: rendering /settings (unsupported): %v", err)
 		}
 		return
 	}
-	// The 5 category fetches (4 read-only + the editable one) are
-	// independent live-machine HTTP calls, same as firmwareVersion's
-	// versions/system pair (internal/machines/handlers_control.go, #901
-	// code review) — fetch them concurrently instead of paying 5
-	// round-trips back to back. Each goroutine writes only its own slice
-	// index, so no mutex is needed.
-	readOnly := make([]templates.SettingsCategory, len(settingsReadOnlyCategories))
-	var editable templates.SettingsCategory
+	// The 5 category fetches are independent live-machine HTTP calls, same
+	// as firmwareVersion's versions/system pair
+	// (internal/machines/handlers_control.go, #901 code review) — fetch
+	// them concurrently instead of paying 5 round-trips back to back. Each
+	// goroutine writes only its own slice index, so no mutex is needed.
+	categories := make([]templates.SettingsCategory, len(settingsCategoryNames))
 	var wg sync.WaitGroup
-	wg.Add(len(settingsReadOnlyCategories) + 1)
-	for i, cat := range settingsReadOnlyCategories {
+	wg.Add(len(settingsCategoryNames))
+	for i, cat := range settingsCategoryNames {
 		go func(i int, cat string) {
 			defer wg.Done()
-			readOnly[i] = h.fetchCategory(r.Context(), adapter, machine, cat)
+			categories[i] = h.fetchCategory(r.Context(), adapter, machine, cat)
 		}(i, cat)
 	}
-	go func() {
-		defer wg.Done()
-		editable = h.fetchCategory(r.Context(), adapter, machine, settingsEditableCategory)
-	}()
 	wg.Wait()
-	if err := templates.SettingsPage(true, machine.Name, readOnly, editable, "").Render(r.Context(), w); err != nil {
+	if err := templates.SettingsPage(true, machine.Name, categories, nil).Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering /settings: %v", err)
 	}
 }
 
-// saveEditableAction ports the htmx `hx-post="/settings/display"`
-// interaction: forward the submitted textarea's exact bytes to
-// adapter.UpdateSettings, unmodified — see this file's own doc comment on
-// why this stays a raw-bytes round trip. Re-fetches the category from the
-// machine after a successful save (rather than trusting the submitted
-// text) so the re-rendered textarea reflects whatever the machine actually
-// persisted.
-func (h *SettingsHandlers) saveEditableAction(w http.ResponseWriter, r *http.Request) {
+// saveAction ports the htmx `hx-post="settings/{category}"` interaction,
+// shared by all five categories: forward the submitted textarea's exact
+// bytes to adapter.UpdateSettings, unmodified — see this file's own doc
+// comment on why this stays a raw-bytes round trip. Re-fetches the category
+// from the machine after a successful save (rather than trusting the
+// submitted text) so the re-rendered textarea reflects whatever the
+// machine actually persisted. {category} is checked against
+// isKnownSettingsCategory before anything else — a request for a category
+// this page doesn't know about (a stale link, a hand-crafted request) gets
+// a plain 404 rather than reaching the adapter at all.
+func (h *SettingsHandlers) saveAction(w http.ResponseWriter, r *http.Request) {
+	category := r.PathValue("category")
+	if !isKnownSettingsCategory(category) {
+		writeFragmentError(w, http.StatusNotFound, "Unknown settings category")
+		return
+	}
 	machine, adapter, err := h.resolveDefaultAdapter()
 	if err != nil {
 		httputil.InternalError(w, "web", err)
@@ -227,19 +242,19 @@ func (h *SettingsHandlers) saveEditableAction(w http.ResponseWriter, r *http.Req
 	submitted := r.FormValue("raw")
 	raw := json.RawMessage(submitted)
 	if err := machines.ValidateSettingsPayload(raw); err != nil {
-		h.renderEditableFragment(w, r, templates.SettingsCategory{Name: settingsEditableCategory, JSON: submitted}, err.Error())
+		h.renderCategoryFragment(w, r, templates.SettingsCategory{Name: category, JSON: submitted}, err.Error())
 		return
 	}
-	if _, err := adapter.UpdateSettings(r.Context(), machine, settingsEditableCategory, raw); err != nil {
-		h.renderEditableFragment(w, r, templates.SettingsCategory{Name: settingsEditableCategory, JSON: submitted}, "Save failed: "+err.Error())
+	if _, err := adapter.UpdateSettings(r.Context(), machine, category, raw); err != nil {
+		h.renderCategoryFragment(w, r, templates.SettingsCategory{Name: category, JSON: submitted}, "Save failed: "+err.Error())
 		return
 	}
-	h.renderEditableFragment(w, r, h.fetchCategory(r.Context(), adapter, machine, settingsEditableCategory), "")
+	h.renderCategoryFragment(w, r, h.fetchCategory(r.Context(), adapter, machine, category), "")
 }
 
-func (h *SettingsHandlers) renderEditableFragment(w http.ResponseWriter, r *http.Request, editable templates.SettingsCategory, saveError string) {
+func (h *SettingsHandlers) renderCategoryFragment(w http.ResponseWriter, r *http.Request, category templates.SettingsCategory, saveError string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := templates.SettingsEditableFragment(editable, saveError).Render(r.Context(), w); err != nil {
-		log.Printf("web: rendering /settings/%s fragment: %v", settingsEditableCategory, err)
+	if err := templates.SettingsEditableFragment(category, saveError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /settings/%s fragment: %v", category.Name, err)
 	}
 }

@@ -8,10 +8,34 @@ import "fmt"
 // renderBeanList/renderGrinderList/renderBasketList/renderPuckScreenList/
 // renderMilkList/renderRecipeList (see internal/web/view_library.go's
 // projection functions for exactly which fields each Row type carries and
-// why). Beans is the "full pattern" page (list + one write action, toggle-
-// active, per the dispatch brief); the other five are read-only list views
-// — the dispatch brief's own scope call for this package, deferring a full
-// CRUD UI for them to a later phase.
+// why). Beans was the "full pattern" page (list + toggle-active) in Phase
+// 2b; a later pass (#901, the Go web-UI Create/Edit follow-up prompted by
+// "ich kann garnix anlegen") gave every one of these six pages a "New ..."
+// create form too, each posting straight to internal/library.CreateBean/
+// CreateGrinder/CreateBasket/CreatePuckScreen/CreateMilk/CreateRecipe
+// (internal/library/create.go) — the exact same read-validate-save
+// functions POST /api/library/{bean,grinder,basket,puckscreen,milk,recipe}
+// also call, per this package's "call the service layer, not a new
+// reimplementation" convention. Only the fields each entity's REST create
+// endpoint actually requires or most commonly sets are exposed here (name
+// plus 1-2 more), not the full field set — see go/README.md's Status
+// section for the explicit scope call ("erster nutzbarer Durchstich", not
+// a full CRUD/edit UI; editing an existing entity and the two dozen
+// optional bean fields the REST API also accepts stay out of scope).
+//
+// Every create form answers 200 either way (success or validation
+// failure) and swaps its own errors into the SAME fragment the success
+// path re-renders (the entity's "*Content" templ below) — not
+// writeFragmentError's non-2xx-status convention every other write action
+// in this package uses. htmx 2.0's own default responseHandling table
+// (see static/vendor/htmx-2.0.10.min.js) does NOT swap 4xx/5xx responses
+// into the DOM at all ({code:"[45]..",swap:false,error:true}), so a
+// writeFragmentError-style 400 here would leave a validation error
+// invisible in a real browser — exactly the failure mode
+// templates/menu.templ's own MenuPage formError doc comment already
+// flagged as a known, unwired gap for that page's own non-2xx error path.
+// These six create actions are the first ones in this package to close
+// that gap properly instead of repeating it.
 
 // ── Beans ──────────────────────────────────────────────────────────────
 
@@ -29,22 +53,54 @@ type BeanRow struct {
 	BagCount    int
 }
 
-// BeansPage is GET /beans: every bean in the library, each with a
-// toggle-active htmx action — the one write action this page's dispatch
-// brief asks for, reusing internal/library.ToggleBeanActive (service.go)
-// rather than reimplementing the enabled-flag flip.
-templ BeansPage(rows []BeanRow) {
+// BeansPage is GET /beans: the "New bean" form plus every bean in the
+// library, each with a toggle-active htmx action.
+templ BeansPage(rows []BeanRow, formError string) {
 	@Layout("Beans") {
 		<h1 class="page-title">Beans</h1>
-		if len(rows) == 0 {
-			<div class="empty-state">No beans yet.</div>
-		} else {
-			<div class="item-list" id="bean-list">
-				for _, row := range rows {
-					@beanRow(row)
-				}
-			</div>
+		<div id="beans-content">
+			@beansContent(rows, formError)
+		</div>
+	}
+}
+
+// BeansContentFragment is the htmx response createBeanAction
+// (handlers_library.go) answers with — the whole form+list block
+// re-rendered, targeting #beans-content with hx-swap="innerHTML": a
+// successful submission clears the form (a fresh empty one renders) and
+// shows the new bean in the list; a validation failure re-renders the same
+// block with formError set, in place, without losing the list.
+templ BeansContentFragment(rows []BeanRow, formError string) {
+	@beansContent(rows, formError)
+}
+
+templ beansContent(rows []BeanRow, formError string) {
+	<section class="new-entity-form">
+		<h2 class="trash-heading">New bean</h2>
+		if formError != "" {
+			<div class="badge badge-err">{ formError }</div>
 		}
+		<form class="order-form" hx-post="beans" hx-target="#beans-content" hx-swap="innerHTML">
+			<label class="item-meta" for="bean-name">Name</label>
+			<input class="filter-input" type="text" id="bean-name" name="name" required maxlength="200"/>
+			<label class="item-meta" for="bean-roaster">Roaster</label>
+			<input class="filter-input" type="text" id="bean-roaster" name="roaster" maxlength="200"/>
+			<label class="item-meta" for="bean-category">Category</label>
+			<select class="filter-input" id="bean-category" name="category">
+				<option value="normal">Normal</option>
+				<option value="speciality">Speciality</option>
+			</select>
+			<button type="submit" class="btn">Add bean</button>
+		</form>
+	</section>
+	if len(rows) == 0 {
+		<div class="empty-state">No beans yet.</div>
+	} else {
+		<div class="item-list" id="bean-list">
+			for _, row := range rows {
+				@beanRow(row)
+			}
+		</div>
 	}
 }
 
@@ -121,21 +177,47 @@ type GrinderRow struct {
 	GramsSinceBurrs string // pre-formatted, e.g. "1.2 kg" or "340 g"
 }
 
-// GrindersPage is GET /grinders — a read-only list (per the dispatch
-// brief's scope call: a full CRUD UI for the non-Beans entities is a later
-// phase's work).
-templ GrindersPage(rows []GrinderRow) {
+// GrindersPage is GET /grinders: the "New grinder" form plus every grinder
+// in the library (read-only list otherwise — no per-grinder write action
+// beyond creation in this package, see the dispatch brief's own scope
+// call).
+templ GrindersPage(rows []GrinderRow, formError string) {
 	@Layout("Grinders") {
 		<h1 class="page-title">Grinders</h1>
-		if len(rows) == 0 {
-			<div class="empty-state">No grinders yet.</div>
-		} else {
-			<div class="item-list">
-				for _, row := range rows {
-					@grinderRow(row)
-				}
-			</div>
+		<div id="grinders-content">
+			@grindersContent(rows, formError)
+		</div>
+	}
+}
+
+templ GrindersContentFragment(rows []GrinderRow, formError string) {
+	@grindersContent(rows, formError)
+}
+
+templ grindersContent(rows []GrinderRow, formError string) {
+	<section class="new-entity-form">
+		<h2 class="trash-heading">New grinder</h2>
+		if formError != "" {
+			<div class="badge badge-err">{ formError }</div>
 		}
+		<form class="order-form" hx-post="grinders" hx-target="#grinders-content" hx-swap="innerHTML">
+			<label class="item-meta" for="grinder-name">Name</label>
+			<input class="filter-input" type="text" id="grinder-name" name="name" required maxlength="200"/>
+			<label class="item-meta" for="grinder-burrtype">Burr type</label>
+			<input class="filter-input" type="text" id="grinder-burrtype" name="burrType" maxlength="200"/>
+			<label class="item-meta" for="grinder-purchasedate">Purchase date</label>
+			<input class="filter-input" type="date" id="grinder-purchasedate" name="purchaseDate"/>
+			<button type="submit" class="btn">Add grinder</button>
+		</form>
+	</section>
+	if len(rows) == 0 {
+		<div class="empty-state">No grinders yet.</div>
+	} else {
+		<div class="item-list">
+			for _, row := range rows {
+				@grinderRow(row)
+			}
+		</div>
 	}
 }
 
@@ -172,36 +254,77 @@ type BasketRow struct {
 	HoleCount    string
 }
 
-templ BasketsPage(rows []BasketRow) {
+templ BasketsPage(rows []BasketRow, formError string) {
 	@Layout("Baskets") {
 		<h1 class="page-title">Baskets</h1>
-		if len(rows) == 0 {
-			<div class="empty-state">No baskets yet.</div>
-		} else {
-			<div class="item-list">
-				for _, row := range rows {
-					<div class="item-row">
-						<div class="item-info">
-							<div class="item-name">{ row.Name }</div>
-							<div class="item-meta">
-								if row.WallType != "" {
-									{ row.WallType }
-								}
-								if row.Shape != "" {
-									{ " · " + row.Shape }
-								}
-								if row.DoseCapacity != "" {
-									{ " · " + row.DoseCapacity }
-								}
-								if row.HoleCount != "" {
-									{ " · " + row.HoleCount + " holes" }
-								}
-							</div>
+		<div id="baskets-content">
+			@basketsContent(rows, formError)
+		</div>
+	}
+}
+
+templ BasketsContentFragment(rows []BasketRow, formError string) {
+	@basketsContent(rows, formError)
+}
+
+// basketWallTypeOptions/basketShapeOptions mirror
+// internal/library/handlers_baskets.go's basketWallTypes/basketShapes enum
+// sets exactly (CreateBasket, which this form posts to, rejects anything
+// else) — duplicated here rather than imported since that package's enum
+// maps are unexported and, being a fixed, stable vocabulary, not worth
+// exporting just for this one call site.
+templ basketsContent(rows []BasketRow, formError string) {
+	<section class="new-entity-form">
+		<h2 class="trash-heading">New basket</h2>
+		if formError != "" {
+			<div class="badge badge-err">{ formError }</div>
+		}
+		<form class="order-form" hx-post="baskets" hx-target="#baskets-content" hx-swap="innerHTML">
+			<label class="item-meta" for="basket-name">Name</label>
+			<input class="filter-input" type="text" id="basket-name" name="name" required maxlength="200"/>
+			<label class="item-meta" for="basket-walltype">Wall type</label>
+			<select class="filter-input" id="basket-walltype" name="wallType">
+				<option value="">—</option>
+				<option value="pressurized">Pressurized</option>
+				<option value="single-wall">Single-wall</option>
+				<option value="precision-machined">Precision-machined</option>
+				<option value="high-flow">High-flow</option>
+			</select>
+			<label class="item-meta" for="basket-shape">Shape</label>
+			<select class="filter-input" id="basket-shape" name="shape">
+				<option value="">—</option>
+				<option value="straight">Straight</option>
+				<option value="tapered">Tapered</option>
+			</select>
+			<button type="submit" class="btn">Add basket</button>
+		</form>
+	</section>
+	if len(rows) == 0 {
+		<div class="empty-state">No baskets yet.</div>
+	} else {
+		<div class="item-list">
+			for _, row := range rows {
+				<div class="item-row">
+					<div class="item-info">
+						<div class="item-name">{ row.Name }</div>
+						<div class="item-meta">
+							if row.WallType != "" {
+								{ row.WallType }
+							}
+							if row.Shape != "" {
+								{ " · " + row.Shape }
+							}
+							if row.DoseCapacity != "" {
+								{ " · " + row.DoseCapacity }
+							}
+							if row.HoleCount != "" {
+								{ " · " + row.HoleCount + " holes" }
+							}
 						</div>
 					</div>
-				}
-			</div>
-		}
+				</div>
+			}
+		</div>
 	}
 }
 
@@ -216,30 +339,65 @@ type PuckScreenRow struct {
 	Material  string
 }
 
-templ PuckScreensPage(rows []PuckScreenRow) {
+templ PuckScreensPage(rows []PuckScreenRow, formError string) {
 	@Layout("Puck Screens") {
 		<h1 class="page-title">Puck Screens</h1>
-		if len(rows) == 0 {
-			<div class="empty-state">No puck screens yet.</div>
-		} else {
-			<div class="item-list">
-				for _, row := range rows {
-					<div class="item-row">
-						<div class="item-info">
-							<div class="item-name">{ row.Name }</div>
-							<div class="item-meta">
-								if row.Thickness != "" {
-									{ row.Thickness }
-								}
-								if row.Material != "" {
-									{ " · " + row.Material }
-								}
-							</div>
+		<div id="puckscreens-content">
+			@puckScreensContent(rows, formError)
+		</div>
+	}
+}
+
+templ PuckScreensContentFragment(rows []PuckScreenRow, formError string) {
+	@puckScreensContent(rows, formError)
+}
+
+// puckScreenThicknessOptions mirrors
+// internal/library/handlers_puckscreens.go's puckScreenThicknesses enum set
+// exactly — see basketsContent's own doc comment for why this is a
+// deliberate, stable duplication rather than an import.
+templ puckScreensContent(rows []PuckScreenRow, formError string) {
+	<section class="new-entity-form">
+		<h2 class="trash-heading">New puck screen</h2>
+		if formError != "" {
+			<div class="badge badge-err">{ formError }</div>
+		}
+		<form class="order-form" hx-post="puckscreens" hx-target="#puckscreens-content" hx-swap="innerHTML">
+			<label class="item-meta" for="puckscreen-name">Name</label>
+			<input class="filter-input" type="text" id="puckscreen-name" name="name" required maxlength="200"/>
+			<label class="item-meta" for="puckscreen-thickness">Thickness</label>
+			<select class="filter-input" id="puckscreen-thickness" name="thickness">
+				<option value="">—</option>
+				<option value="very-thin">Very thin</option>
+				<option value="thin">Thin</option>
+				<option value="medium">Medium</option>
+				<option value="thick">Thick</option>
+			</select>
+			<label class="item-meta" for="puckscreen-material">Material</label>
+			<input class="filter-input" type="text" id="puckscreen-material" name="material" maxlength="200"/>
+			<button type="submit" class="btn">Add puck screen</button>
+		</form>
+	</section>
+	if len(rows) == 0 {
+		<div class="empty-state">No puck screens yet.</div>
+	} else {
+		<div class="item-list">
+			for _, row := range rows {
+				<div class="item-row">
+					<div class="item-info">
+						<div class="item-name">{ row.Name }</div>
+						<div class="item-meta">
+							if row.Thickness != "" {
+								{ row.Thickness }
+							}
+							if row.Material != "" {
+								{ " · " + row.Material }
+							}
 						</div>
 					</div>
-				}
-			</div>
-		}
+				</div>
+			}
+		</div>
 	}
 }
 
@@ -253,25 +411,50 @@ type MilkRow struct {
 	StockMl string // pre-formatted, e.g. "500 ml"
 }
 
-templ MilksPage(rows []MilkRow) {
+templ MilksPage(rows []MilkRow, formError string) {
 	@Layout("Milks") {
 		<h1 class="page-title">Milks</h1>
-		if len(rows) == 0 {
-			<div class="empty-state">No milks yet.</div>
-		} else {
-			<div class="item-list">
-				for _, row := range rows {
-					<div class="item-row">
-						<div class="item-info">
-							<div class="item-name">{ row.Emoji } { row.Name }</div>
-							if row.StockMl != "" {
-								<div class="item-meta">{ row.StockMl }</div>
-							}
-						</div>
-					</div>
-				}
-			</div>
+		<div id="milks-content">
+			@milksContent(rows, formError)
+		</div>
+	}
+}
+
+templ MilksContentFragment(rows []MilkRow, formError string) {
+	@milksContent(rows, formError)
+}
+
+templ milksContent(rows []MilkRow, formError string) {
+	<section class="new-entity-form">
+		<h2 class="trash-heading">New milk</h2>
+		if formError != "" {
+			<div class="badge badge-err">{ formError }</div>
 		}
+		<form class="order-form" hx-post="milks" hx-target="#milks-content" hx-swap="innerHTML">
+			<label class="item-meta" for="milk-name">Name</label>
+			<input class="filter-input" type="text" id="milk-name" name="name" required maxlength="100"/>
+			<label class="item-meta" for="milk-emoji">Emoji</label>
+			<input class="filter-input" type="text" id="milk-emoji" name="emoji" maxlength="8" placeholder="🥛"/>
+			<label class="item-meta" for="milk-stockml">Stock (ml)</label>
+			<input class="filter-input" type="number" id="milk-stockml" name="stockMl" min="0" step="1"/>
+			<button type="submit" class="btn">Add milk</button>
+		</form>
+	</section>
+	if len(rows) == 0 {
+		<div class="empty-state">No milks yet.</div>
+	} else {
+		<div class="item-list">
+			for _, row := range rows {
+				<div class="item-row">
+					<div class="item-info">
+						<div class="item-name">{ row.Emoji } { row.Name }</div>
+						if row.StockMl != "" {
+							<div class="item-meta">{ row.StockMl }</div>
+						}
+					</div>
+				</div>
+			}
+		</div>
 	}
 }
 
@@ -285,27 +468,67 @@ type RecipeRow struct {
 	DrinkType  string
 }
 
-templ RecipesPage(rows []RecipeRow) {
+templ RecipesPage(rows []RecipeRow, formError string) {
 	@Layout("Recipes") {
 		<h1 class="page-title">Recipes</h1>
-		if len(rows) == 0 {
-			<div class="empty-state">No recipes yet.</div>
-		} else {
-			<div class="item-list">
-				for _, row := range rows {
-					<div class="item-row">
-						<div class="item-info">
-							<div class="item-name">{ row.Name }</div>
-							<div class="item-meta">
-								{ row.BrewMethod }
-								if row.DrinkType != "" {
-									{ " · " + row.DrinkType }
-								}
-							</div>
+		<div id="recipes-content">
+			@recipesContent(rows, formError)
+		</div>
+	}
+}
+
+templ RecipesContentFragment(rows []RecipeRow, formError string) {
+	@recipesContent(rows, formError)
+}
+
+// recipeBrewMethodOptions mirrors internal/library/handlers_recipes.go's
+// validBrewMethods enum set exactly — see basketsContent's own doc comment
+// for why this is a deliberate, stable duplication rather than an import.
+// Submitting anything else (or omitting it) is not a validation error on
+// the CreateRecipe side — brewMethodOrOther silently falls back to
+// "other" — so this <select> has no blank/unset option, unlike the
+// Baskets/Puck Screens ones above.
+templ recipesContent(rows []RecipeRow, formError string) {
+	<section class="new-entity-form">
+		<h2 class="trash-heading">New recipe</h2>
+		if formError != "" {
+			<div class="badge badge-err">{ formError }</div>
+		}
+		<form class="order-form" hx-post="recipes" hx-target="#recipes-content" hx-swap="innerHTML">
+			<label class="item-meta" for="recipe-name">Name</label>
+			<input class="filter-input" type="text" id="recipe-name" name="name" required maxlength="200"/>
+			<label class="item-meta" for="recipe-brewmethod">Brew method</label>
+			<select class="filter-input" id="recipe-brewmethod" name="brewMethod">
+				<option value="espresso">Espresso</option>
+				<option value="aeropress">Aeropress</option>
+				<option value="v60">V60</option>
+				<option value="french_press">French press</option>
+				<option value="moka">Moka</option>
+				<option value="cold_brew">Cold brew</option>
+				<option value="other">Other</option>
+			</select>
+			<label class="item-meta" for="recipe-drinktype">Drink type</label>
+			<input class="filter-input" type="text" id="recipe-drinktype" name="drinkType" maxlength="50"/>
+			<button type="submit" class="btn">Add recipe</button>
+		</form>
+	</section>
+	if len(rows) == 0 {
+		<div class="empty-state">No recipes yet.</div>
+	} else {
+		<div class="item-list">
+			for _, row := range rows {
+				<div class="item-row">
+					<div class="item-info">
+						<div class="item-name">{ row.Name }</div>
+						<div class="item-meta">
+							{ row.BrewMethod }
+							if row.DrinkType != "" {
+								{ " · " + row.DrinkType }
+							}
 						</div>
 					</div>
-				}
-			</div>
-		}
+				</div>
+			}
+		</div>
 	}
 }

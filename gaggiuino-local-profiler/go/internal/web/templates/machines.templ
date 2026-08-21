@@ -31,17 +31,63 @@ type MachineRow struct {
 	Reachable *bool
 }
 
-// MachinesPage is GET /machines: every registered machine, with a
-// set-default action and (for any non-default machine) a delete action.
-templ MachinesPage(rows []MachineRow) {
+// MachinesPage is GET /machines: the "New machine" form plus every
+// registered machine, with a set-default action and (for any non-default
+// machine) a delete action.
+templ MachinesPage(rows []MachineRow, formError string) {
 	@Layout("Machines") {
 		<h1 class="page-title">Machines</h1>
-		if len(rows) == 0 {
-			<div class="empty-state">No machines yet.</div>
-		} else {
-			@machineList(rows)
-		}
+		<div id="machines-content">
+			@newMachineForm(formError)
+			if len(rows) == 0 {
+				<div class="empty-state">No machines yet.</div>
+			} else {
+				@machineList(rows)
+			}
+		</div>
 	}
+}
+
+// MachinesContentFragment is the htmx response createMachineAction
+// (handlers_machines.go) answers with — the whole form+list block
+// re-rendered, targeting #machines-content with hx-swap="innerHTML" (the
+// same "answer 200 either way, re-render form+list together" convention
+// library.templ's own Create forms establish — see that file's doc
+// comment for why a non-2xx status here would leave a validation error
+// invisible to htmx's default responseHandling).
+templ MachinesContentFragment(rows []MachineRow, formError string) {
+	@newMachineForm(formError)
+	if len(rows) == 0 {
+		<div class="empty-state">No machines yet.</div>
+	} else {
+		@machineList(rows)
+	}
+}
+
+// newMachineForm mirrors internal/machines.MachineInput's POST-required
+// fields (name, type, host — see internal/machines/create.go's
+// CreateMachineChecked, which this form's action calls) — no
+// switchEntity/theme fields, deferred the same way library.templ's Create
+// forms only expose 1-2 of their entity's optional fields.
+templ newMachineForm(formError string) {
+	<section class="new-entity-form">
+		<h2 class="trash-heading">New machine</h2>
+		if formError != "" {
+			<div class="badge badge-err">{ formError }</div>
+		}
+		<form class="order-form" hx-post="machines" hx-target="#machines-content" hx-swap="innerHTML">
+			<label class="item-meta" for="machine-name">Name</label>
+			<input class="filter-input" type="text" id="machine-name" name="name" required maxlength="100"/>
+			<label class="item-meta" for="machine-type">Type</label>
+			<select class="filter-input" id="machine-type" name="type">
+				<option value="gaggiuino">Gaggiuino</option>
+				<option value="gaggimate">GaggiMate</option>
+			</select>
+			<label class="item-meta" for="machine-host">Host</label>
+			<input class="filter-input" type="text" id="machine-host" name="host" maxlength="255" placeholder="192.168.1.50"/>
+			<button type="submit" class="btn">Add machine</button>
+		</form>
+	</section>
 }
 
 // MachineListFragment renders just the row list — the htmx response

@@ -1,12 +1,15 @@
 package web
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
 
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/httputil"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ratelimit"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/web/templates"
 )
@@ -30,10 +33,17 @@ import (
 
 // LibraryHandlers wires library.Repository (+ a shots.Repository for the
 // two cross-domain reads Beans/Grinders need — bean consumption, grinder
-// wear) into the HTML handlers below.
+// wear) into the HTML handlers below. rl rate-limits the six "New ..."
+// create actions below — this package's own limiter, separate from
+// internal/library.Handlers' own "lib:"+ip-keyed one (rateLimitCreate),
+// since these actions call library.CreateBean et al. directly and bypass
+// that REST handler entirely; without its own limiter every create form
+// here would have no rate protection at all, the same reasoning
+// handlers_orders.go's NewOrdersHandlers doc comment gives for its own rl.
 type LibraryHandlers struct {
 	repo      *library.Repository
 	shotsRepo *shots.Repository
+	rl        *ratelimit.KeyedLimiter
 }
 
 // NewLibraryHandlers builds LibraryHandlers around repo and shotsRepo — the
@@ -41,7 +51,7 @@ type LibraryHandlers struct {
 // once and shares with internal/library's and internal/shots' own REST
 // handlers.
 func NewLibraryHandlers(repo *library.Repository, shotsRepo *shots.Repository) *LibraryHandlers {
-	return &LibraryHandlers{repo: repo, shotsRepo: shotsRepo}
+	return &LibraryHandlers{repo: repo, shotsRepo: shotsRepo, rl: ratelimit.NewKeyed()}
 }
 
 // RegisterRoutes registers this file's page and htmx-action routes onto
@@ -49,38 +59,116 @@ func NewLibraryHandlers(repo *library.Repository, shotsRepo *shots.Repository) *
 // handlers.go's RegisterRoutes documents.
 func (h *LibraryHandlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /beans", h.beansPage)
+	mux.HandleFunc("POST /beans", h.createBeanAction)
 	mux.HandleFunc("POST /beans/{id}/toggle-active", h.toggleBeanActiveAction)
 
 	mux.HandleFunc("GET /grinders", h.grindersPage)
+	mux.HandleFunc("POST /grinders", h.createGrinderAction)
 	mux.HandleFunc("GET /baskets", h.basketsPage)
+	mux.HandleFunc("POST /baskets", h.createBasketAction)
 	mux.HandleFunc("GET /puckscreens", h.puckScreensPage)
+	mux.HandleFunc("POST /puckscreens", h.createPuckScreenAction)
 	mux.HandleFunc("GET /milks", h.milksPage)
+	mux.HandleFunc("POST /milks", h.createMilkAction)
 	mux.HandleFunc("GET /recipes", h.recipesPage)
+	mux.HandleFunc("POST /recipes", h.createRecipeAction)
+}
+
+// allowCreate rate-limits a "New ..." form submission, matching
+// internal/library.Handlers.rateLimitCreate's own 30-per-window budget for
+// the "lib:"-prefixed key its REST create endpoints share — a distinct
+// "web-library:"-prefixed key here since these actions never reach that
+// REST handler.
+func (h *LibraryHandlers) allowCreate(r *http.Request) bool {
+	return h.rl.Allow("web-library:"+auth.RemoteIP(r), 30)
 }
 
 // ── Beans ──────────────────────────────────────────────────────────────
 
-// beansPage ports GET /beans: every bean in the library, projected the same
-// way public-src/views/library.js's renderBeanList reads S.coffeeLibrary —
-// see view_library.go's toBeanRow.
-func (h *LibraryHandlers) beansPage(w http.ResponseWriter, r *http.Request) {
+// beanRows projects every bean in the library the same way public-src/
+// views/library.js's renderBeanList reads S.coffeeLibrary — see
+// view_library.go's toBeanRow. Shared by beansPage and createBeanAction,
+// both of which need the freshly (re-)read list after their own request.
+func (h *LibraryHandlers) beanRows() ([]templates.BeanRow, error) {
 	lib, err := h.repo.GetLibrary()
 	if err != nil {
-		httputil.InternalError(w, "web", err)
-		return
+		return nil, err
 	}
 	doseRows, err := h.shotsRepo.GetAnnotatedDoses()
 	if err != nil {
-		httputil.InternalError(w, "web", err)
-		return
+		return nil, err
 	}
 	rows := make([]templates.BeanRow, len(lib.Beans))
 	for i, bean := range lib.Beans {
 		rows[i] = toBeanRow(bean, doseRows, lib.Beans)
 	}
+	return rows, nil
+}
+
+// beansPage ports GET /beans: the "New bean" form plus every bean in the
+// library.
+func (h *LibraryHandlers) beansPage(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.beanRows()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := templates.BeansPage(rows).Render(r.Context(), w); err != nil {
+	if err := templates.BeansPage(rows, "").Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering /beans: %v", err)
+	}
+}
+
+// createBeanAction ports the htmx `hx-post="beans"` interaction: builds a
+// library.Entity body from the submitted form fields (name, roaster,
+// category — the "first usable pass" field set this page's dispatch brief
+// scopes to, not the two dozen optional fields POST /api/library/bean also
+// accepts) and calls library.CreateBean (create.go) — the exact same
+// read-validate-save function that REST endpoint's own handler now also
+// calls, per this package's "reuse the service layer" convention. Answers
+// 200 either way (see library.templ's own doc comment on why a 4xx here
+// would leave the error invisible to htmx's default responseHandling), with
+// the same beansContent fragment createBeanAction and beansPage both
+// render — formError set on a validation failure, empty (and the just-
+// submitted fields cleared) on success.
+func (h *LibraryHandlers) createBeanAction(w http.ResponseWriter, r *http.Request) {
+	if !h.allowCreate(r) {
+		h.renderBeansFragment(w, r, "Too many requests — please slow down")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderBeansFragment(w, r, "Invalid form submission")
+		return
+	}
+	body := library.Entity{
+		"name":     r.FormValue("name"),
+		"roaster":  r.FormValue("roaster"),
+		"category": r.FormValue("category"),
+	}
+	if _, err := library.CreateBean(h.repo, library.DefaultImageDir, body); err != nil {
+		var verr *library.ValidationError
+		if errors.As(err, &verr) {
+			h.renderBeansFragment(w, r, verr.Message)
+			return
+		}
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	h.renderBeansFragment(w, r, "")
+}
+
+// renderBeansFragment re-reads the current bean list and renders
+// BeansContentFragment with formError — shared by createBeanAction's
+// success and validation-failure paths (see that method's own doc comment).
+func (h *LibraryHandlers) renderBeansFragment(w http.ResponseWriter, r *http.Request, formError string) {
+	rows, err := h.beanRows()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.BeansContentFragment(rows, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /beans fragment: %v", err)
 	}
 }
 
@@ -122,99 +210,338 @@ func (h *LibraryHandlers) toggleBeanActiveAction(w http.ResponseWriter, r *http.
 
 // ── Grinders ───────────────────────────────────────────────────────────
 
-// grindersPage ports GET /grinders: a read-only list — see this package's
-// dispatch brief's scope call that only Beans gets a write action in this
-// phase, every other entity a plain list (a full CRUD UI is later-phase
-// work).
-func (h *LibraryHandlers) grindersPage(w http.ResponseWriter, r *http.Request) {
+// grinderRows projects every grinder in the library, including its
+// computed wear stats — shared by grindersPage and createGrinderAction.
+func (h *LibraryHandlers) grinderRows() ([]templates.GrinderRow, error) {
 	lib, err := h.repo.GetLibrary()
 	if err != nil {
-		httputil.InternalError(w, "web", err)
-		return
+		return nil, err
 	}
 	rows := make([]templates.GrinderRow, len(lib.Grinders))
 	for i, grinder := range lib.Grinders {
 		shotsSince, gramsSince, err := library.ComputeGrinderWearStats(h.shotsRepo, grinder)
 		if err != nil {
-			httputil.InternalError(w, "web", err)
-			return
+			return nil, err
 		}
 		rows[i] = toGrinderRow(grinder, shotsSince, gramsSince)
 	}
+	return rows, nil
+}
+
+// grindersPage ports GET /grinders: the "New grinder" form plus every
+// grinder in the library — no per-grinder write action beyond creation in
+// this package (see the dispatch brief's own scope call).
+func (h *LibraryHandlers) grindersPage(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.grinderRows()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := templates.GrindersPage(rows).Render(r.Context(), w); err != nil {
+	if err := templates.GrindersPage(rows, "").Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering /grinders: %v", err)
+	}
+}
+
+// createGrinderAction ports the htmx `hx-post="grinders"` interaction —
+// same shape as createBeanAction, built on library.CreateGrinder.
+func (h *LibraryHandlers) createGrinderAction(w http.ResponseWriter, r *http.Request) {
+	if !h.allowCreate(r) {
+		h.renderGrindersFragment(w, r, "Too many requests — please slow down")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderGrindersFragment(w, r, "Invalid form submission")
+		return
+	}
+	body := library.Entity{
+		"name":         r.FormValue("name"),
+		"burrType":     r.FormValue("burrType"),
+		"purchaseDate": r.FormValue("purchaseDate"),
+	}
+	if _, err := library.CreateGrinder(h.repo, body); err != nil {
+		var verr *library.ValidationError
+		if errors.As(err, &verr) {
+			h.renderGrindersFragment(w, r, verr.Message)
+			return
+		}
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	h.renderGrindersFragment(w, r, "")
+}
+
+func (h *LibraryHandlers) renderGrindersFragment(w http.ResponseWriter, r *http.Request, formError string) {
+	rows, err := h.grinderRows()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.GrindersContentFragment(rows, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /grinders fragment: %v", err)
 	}
 }
 
 // ── Baskets, Puck Screens, Milks, Recipes ─────────────────────────────
 //
-// All four are plain read-only list pages over their own library.Library
-// collection — no cross-domain computation (unlike Beans' consumption math
-// or Grinders' wear stats), so each handler is a straight GetLibrary +
-// per-entity projection + Render.
+// All four have no cross-domain computation (unlike Beans' consumption
+// math or Grinders' wear stats), so each page/create-action pair is a
+// straight GetLibrary + per-entity projection + Render, plus its own
+// library.Create* call for the write action.
 
-func (h *LibraryHandlers) basketsPage(w http.ResponseWriter, r *http.Request) {
+func (h *LibraryHandlers) basketRows() ([]templates.BasketRow, error) {
 	lib, err := h.repo.GetLibrary()
 	if err != nil {
-		httputil.InternalError(w, "web", err)
-		return
+		return nil, err
 	}
 	rows := make([]templates.BasketRow, len(lib.Baskets))
 	for i, basket := range lib.Baskets {
 		rows[i] = toBasketRow(basket)
 	}
+	return rows, nil
+}
+
+func (h *LibraryHandlers) basketsPage(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.basketRows()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := templates.BasketsPage(rows).Render(r.Context(), w); err != nil {
+	if err := templates.BasketsPage(rows, "").Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering /baskets: %v", err)
 	}
 }
 
-func (h *LibraryHandlers) puckScreensPage(w http.ResponseWriter, r *http.Request) {
-	lib, err := h.repo.GetLibrary()
+func (h *LibraryHandlers) createBasketAction(w http.ResponseWriter, r *http.Request) {
+	if !h.allowCreate(r) {
+		h.renderBasketsFragment(w, r, "Too many requests — please slow down")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderBasketsFragment(w, r, "Invalid form submission")
+		return
+	}
+	body := library.Entity{
+		"name":     r.FormValue("name"),
+		"wallType": r.FormValue("wallType"),
+		"shape":    r.FormValue("shape"),
+	}
+	if _, err := library.CreateBasket(h.repo, body); err != nil {
+		var verr *library.ValidationError
+		if errors.As(err, &verr) {
+			h.renderBasketsFragment(w, r, verr.Message)
+			return
+		}
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	h.renderBasketsFragment(w, r, "")
+}
+
+func (h *LibraryHandlers) renderBasketsFragment(w http.ResponseWriter, r *http.Request, formError string) {
+	rows, err := h.basketRows()
 	if err != nil {
 		httputil.InternalError(w, "web", err)
 		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.BasketsContentFragment(rows, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /baskets fragment: %v", err)
+	}
+}
+
+func (h *LibraryHandlers) puckScreenRows() ([]templates.PuckScreenRow, error) {
+	lib, err := h.repo.GetLibrary()
+	if err != nil {
+		return nil, err
 	}
 	rows := make([]templates.PuckScreenRow, len(lib.PuckScreens))
 	for i, puckScreen := range lib.PuckScreens {
 		rows[i] = toPuckScreenRow(puckScreen)
 	}
+	return rows, nil
+}
+
+func (h *LibraryHandlers) puckScreensPage(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.puckScreenRows()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := templates.PuckScreensPage(rows).Render(r.Context(), w); err != nil {
+	if err := templates.PuckScreensPage(rows, "").Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering /puckscreens: %v", err)
 	}
 }
 
-func (h *LibraryHandlers) milksPage(w http.ResponseWriter, r *http.Request) {
-	lib, err := h.repo.GetLibrary()
+func (h *LibraryHandlers) createPuckScreenAction(w http.ResponseWriter, r *http.Request) {
+	if !h.allowCreate(r) {
+		h.renderPuckScreensFragment(w, r, "Too many requests — please slow down")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderPuckScreensFragment(w, r, "Invalid form submission")
+		return
+	}
+	body := library.Entity{
+		"name":      r.FormValue("name"),
+		"thickness": r.FormValue("thickness"),
+		"material":  r.FormValue("material"),
+	}
+	if _, err := library.CreatePuckScreen(h.repo, body); err != nil {
+		var verr *library.ValidationError
+		if errors.As(err, &verr) {
+			h.renderPuckScreensFragment(w, r, verr.Message)
+			return
+		}
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	h.renderPuckScreensFragment(w, r, "")
+}
+
+func (h *LibraryHandlers) renderPuckScreensFragment(w http.ResponseWriter, r *http.Request, formError string) {
+	rows, err := h.puckScreenRows()
 	if err != nil {
 		httputil.InternalError(w, "web", err)
 		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.PuckScreensContentFragment(rows, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /puckscreens fragment: %v", err)
+	}
+}
+
+func (h *LibraryHandlers) milkRows() ([]templates.MilkRow, error) {
+	lib, err := h.repo.GetLibrary()
+	if err != nil {
+		return nil, err
 	}
 	rows := make([]templates.MilkRow, len(lib.Milks))
 	for i, milk := range lib.Milks {
 		rows[i] = toMilkRow(milk)
 	}
+	return rows, nil
+}
+
+func (h *LibraryHandlers) milksPage(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.milkRows()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := templates.MilksPage(rows).Render(r.Context(), w); err != nil {
+	if err := templates.MilksPage(rows, "").Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering /milks: %v", err)
 	}
 }
 
-func (h *LibraryHandlers) recipesPage(w http.ResponseWriter, r *http.Request) {
-	lib, err := h.repo.GetLibrary()
+func (h *LibraryHandlers) createMilkAction(w http.ResponseWriter, r *http.Request) {
+	if !h.allowCreate(r) {
+		h.renderMilksFragment(w, r, "Too many requests — please slow down")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderMilksFragment(w, r, "Invalid form submission")
+		return
+	}
+	body := library.Entity{
+		"name":  r.FormValue("name"),
+		"emoji": r.FormValue("emoji"),
+	}
+	if raw := r.FormValue("stockMl"); raw != "" {
+		if v, err := strconv.ParseFloat(raw, 64); err == nil {
+			body["stockMl"] = v
+		} else {
+			h.renderMilksFragment(w, r, "Invalid stock amount")
+			return
+		}
+	}
+	if _, err := library.CreateMilk(h.repo, body); err != nil {
+		var verr *library.ValidationError
+		if errors.As(err, &verr) {
+			h.renderMilksFragment(w, r, verr.Message)
+			return
+		}
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	h.renderMilksFragment(w, r, "")
+}
+
+func (h *LibraryHandlers) renderMilksFragment(w http.ResponseWriter, r *http.Request, formError string) {
+	rows, err := h.milkRows()
 	if err != nil {
 		httputil.InternalError(w, "web", err)
 		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.MilksContentFragment(rows, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /milks fragment: %v", err)
+	}
+}
+
+func (h *LibraryHandlers) recipeRows() ([]templates.RecipeRow, error) {
+	lib, err := h.repo.GetLibrary()
+	if err != nil {
+		return nil, err
 	}
 	rows := make([]templates.RecipeRow, len(lib.Recipes))
 	for i, recipe := range lib.Recipes {
 		rows[i] = toRecipeRow(recipe)
 	}
+	return rows, nil
+}
+
+func (h *LibraryHandlers) recipesPage(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.recipeRows()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := templates.RecipesPage(rows).Render(r.Context(), w); err != nil {
+	if err := templates.RecipesPage(rows, "").Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering /recipes: %v", err)
+	}
+}
+
+func (h *LibraryHandlers) createRecipeAction(w http.ResponseWriter, r *http.Request) {
+	if !h.allowCreate(r) {
+		h.renderRecipesFragment(w, r, "Too many requests — please slow down")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderRecipesFragment(w, r, "Invalid form submission")
+		return
+	}
+	body := library.Entity{
+		"name":       r.FormValue("name"),
+		"brewMethod": r.FormValue("brewMethod"),
+		"drinkType":  r.FormValue("drinkType"),
+	}
+	if _, err := library.CreateRecipe(h.repo, body); err != nil {
+		var verr *library.ValidationError
+		if errors.As(err, &verr) {
+			h.renderRecipesFragment(w, r, verr.Message)
+			return
+		}
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	h.renderRecipesFragment(w, r, "")
+}
+
+func (h *LibraryHandlers) renderRecipesFragment(w http.ResponseWriter, r *http.Request, formError string) {
+	rows, err := h.recipeRows()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.RecipesContentFragment(rows, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /recipes fragment: %v", err)
 	}
 }
 

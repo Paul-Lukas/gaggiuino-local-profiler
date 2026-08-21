@@ -1,6 +1,9 @@
 package library
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 // This file ports routes/library/baskets.js (#635).
 
@@ -26,7 +29,9 @@ func (h *Handlers) listBaskets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, lib.Baskets)
 }
 
-// createBasket ports POST /api/library/basket.
+// createBasket ports POST /api/library/basket — a thin wrapper around
+// CreateBasket (create.go), the same logic internal/web's "New basket" form
+// also calls.
 func (h *Handlers) createBasket(w http.ResponseWriter, r *http.Request) {
 	if !h.rateLimitCreate(w, r) {
 		return
@@ -35,33 +40,13 @@ func (h *Handlers) createBasket(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if trimMax(body["name"], 200) == "" {
-		writeError(w, http.StatusBadRequest, "name required")
-		return
-	}
-	wallType, _, wallTypeOK := enumStringField(body, "wallType", basketWallTypes)
-	if !wallTypeOK {
-		writeError(w, http.StatusBadRequest, "invalid wallType")
-		return
-	}
-	shape, _, shapeOK := enumStringField(body, "shape", basketShapes)
-	if !shapeOK {
-		writeError(w, http.StatusBadRequest, "invalid shape")
-		return
-	}
-	lib, err := h.repo.GetLibrary()
+	basket, err := CreateBasket(h.repo, body)
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	basket := Entity{
-		"id": newID(), "name": trimMax(body["name"], 200), "doseCapacity": trimMax(body["doseCapacity"], 50),
-		"wallType": wallType, "shape": shape,
-		"holeCount": trimMax(body["holeCount"], 50), "notes": trimMax(body["notes"], 1000),
-		"updatedAt": newID(),
-	}
-	lib.Baskets = append(lib.Baskets, basket)
-	if err := h.repo.SaveLibrary(lib); err != nil {
+		var verr *ValidationError
+		if errors.As(err, &verr) {
+			writeError(w, http.StatusBadRequest, verr.Message)
+			return
+		}
 		internalError(w, err)
 		return
 	}
