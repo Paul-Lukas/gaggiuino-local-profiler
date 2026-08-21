@@ -668,7 +668,14 @@ label) push real multi-arch images to
 `ghcr.io/mxkissnr/gaggiuino-local-profiler/{arch}` tagged
 `go-preview-YYYYMMDD_HHMM` plus a floating `:go-preview` tag — the same
 registry repository the stable/dev images already live in, just a
-different tag scheme, exactly like the Node dev channel's `:dev` tag.
+different tag scheme, exactly like the Node dev channel's `:dev` tag. Both
+build jobs pass that same version string as the `GLP_DEV_BUILD` build-arg
+(go/Dockerfile's own `ARG`/`ENV` pair, mirroring the repo-root Node
+Dockerfile's identical pattern), so `internal/system/version.go` suppresses
+the GitHub-release "update available" check for this channel (an
+experimental build's version string would otherwise always compare as
+"behind" the stable release tag) and `GET /api/status`'s `devBuild` field
+is populated for the frontend, same as the Node dev channel's own badge.
 `publish-manifest` then (gated on `build-amd64` only, same `#705` trade-off
 `build-dev.yaml` accepts for its own two occasional-testing architectures)
 bumps `glp-go-preview-app`'s `config.yaml` version, re-syncs its

@@ -141,6 +141,8 @@ jobs:
           context: ./gaggiuino-local-profiler/go
           platforms: linux/amd64
           push: true
+          build-args: |
+            GLP_DEV_BUILD=${{ needs.prep.outputs.version }}
           cache-from: type=gha,scope=go-preview-amd64
           cache-to: type=gha,mode=max,scope=go-preview-amd64
           tags: |
@@ -169,6 +171,8 @@ jobs:
           context: ./gaggiuino-local-profiler/go
           platforms: linux/amd64
           push: true
+          build-args: |
+            GLP_DEV_BUILD=${{ needs.prep.outputs.version }}
           cache-from: type=gha,scope=go-preview-amd64
           cache-to: type=gha,mode=max,scope=go-preview-amd64
           tags: |
@@ -246,6 +250,8 @@ jobs:
           context: ./gaggiuino-local-profiler/go
           platforms: ${{ matrix.platform }}
           push: true
+          build-args: |
+            GLP_DEV_BUILD=${{ needs.prep.outputs.version }}
           # Separate cache scope from go-build.yaml's own go-${arch} scope
           # (CI build-only images) so a preview publish can never poison the
           # cache that build-only CI run restores from, or vice versa.
@@ -277,6 +283,8 @@ jobs:
           context: ./gaggiuino-local-profiler/go
           platforms: ${{ matrix.platform }}
           push: true
+          build-args: |
+            GLP_DEV_BUILD=${{ needs.prep.outputs.version }}
           cache-from: type=gha,scope=go-preview-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=go-preview-${{ matrix.arch }}
           tags: |

@@ -62,6 +62,19 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOARM=${TARGETVARIANT#v} \
 # scratch failing on.
 FROM alpine:3.22
 
+# Empty by default, same as the repo-root Node Dockerfile's own
+# GLP_DEV_BUILD ARG/ENV pair -- only .github/workflows/go-preview-publish.yaml
+# passes this build-arg (as go-preview-<timestamp>), so it stays unset in
+# any image built by go-build.yaml's own build-only CI. internal/system/
+# version.go reads it to suppress the GitHub-release "update available"
+# check (comparing an unreleased experimental build's version string
+# against the stable release tag would always look "out of date"), and
+# internal/system/handlers.go's GET /api/status surfaces it as `devBuild`
+# for the frontend, mirroring public-src/components/status.js's existing
+# dev-build badge.
+ARG GLP_DEV_BUILD=""
+ENV GLP_DEV_BUILD=${GLP_DEV_BUILD}
+
 # /data is created (not just relied on as a bind-mount point) so the image
 # also runs standalone without an explicit `-v` — matching the HA add-on's
 # real usage, where Supervisor always provides the mount, but keeping local
