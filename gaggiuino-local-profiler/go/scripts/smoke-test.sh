@@ -56,6 +56,11 @@ cleanup() {
 	if [[ -n "$DOCKER_IMAGE" ]]; then
 		[[ -n "$PID_A" ]] && docker stop "$PID_A" >/dev/null 2>&1
 		[[ -n "$PID_B" ]] && docker stop "$PID_B" >/dev/null 2>&1
+		# Kill the `docker logs -f` followers started in start_server (#901
+		# code review) -- their target container is already gone by now, but
+		# they can otherwise linger as orphaned background jobs.
+		[[ -f "$SMOKE_DIR/a/log_follow.pid" ]] && kill "$(cat "$SMOKE_DIR/a/log_follow.pid")" >/dev/null 2>&1
+		[[ -f "$SMOKE_DIR/b/log_follow.pid" ]] && kill "$(cat "$SMOKE_DIR/b/log_follow.pid")" >/dev/null 2>&1
 	else
 		[[ -n "$PID_A" ]] && kill "$PID_A" >/dev/null 2>&1
 		[[ -n "$PID_B" ]] && kill "$PID_B" >/dev/null 2>&1
@@ -98,10 +103,17 @@ start_server() {
 	local dbdir="$1" port="$2"
 	if [[ -n "$DOCKER_IMAGE" ]]; then
 		local name="glp-smoke-$port-$$"
+		# `docker run -d`'s own stdout is just the new container ID -- not
+		# the app's logs -- so it's discarded here; a `docker logs -f`
+		# follower (below) writes the actual container output to
+		# server.log instead, live, the same way wait_ready's error path
+		# and the native branch expect to find real crash output there.
 		docker run -d --rm --name "$name" \
 			-p "127.0.0.1:${port}:8099" \
 			-e GLP_ENABLE_ORDERS=true \
-			"$DOCKER_IMAGE" >"$dbdir/server.log" 2>&1
+			"$DOCKER_IMAGE" >/dev/null
+		docker logs -f "$name" >"$dbdir/server.log" 2>&1 &
+		echo $! >"$dbdir/log_follow.pid"
 		echo "$name"
 		return
 	fi
@@ -137,9 +149,21 @@ token_file_path() {
 
 # wait_ready polls until the token file exists and an authenticated request
 # against it succeeds, then prints the token. Fails after ~10s.
+#
+# Docker mode (#901 code review): token_file_path's docker cp of the whole
+# /data dir is too expensive to run on every poll tick (up to 50 of them),
+# so it's gated behind a cheap, cp-free readiness probe first -- the same
+# GET /api/status the native branch's server exposes unauthenticated (see
+# internal/auth/auth.go's RequireToken bypass) -- and only reached once that
+# probe already succeeds, which in practice is 1-2 ticks after the token
+# file itself lands, not all 50.
 wait_ready() {
 	local base="$1" dbdir="$2" id="$3" token_file="" token=""
 	for _ in $(seq 1 50); do
+		if [[ -n "$DOCKER_IMAGE" ]] && ! curl -sf -o /dev/null "$base/api/status"; then
+			sleep 0.2
+			continue
+		fi
 		token_file=$(token_file_path "$dbdir" "$id")
 		if [[ -s "$token_file" ]]; then
 			token=$(cat "$token_file")
