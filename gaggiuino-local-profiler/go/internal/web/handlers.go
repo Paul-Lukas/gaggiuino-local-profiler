@@ -30,9 +30,44 @@ func NewHandlers(svc *shots.Service) *Handlers {
 // choice, not an incidental one.
 func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /web/static/", staticHandler())
+	mux.HandleFunc("GET /{$}", h.rootRedirect)
 	mux.HandleFunc("GET /shots", h.listPage)
 	mux.HandleFunc("POST /shots/{id}/trash", h.trashAction)
 	mux.HandleFunc("POST /shots/{id}/restore", h.restoreAction)
+}
+
+// rootRedirect ports the fix for #901's live-blocking bug: nothing in
+// internal/web (or any other domain package) ever registered a route for
+// GET / itself, only the individual subpages (/shots, /library, /machines,
+// ...). HA Ingress always proxies a freshly-opened add-on panel to GET / on
+// the container, so with no handler there the bare ingress base URL 404'd
+// before auth/middleware even ran — the very case the Dockerfile
+// HEALTHCHECK sidestepped by probing /web/static/style.css instead of /
+// (see go/Dockerfile's own comment), but whose actual user-facing
+// consequence was never fixed until now. "/{$}" (not "/") is deliberate:
+// "/" alone is ServeMux's catch-all for any unmatched path, which would
+// silently redirect genuine 404s (typos, probes) to /shots instead of
+// reporting them; "/{$}" matches only the exact root path.
+//
+// The redirect target is a relative Location header, set directly rather
+// than via http.Redirect: http.Redirect resolves a relative target against
+// r.URL.Path — the path this app itself sees, which is always "/" here
+// regardless of the browser's real address, because HA Ingress strips its
+// per-session prefix (/api/hassio_ingress/<token>) before forwarding to
+// the container (see internal/auth.HAIngressPrefix's doc comment) — so it
+// would turn "shots" into the root-absolute "/shots" (path.Split("/") ==
+// ("/", ""), then olddir+url == "/shots"; verified against
+// net/http/server.go's Redirect). A root-absolute Location resolves in the
+// BROWSER against its own visible URL, which still has the ingress
+// prefix — landing on the origin root instead of the add-on and 404ing
+// there, exactly the bug class go/internal/web/static/glp-token.js's own
+// doc comment already fixed once for its token fetch. Writing the header
+// directly keeps "shots" genuinely relative, so the browser resolves it
+// against its own address bar (".../<ingress-prefix>/"), landing on
+// ".../<ingress-prefix>/shots" — the add-on's own page.
+func (h *Handlers) rootRedirect(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Location", "shots")
+	w.WriteHeader(http.StatusFound)
 }
 
 // listPage ports GET /shots: the full page, live shots plus any trashed
