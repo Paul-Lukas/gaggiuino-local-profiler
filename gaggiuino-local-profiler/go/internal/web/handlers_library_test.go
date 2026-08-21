@@ -72,8 +72,8 @@ func TestBeansPage_RendersBeans(t *testing.T) {
 		"Decaf Blend",
 		"decaf",
 		"disabled",
-		`hx-post="/beans/1/toggle-active"`,
-		`hx-post="/beans/2/toggle-active"`,
+		`hx-post="beans/1/toggle-active"`,
+		`hx-post="beans/2/toggle-active"`,
 		"Disable", // bean 1: enabled -> offers Disable
 		"Enable",  // bean 2: disabled -> offers Enable
 	} {
@@ -81,6 +81,7 @@ func TestBeansPage_RendersBeans(t *testing.T) {
 			t.Errorf("GET /beans body missing %q\nbody:\n%s", want, body)
 		}
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 func TestBeansPage_Empty(t *testing.T) {

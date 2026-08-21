@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -59,6 +60,28 @@ func doRequest(t *testing.T, mux *http.ServeMux, method, path string) *httptest.
 	return rec
 }
 
+// rootAbsolutePathAttr matches an href/src/hx-get/hx-post/hx-put/hx-delete/
+// hx-patch attribute whose value starts with a single leading "/" (a
+// root-absolute path) rather than a path-relative one. See
+// internal/web/doc.go's "Ingress-safe relative paths" section: a
+// root-absolute path in rendered HTML resolves against the browser's
+// origin root under real HA Ingress, not the Ingress session prefix,
+// breaking CSS/JS/nav/htmx the moment a page is opened through Ingress
+// instead of a bare port — the #901 bug this regexp guards against
+// regressing on any current or future page.
+var rootAbsolutePathAttr = regexp.MustCompile(`(?:href|src|hx-get|hx-post|hx-put|hx-delete|hx-patch)="/[^/][^"]*"`)
+
+// assertNoRootAbsolutePaths fails t if body (a rendered page's HTML)
+// contains any root-absolute href/src/hx-* attribute value. Call this from
+// every page-rendering test in this package, not just handlers_test.go's
+// own — see internal/web/doc.go for why this must hold for every page.
+func assertNoRootAbsolutePaths(t *testing.T, body string) {
+	t.Helper()
+	if got := rootAbsolutePathAttr.FindAllString(body, -1); len(got) > 0 {
+		t.Errorf("rendered HTML has root-absolute href/src/hx-* path(s), which break under HA Ingress (see internal/web/doc.go): %v", got)
+	}
+}
+
 // TestListPage_RendersShots verifies GET /shots renders the expected
 // structural content — profile names, coffee/dose, and a trash action per
 // row — not a pixel-exact snapshot (per the dispatch brief's "nicht
@@ -86,8 +109,8 @@ func TestListPage_RendersShots(t *testing.T) {
 		"Filter",
 		"Ethiopia Yirgacheffe",
 		"18.2 g",
-		`hx-post="/shots/1/trash"`,
-		`hx-post="/shots/2/trash"`,
+		`hx-post="shots/1/trash"`,
+		`hx-post="shots/2/trash"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /shots body missing %q\nbody:\n%s", want, body)
@@ -96,6 +119,7 @@ func TestListPage_RendersShots(t *testing.T) {
 	if strings.Contains(body, "trash-section") {
 		t.Errorf("GET /shots body has a trash section with nothing trashed yet")
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 // TestListPage_Empty verifies the empty-state branch when no shots exist.
@@ -237,10 +261,10 @@ func TestTrashAndRestore_RoundTrip(t *testing.T) {
 	}
 
 	afterTrash := doRequest(t, mux, "GET", "/shots").Body.String()
-	if !strings.Contains(afterTrash, `hx-post="/shots/5/restore"`) {
+	if !strings.Contains(afterTrash, `hx-post="shots/5/restore"`) {
 		t.Errorf("GET /shots after trash: missing restore action for shot 5\nbody:\n%s", afterTrash)
 	}
-	if strings.Contains(afterTrash, `hx-post="/shots/5/trash"`) {
+	if strings.Contains(afterTrash, `hx-post="shots/5/trash"`) {
 		t.Errorf("GET /shots after trash: shot 5 still in the live list\nbody:\n%s", afterTrash)
 	}
 
@@ -250,7 +274,7 @@ func TestTrashAndRestore_RoundTrip(t *testing.T) {
 	}
 
 	afterRestore := doRequest(t, mux, "GET", "/shots").Body.String()
-	if !strings.Contains(afterRestore, `hx-post="/shots/5/trash"`) {
+	if !strings.Contains(afterRestore, `hx-post="shots/5/trash"`) {
 		t.Errorf("GET /shots after restore: shot 5 not back in the live list\nbody:\n%s", afterRestore)
 	}
 	if strings.Contains(afterRestore, "trash-section") {
@@ -349,7 +373,7 @@ func TestListPage_LoadsTokenScript(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /shots: status = %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), `src="/web/static/glp-token.js"`) {
+	if !strings.Contains(rec.Body.String(), `src="web/static/glp-token.js"`) {
 		t.Errorf("GET /shots body missing glp-token.js <script> tag\nbody:\n%s", rec.Body.String())
 	}
 }

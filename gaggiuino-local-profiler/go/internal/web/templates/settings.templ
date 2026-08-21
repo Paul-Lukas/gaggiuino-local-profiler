@@ -75,7 +75,7 @@ templ settingsEditableBlock(c SettingsCategory, saveError string) {
 			if saveError != "" {
 				<div class="badge badge-err">{ saveError }</div>
 			}
-			<form class="order-form" hx-post={ "/settings/" + c.Name } hx-target="#settings-editable" hx-swap="outerHTML">
+			<form class="order-form" hx-post={ "settings/" + c.Name } hx-target="#settings-editable" hx-swap="outerHTML">
 				<textarea class="filter-input settings-textarea" name="raw" rows="12">{ c.JSON }</textarea>
 				<button type="submit" class="btn">Save</button>
 			</form>

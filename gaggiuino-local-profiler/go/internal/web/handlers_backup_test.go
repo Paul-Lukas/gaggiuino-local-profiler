@@ -28,13 +28,14 @@ func TestBackupPage_RendersDownloadLinkAndRestoreNote(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`href="/api/backup"`,
+		`href="api/backup"`,
 		"POST /api/restore",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /backup body missing %q\nbody:\n%s", want, body)
 		}
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 // TestBackupPage_NoWriteRoutesRegistered pins that this page registers only

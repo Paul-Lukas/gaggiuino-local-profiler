@@ -33,7 +33,7 @@ templ OrdersPage(enabled bool, pending []OrderRow, accepted []OrderRow) {
 		if !enabled {
 			<div class="empty-state">Orders feature disabled.</div>
 		} else {
-			<div id="orders-queue" hx-trigger="every 10s" hx-get="/orders/queue-fragment" hx-target="#orders-queue" hx-swap="innerHTML">
+			<div id="orders-queue" hx-trigger="every 10s" hx-get="orders/queue-fragment" hx-target="#orders-queue" hx-swap="innerHTML">
 				@ordersQueueBody(pending, accepted)
 			</div>
 		}
@@ -112,15 +112,15 @@ templ orderRow(row OrderRow) {
 		</div>
 		<div class="item-actions">
 			if row.Status == "pending" {
-				<button type="button" class="btn" hx-post={ "/orders/" + row.ID + "/accept" } hx-target="#orders-queue" hx-swap="innerHTML">
+				<button type="button" class="btn" hx-post={ "orders/" + row.ID + "/accept" } hx-target="#orders-queue" hx-swap="innerHTML">
 					Accept
 				</button>
 			} else {
-				<button type="button" class="btn" hx-post={ "/orders/" + row.ID + "/complete" } hx-target="#orders-queue" hx-swap="innerHTML">
+				<button type="button" class="btn" hx-post={ "orders/" + row.ID + "/complete" } hx-target="#orders-queue" hx-swap="innerHTML">
 					Complete
 				</button>
 			}
-			<button type="button" class="btn btn-danger" hx-post={ "/orders/" + row.ID + "/decline" } hx-target="#orders-queue" hx-swap="innerHTML">
+			<button type="button" class="btn btn-danger" hx-post={ "orders/" + row.ID + "/decline" } hx-target="#orders-queue" hx-swap="innerHTML">
 				Decline
 			</button>
 		</div>

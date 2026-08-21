@@ -47,7 +47,7 @@ templ MaintenancePage(machineOptions []MaintMachineOption, currentMachineID int6
 					if m.ID == currentMachineID {
 						<span class="btn btn-active">{ m.Name }</span>
 					} else {
-						<a class="btn" href={ templ.URL(fmt.Sprintf("/maintenance?machineId=%d", m.ID)) }>{ m.Name }</a>
+						<a class="btn" href={ templ.URL(fmt.Sprintf("maintenance?machineId=%d", m.ID)) }>{ m.Name }</a>
 					}
 				}
 			</div>
@@ -95,7 +95,7 @@ templ maintTile(tile MaintTile, machineID int64) {
 			<button
 				type="button"
 				class="btn"
-				hx-post={ fmt.Sprintf("/maintenance/%s/done?machineId=%d", tile.Task, machineID) }
+				hx-post={ fmt.Sprintf("maintenance/%s/done?machineId=%d", tile.Task, machineID) }
 				hx-target="#maint-list"
 				hx-swap="outerHTML"
 			>

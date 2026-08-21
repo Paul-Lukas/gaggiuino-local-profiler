@@ -180,12 +180,13 @@ func TestSettingsPage_RendersCategoriesPreservingBoolAsStringQuirk(t *testing.T)
 		`&#34;state&#34;: &#34;false&#34;`,         // led's bool-as-string quirk, unmodified (templ HTML-escapes the quotes)
 		`&#34;lcdDarkMode&#34;: &#34;true&#34;`,    // display's, in the editable textarea
 		`&#34;brewDeltaState&#34;: &#34;true&#34;`, // boiler's
-		`hx-post="/settings/display"`,
+		`hx-post="settings/display"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /settings body missing %q\nbody:\n%s", want, body)
 		}
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 // TestSettingsPage_UnsupportedAdapter verifies the "this machine type
@@ -225,7 +226,7 @@ func TestSettingsPage_CategoryFetchErrorIsPerBlock(t *testing.T) {
 	if !strings.Contains(body, "Could not reach machine") {
 		t.Errorf("GET /settings body missing the boiler fetch-error message\nbody:\n%s", body)
 	}
-	if !strings.Contains(body, `hx-post="/settings/display"`) {
+	if !strings.Contains(body, `hx-post="settings/display"`) {
 		t.Errorf("GET /settings: editable display form missing even though only boiler failed\nbody:\n%s", body)
 	}
 }

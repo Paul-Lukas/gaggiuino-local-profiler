@@ -104,6 +104,56 @@
 // /api/token, then use the token it returns to authorize
 // POST /shots/{id}/trash.
 //
+// # Ingress-safe relative paths
+//
+// Every href/src/hx-get/hx-post/hx-put/hx-delete/hx-patch value this
+// package's templates (or any Go code rendering HTML for them) ever emits
+// MUST be path-relative with NO leading slash — "shots", not "/shots";
+// fmt.Sprintf("beans/%d/toggle-active", id), not
+// fmt.Sprintf("/beans/%d/toggle-active", id). This was originally
+// established ad hoc (glp-token.js's "api/token" fetch, Auth model above;
+// handlers.go's rootRedirect writing Location: "shots") and then found to
+// be violated by literally every other template in this package (#901 live
+// bug: under real HA Ingress the add-on is reachable only at a per-session
+// prefix, e.g. https://ha/api/hassio_ingress/<token>/shots — Ingress
+// strips that prefix before forwarding to the container, so r.URL.Path
+// inside this app is always prefix-free ("/shots"), and nothing server-
+// side ever sees or can reconstruct the prefix the browser used. A
+// root-absolute href/src/hx-* in the rendered HTML therefore resolves in
+// the browser against the origin root (https://ha/shots), not the Ingress
+// prefix (https://ha/api/hassio_ingress/<token>/shots) — silently breaking
+// every nav link, the CSS/JS <link>/<script> tags, and every htmx action on
+// every page the instant a real user opens it through Ingress instead of a
+// bare port).
+//
+// A relative path resolves in the browser against the current document's
+// URL, dropping its last path segment first (the standard "relative URL"
+// / RFC 3986 algorithm every <a href> already uses) — so from a document
+// at .../<ingress-prefix>/shots, both a relative nav link ("beans") and a
+// relative htmx action ("shots/42/trash") resolve back under
+// .../<ingress-prefix>/..., prefix and all, with zero server-side
+// awareness of what that prefix even is. This only works cleanly because
+// every page route this package registers is exactly one path segment
+// deep from root (GET /shots, /beans, /orders, /maintenance, ... — see
+// the handler registrations in handlers*.go) and every relative reference
+// point at another single-segment route or a same-page action/query
+// string; a <base href> tag was deliberately NOT used instead, because HA
+// Ingress gives the container no header or other signal to compute a
+// correct dynamic base value from (only the already-stripped, prefix-free
+// r.URL.Path), so a <base href> would either have to be wrong or would add
+// a fake dependency the app can't actually satisfy — plain relative paths
+// need no such signal at all.
+//
+// The load-bearing consequence for every FUTURE page: do not introduce a
+// route nested more than one segment below root (e.g. GET
+// /library/beans/{id}) without re-deriving this whole scheme — a relative
+// path written on that page would resolve one directory shallower than
+// intended. Keep new pages single-segment, and keep every href/src/hx-*
+// literal (or fmt.Sprintf/string-concat building one) leading-slash-free.
+// A `grep -rnE '(href|src|hx-(get|post|put|delete|patch))=\\{?"/[^/]' templates/`
+// (informal; TestNoRootAbsolutePaths in handlers_test.go is the enforced,
+// CI-checked form) catches a regression before it ships.
+//
 // # CSP
 //
 // internal/auth.SecurityHeaders's Content-Security-Policy (`script-src

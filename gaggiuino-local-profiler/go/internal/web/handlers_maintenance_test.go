@@ -70,13 +70,14 @@ func TestMaintenancePage_RendersTasks(t *testing.T) {
 		"Descaling", "Backflush", "Grouphead", "Gaskets", "Water filter",
 		"Niche Zero", // grinder_5's title, not the raw "grinder_5" key
 		"never done",
-		`hx-post="/maintenance/descaling/done?machineId=1"`,
-		`hx-post="/maintenance/grinder_5/done?machineId=1"`,
+		`hx-post="maintenance/descaling/done?machineId=1"`,
+		`hx-post="maintenance/grinder_5/done?machineId=1"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /maintenance body missing %q\nbody:\n%s", want, body)
 		}
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 // TestMaintenancePage_MachineSwitcher verifies the machine switcher only
@@ -103,6 +104,10 @@ func TestMaintenancePage_MachineSwitcher(t *testing.T) {
 	if !strings.Contains(body, "Kitchen Gaggiuino") {
 		t.Errorf("GET /maintenance: switcher missing the second machine's name\nbody:\n%s", body)
 	}
+	if !strings.Contains(body, `href="maintenance?machineId=`) {
+		t.Errorf("GET /maintenance: switcher link should be path-relative (no leading slash)\nbody:\n%s", body)
+	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 // extractRow returns the HTML between id="maint-row-<task>" and the next

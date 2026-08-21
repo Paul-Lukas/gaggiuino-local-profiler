@@ -93,7 +93,7 @@ templ beanRow(row BeanRow) {
 			<button
 				type="button"
 				class="btn"
-				hx-post={ fmt.Sprintf("/beans/%d/toggle-active", row.ID) }
+				hx-post={ fmt.Sprintf("beans/%d/toggle-active", row.ID) }
 				hx-target={ fmt.Sprintf("#bean-row-%d", row.ID) }
 				hx-swap="outerHTML"
 			>

@@ -90,20 +90,21 @@ func TestMachinesPage_RendersMachines(t *testing.T) {
 		}
 	}
 	wantActions := []string{
-		`hx-post="/machines/` + strconv.FormatInt(second.ID, 10) + `/default"`,
-		`hx-post="/machines/` + strconv.FormatInt(second.ID, 10) + `/delete"`,
+		`hx-post="machines/` + strconv.FormatInt(second.ID, 10) + `/default"`,
+		`hx-post="machines/` + strconv.FormatInt(second.ID, 10) + `/delete"`,
 	}
 	for _, want := range wantActions {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /machines body missing %q for non-default machine\nbody:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, `hx-post="/machines/1/default"`) {
+	if strings.Contains(body, `hx-post="machines/1/default"`) {
 		t.Errorf("GET /machines: default machine (id 1) should not offer a set-default action\nbody:\n%s", body)
 	}
-	if strings.Contains(body, `hx-post="/machines/1/delete"`) {
+	if strings.Contains(body, `hx-post="machines/1/delete"`) {
 		t.Errorf("GET /machines: default machine (id 1) should not offer a delete action\nbody:\n%s", body)
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 // TestSetDefaultAction_RoundTrip drives the one two-row-changing write
@@ -121,10 +122,10 @@ func TestSetDefaultAction_RoundTrip(t *testing.T) {
 	if !strings.Contains(body, `id="machine-list"`) {
 		t.Errorf("set-default response should re-render the whole #machine-list container\nbody:\n%s", body)
 	}
-	if !strings.Contains(body, `hx-post="/machines/1/default"`) {
+	if !strings.Contains(body, `hx-post="machines/1/default"`) {
 		t.Errorf("set-default response: machine 1 should now offer a set-default action (no longer default)\nbody:\n%s", body)
 	}
-	if strings.Contains(body, `hx-post="/machines/`+strconv.FormatInt(second.ID, 10)+`/default"`) {
+	if strings.Contains(body, `hx-post="machines/`+strconv.FormatInt(second.ID, 10)+`/default"`) {
 		t.Errorf("set-default response: machine %d should no longer offer a set-default action (now default)\nbody:\n%s", second.ID, body)
 	}
 
@@ -228,14 +229,15 @@ func TestLivePage_RendersShell(t *testing.T) {
 	for _, want := range []string{
 		"Gaggiuino", // seeded default machine's name
 		`id="liveChart"`,
-		`src="/web/static/vendor/chart-4.5.1.umd.min.js"`,
-		`src="/web/static/live.js"`,
+		`src="web/static/vendor/chart-4.5.1.umd.min.js"`,
+		`src="web/static/live.js"`,
 		`id="live-status-badge"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /live body missing %q\nbody:\n%s", want, body)
 		}
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 // ── Static assets ──────────────────────────────────────────────────────

@@ -88,18 +88,19 @@ func TestOrdersPage_RendersQueue(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"Espresso", "Alice", `hx-post="/orders/ord_1/accept"`, `hx-post="/orders/ord_1/decline"`,
-		"Latte Macchiato", "Bob", `hx-post="/orders/ord_2/complete"`, `hx-post="/orders/ord_2/decline"`,
+		"Espresso", "Alice", `hx-post="orders/ord_1/accept"`, `hx-post="orders/ord_1/decline"`,
+		"Latte Macchiato", "Bob", `hx-post="orders/ord_2/complete"`, `hx-post="orders/ord_2/decline"`,
 		"ready in ~7 min",
-		`hx-trigger="every 10s"`, `hx-get="/orders/queue-fragment"`,
+		`hx-trigger="every 10s"`, `hx-get="orders/queue-fragment"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /orders body missing %q\nbody:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, `hx-post="/orders/ord_1/complete"`) {
+	if strings.Contains(body, `hx-post="orders/ord_1/complete"`) {
 		t.Errorf("GET /orders: pending order should not offer Complete\nbody:\n%s", body)
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 func TestOrdersPage_Empty(t *testing.T) {
@@ -141,10 +142,10 @@ func TestOrderActions_RoundTrip(t *testing.T) {
 		t.Fatalf("POST /orders/ord_1/accept: status = %d, body = %s", acceptRec.Code, acceptRec.Body.String())
 	}
 	body := acceptRec.Body.String()
-	if !strings.Contains(body, `hx-post="/orders/ord_1/complete"`) {
+	if !strings.Contains(body, `hx-post="orders/ord_1/complete"`) {
 		t.Errorf("POST /orders/ord_1/accept: response should show ord_1 as accepted (Complete action)\nbody:\n%s", body)
 	}
-	if strings.Contains(body, `hx-post="/orders/ord_1/accept"`) {
+	if strings.Contains(body, `hx-post="orders/ord_1/accept"`) {
 		t.Errorf("POST /orders/ord_1/accept: response should no longer offer Accept for ord_1\nbody:\n%s", body)
 	}
 
@@ -393,13 +394,14 @@ func TestMenuPage_RendersMenuAndBeans(t *testing.T) {
 	for _, want := range []string{
 		"Espresso", // default menu seed item
 		"Ethiopia Yirgacheffe",
-		`hx-post="/menu/order"`,
+		`hx-post="menu/order"`,
 		`name="customer"`, `name="item"`, `name="beanId"`, `name="note"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /menu body missing %q\nbody:\n%s", want, body)
 		}
 	}
+	assertNoRootAbsolutePaths(t, body)
 }
 
 func TestMenuPage_NoActiveBeans_HidesBeanSelect(t *testing.T) {
@@ -438,7 +440,7 @@ func TestMenuPage_ShopClosed(t *testing.T) {
 	if !strings.Contains(body, "Not accepting orders right now.") {
 		t.Errorf("GET /menu body missing shop-closed notice:\n%s", body)
 	}
-	if strings.Contains(body, `hx-post="/menu/order"`) {
+	if strings.Contains(body, `hx-post="menu/order"`) {
 		t.Errorf("GET /menu: shop closed, should not render the order form\nbody:\n%s", body)
 	}
 }

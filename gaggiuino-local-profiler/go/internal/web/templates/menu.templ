@@ -56,7 +56,7 @@ templ MenuPage(enabled bool, shopOpen bool, items []MenuItemOption, beans []Bean
 				<div class="badge badge-err">{ formError }</div>
 			}
 			<div id="menu-result"></div>
-			<form class="order-form" hx-post="/menu/order" hx-target="#menu-result" hx-swap="innerHTML">
+			<form class="order-form" hx-post="menu/order" hx-target="#menu-result" hx-swap="innerHTML">
 				<label class="item-meta" for="customer">Your name</label>
 				<input class="filter-input" type="text" id="customer" name="customer" required maxlength="50"/>
 				<label class="item-meta" for="item">Item</label>

@@ -92,7 +92,7 @@ templ shotRowActive(row ShotRow) {
 				<button
 					type="button"
 					class="btn btn-danger"
-					hx-post={ fmt.Sprintf("/shots/%d/trash", row.ID) }
+					hx-post={ fmt.Sprintf("shots/%d/trash", row.ID) }
 					hx-target={ fmt.Sprintf("#shot-row-%d", row.ID) }
 					hx-swap="outerHTML"
 				>
@@ -113,7 +113,7 @@ templ shotRowTrashed(row ShotRow) {
 			<button
 				type="button"
 				class="btn"
-				hx-post={ fmt.Sprintf("/shots/%d/restore", row.ID) }
+				hx-post={ fmt.Sprintf("shots/%d/restore", row.ID) }
 				hx-target={ fmt.Sprintf("#trash-row-%d", row.ID) }
 				hx-swap="outerHTML"
 			>

@@ -16,13 +16,20 @@ package templates
 // nothing here relies on that either) unmodified; see that middleware's
 // doc comment for the exact policy this must keep satisfying.
 //
-// /web/static/glp-token.js is loaded here, globally, once — not per page
+// web/static/glp-token.js is loaded here, globally, once — not per page
 // — so every current and future Phase-2 page's hx-post/hx-put/hx-delete
 // automatically carries X-GLP-Token without that page's own .templ having
 // to know anything about auth. See that file's own doc comment for the
 // full mechanism and why it fetches-and-attaches instead of an SSR meta
 // tag, and internal/web/doc.go's "Auth model" section for the write-route
 // CSRF requirement this satisfies.
+//
+// Every href/src/hx-* path in this file (and every other .templ under
+// templates/) is deliberately path-relative with NO leading slash — see
+// internal/web/doc.go's "Ingress-safe relative paths" section for why
+// (root-absolute paths resolve against the browser's origin root, not the
+// HA Ingress session prefix, breaking CSS/JS/nav/htmx under Ingress) and
+// the exact convention every new page must follow.
 templ Layout(title string) {
 	<!DOCTYPE html>
 	<html lang="en" data-theme="dark">
@@ -30,34 +37,34 @@ templ Layout(title string) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ title } · GLP</title>
-			<link rel="stylesheet" href="/web/static/style.css"/>
-			<script src="/web/static/vendor/htmx-2.0.10.min.js"></script>
-			<script src="/web/static/vendor/htmx-sse-ext-2.0.10.js"></script>
-			<script defer src="/web/static/vendor/alpine-csp-3.16.2.min.js"></script>
-			<script defer src="/web/static/glp-token.js"></script>
+			<link rel="stylesheet" href="web/static/style.css"/>
+			<script src="web/static/vendor/htmx-2.0.10.min.js"></script>
+			<script src="web/static/vendor/htmx-sse-ext-2.0.10.js"></script>
+			<script defer src="web/static/vendor/alpine-csp-3.16.2.min.js"></script>
+			<script defer src="web/static/glp-token.js"></script>
 		</head>
 		<body hx-ext="sse">
 			<nav class="topnav">
-				<a class="topnav-brand" href="/shots">GLP</a>
+				<a class="topnav-brand" href="shots">GLP</a>
 				<div class="topnav-group">
-					<a class="topnav-link" href="/live">Live</a>
-					<a class="topnav-link" href="/shots">Shots</a>
-					<a class="topnav-link" href="/orders">Orders</a>
-					<a class="topnav-link" href="/menu">Menu</a>
+					<a class="topnav-link" href="live">Live</a>
+					<a class="topnav-link" href="shots">Shots</a>
+					<a class="topnav-link" href="orders">Orders</a>
+					<a class="topnav-link" href="menu">Menu</a>
 				</div>
 				<div class="topnav-group">
-					<a class="topnav-link" href="/machines">Machines</a>
-					<a class="topnav-link" href="/maintenance">Maintenance</a>
-					<a class="topnav-link" href="/settings">Settings</a>
-					<a class="topnav-link" href="/backup">Backup</a>
+					<a class="topnav-link" href="machines">Machines</a>
+					<a class="topnav-link" href="maintenance">Maintenance</a>
+					<a class="topnav-link" href="settings">Settings</a>
+					<a class="topnav-link" href="backup">Backup</a>
 				</div>
 				<div class="topnav-group">
-					<a class="topnav-link" href="/beans">Beans</a>
-					<a class="topnav-link" href="/grinders">Grinders</a>
-					<a class="topnav-link" href="/baskets">Baskets</a>
-					<a class="topnav-link" href="/puckscreens">Puck Screens</a>
-					<a class="topnav-link" href="/milks">Milks</a>
-					<a class="topnav-link" href="/recipes">Recipes</a>
+					<a class="topnav-link" href="beans">Beans</a>
+					<a class="topnav-link" href="grinders">Grinders</a>
+					<a class="topnav-link" href="baskets">Baskets</a>
+					<a class="topnav-link" href="puckscreens">Puck Screens</a>
+					<a class="topnav-link" href="milks">Milks</a>
+					<a class="topnav-link" href="recipes">Recipes</a>
 				</div>
 			</nav>
 			<main class="page">
