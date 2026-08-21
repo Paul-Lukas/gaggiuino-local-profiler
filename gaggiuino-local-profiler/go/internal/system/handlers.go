@@ -161,9 +161,39 @@ func (h *Handlers) postDemoEnd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "isDemo": false})
 }
 
+// tokenRateLimitDirect is routes/system.js's original 10/min-per-IP cap,
+// still applied verbatim to non-Ingress (direct-port/LAN) callers — see
+// getToken's doc comment.
+//
+// tokenRateLimitIngress is a Go-rewrite-only carve-out (#901 live bug,
+// found via real multi-page browser navigation through a prefix-stripping
+// Ingress proxy, not curl/smoke tests): the Node app is a client-routed
+// SPA, so glp-token.js's Node counterpart (public-src/api.js's
+// initToken()) fetches the token once per browser session. This Go
+// rewrite is a traditional multi-page app — every nav-link click is a full
+// page reload, re-running templates/layout.templ's glp-token.js and
+// re-fetching GET /api/token on every single page. Worse, HA Ingress
+// proxies every request from one shared internal address (see
+// auth.IsSupervisorIP's #801 comment and internal/ratelimit/doc.go's own
+// note on "the single shared Supervisor-Ingress address"), so the
+// token:<ip> bucket this rate limit keys on is shared across every
+// browser tab and every user of the same HA instance, not scoped per
+// visitor the way it would be for a direct-port LAN caller. 10/min was
+// never enough headroom for that: a single person clicking through this
+// app's ~15 single-segment routes (go/internal/web/doc.go) inside a
+// minute exhausts the budget for the whole household. Kept meaningfully
+// lower than the app-wide 600/min backstop (ratelimit.DefaultMax) so this
+// endpoint specifically still bounds a runaway client/bug, just no longer
+// at a threshold ordinary MPA browsing trips by accident.
+const (
+	tokenRateLimitDirect  = 10
+	tokenRateLimitIngress = 120
+)
+
 // getToken ports GET /api/token (#803, #533): serves the API token to any
-// caller that can reach this port, rate-limited (10/min per IP) — unless
-// the expose_api_port add-on option has been explicitly turned off for a
+// caller that can reach this port, rate-limited per IP (see
+// tokenRateLimitDirect/tokenRateLimitIngress above) — unless the
+// expose_api_port add-on option has been explicitly turned off for a
 // direct (non-Ingress) caller.
 //
 // This deliberately reverses the older #276 restriction to HA-internal
@@ -182,11 +212,16 @@ func (h *Handlers) postDemoEnd(w http.ResponseWriter, r *http.Request) {
 // GET /api/status) bypasses the app-wide token-auth middleware entirely.
 func (h *Handlers) getToken(w http.ResponseWriter, r *http.Request) {
 	ip := auth.RemoteIP(r)
-	if !h.rl.Allow("token:"+ip, 10) {
+	ingress := auth.IsIngressRequest(r)
+	limit := tokenRateLimitDirect
+	if ingress {
+		limit = tokenRateLimitIngress
+	}
+	if !h.rl.Allow("token:"+ip, limit) {
 		writeError(w, http.StatusTooManyRequests, "Rate limit exceeded")
 		return
 	}
-	if !auth.IsIngressRequest(r) && !isApiPortExposed() {
+	if !ingress && !isApiPortExposed() {
 		writeError(w, http.StatusForbidden, "API token endpoint disabled for direct-port access (expose_api_port=false); use HA Ingress")
 		return
 	}

@@ -195,6 +195,41 @@ func TestGetToken_RateLimited(t *testing.T) {
 	}
 }
 
+// TestGetToken_IngressGetsHigherRateLimit guards the #901 live-navigation
+// fix: a genuine Ingress caller (Supervisor-network RemoteAddr +
+// X-Ingress-Path, exactly like auth_test.go's ingress fixtures) shares one
+// token:<ip> bucket across every browser tab/user behind that Ingress
+// session, and this app — unlike the Node SPA — re-fetches the token on
+// every single page's full reload. 10 requests (tokenRateLimitDirect) must
+// NOT 429 an Ingress caller; the 121st (past tokenRateLimitIngress) must.
+func TestGetToken_IngressGetsHigherRateLimit(t *testing.T) {
+	_, mux, _ := newFullTestHandlers(t)
+	ingressGet := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/token", nil)
+		req.RemoteAddr = "172.30.32.1:12345"
+		req.Header.Set("X-Ingress-Path", "/api/hassio_ingress/faketoken")
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+	for i := 0; i < tokenRateLimitDirect+1; i++ {
+		rec := ingressGet()
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200 (must exceed the direct-port limit without 429ing)", i, rec.Code)
+		}
+	}
+	for i := tokenRateLimitDirect + 1; i < tokenRateLimitIngress; i++ {
+		rec := ingressGet()
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: status = %d, want 200", i, rec.Code)
+		}
+	}
+	rec := ingressGet()
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("request %d (past tokenRateLimitIngress): status = %d, want 429", tokenRateLimitIngress, rec.Code)
+	}
+}
+
 // TestGetToken_DirectPortDeniedWhenExposeApiPortFalse guards #803: a
 // non-Ingress caller (every httptest.NewRequest's default RemoteAddr is
 // outside the Supervisor's 172.30.0.0/16 network, so auth.IsIngressRequest
