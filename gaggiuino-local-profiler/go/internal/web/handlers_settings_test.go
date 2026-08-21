@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
@@ -31,6 +32,10 @@ type fakeSettingsAdapter struct {
 	settings  map[string]json.RawMessage
 	getErr    map[string]error
 	updateErr error
+	// getDelay, when set, is slept at the top of every GetSettings call —
+	// used by TestSettingsPage_FetchesCategoriesConcurrently to prove the 5
+	// category fetches run in parallel instead of back to back.
+	getDelay time.Duration
 }
 
 var _ machines.Adapter = (*fakeSettingsAdapter)(nil)
@@ -38,6 +43,9 @@ var _ machines.Adapter = (*fakeSettingsAdapter)(nil)
 func (f *fakeSettingsAdapter) Capabilities() machines.Capabilities { return f.caps }
 
 func (f *fakeSettingsAdapter) GetSettings(ctx context.Context, m *machines.Machine, category string) (json.RawMessage, error) {
+	if f.getDelay > 0 {
+		time.Sleep(f.getDelay)
+	}
 	if err, ok := f.getErr[category]; ok {
 		return nil, err
 	}
@@ -219,6 +227,32 @@ func TestSettingsPage_CategoryFetchErrorIsPerBlock(t *testing.T) {
 	}
 	if !strings.Contains(body, `hx-post="/settings/display"`) {
 		t.Errorf("GET /settings: editable display form missing even though only boiler failed\nbody:\n%s", body)
+	}
+}
+
+// TestSettingsPage_FetchesCategoriesConcurrently verifies GET /settings
+// fetches its 5 categories (4 read-only + the editable one) in parallel
+// rather than sequentially (#901 code review) — with a 50ms artificial delay
+// per GetSettings call, 5 sequential calls would take ~250ms; a concurrent
+// fetch should be bounded by roughly one call's duration.
+func TestSettingsPage_FetchesCategoriesConcurrently(t *testing.T) {
+	const perCallDelay = 50 * time.Millisecond
+	adapter := &fakeSettingsAdapter{
+		caps:     machines.Capabilities{SettingsProxy: true},
+		settings: defaultTestSettings(),
+		getDelay: perCallDelay,
+	}
+	mux := newTestSettingsServer(t, adapter)
+
+	start := time.Now()
+	rec := doRequest(t, mux, "GET", "/settings")
+	elapsed := time.Since(start)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /settings: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if elapsed >= 3*perCallDelay {
+		t.Errorf("GET /settings took %v, want well under %v (5 sequential calls) — categories are not being fetched concurrently", elapsed, 5*perCallDelay)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/httputil"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
@@ -172,11 +173,27 @@ func (h *SettingsHandlers) settingsPage(w http.ResponseWriter, r *http.Request) 
 		}
 		return
 	}
-	readOnly := make([]templates.SettingsCategory, 0, len(settingsReadOnlyCategories))
-	for _, cat := range settingsReadOnlyCategories {
-		readOnly = append(readOnly, h.fetchCategory(r.Context(), adapter, machine, cat))
+	// The 5 category fetches (4 read-only + the editable one) are
+	// independent live-machine HTTP calls, same as firmwareVersion's
+	// versions/system pair (internal/machines/handlers_control.go, #901
+	// code review) — fetch them concurrently instead of paying 5
+	// round-trips back to back. Each goroutine writes only its own slice
+	// index, so no mutex is needed.
+	readOnly := make([]templates.SettingsCategory, len(settingsReadOnlyCategories))
+	var editable templates.SettingsCategory
+	var wg sync.WaitGroup
+	wg.Add(len(settingsReadOnlyCategories) + 1)
+	for i, cat := range settingsReadOnlyCategories {
+		go func(i int, cat string) {
+			defer wg.Done()
+			readOnly[i] = h.fetchCategory(r.Context(), adapter, machine, cat)
+		}(i, cat)
 	}
-	editable := h.fetchCategory(r.Context(), adapter, machine, settingsEditableCategory)
+	go func() {
+		defer wg.Done()
+		editable = h.fetchCategory(r.Context(), adapter, machine, settingsEditableCategory)
+	}()
+	wg.Wait()
 	if err := templates.SettingsPage(true, machine.Name, readOnly, editable, "").Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering /settings: %v", err)
 	}
