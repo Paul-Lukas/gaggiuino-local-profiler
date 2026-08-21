@@ -1,42 +1,247 @@
-/* Phase 2a (#901) — minimal stylesheet for the templ+htmx+Alpine frontend
- * foundation. Reuses public-src/style.css's own design tokens (radius,
- * type scale, spacing ladder, gray-scale roles, ok/warn/err, amber accent
- * — see that file's :root block for the full rationale on each) so the two
- * frontends read as the same product, not a re-skin. Only the dark theme
- * is ported here: public-src's [data-theme="light"] + [data-accent="..."]
- * system is a whole separate axis this first template page doesn't need to
- * carry — a later page can add it once more than one page exists to share
- * it with.
+/* Design-token pass (#901) — brings the full "Instrument" design system
+ * (public-src/style.css, released August 2026) onto the templ+htmx+Alpine
+ * frontend. This is NOT a new design: every token/formula below is copied
+ * from that file's :root block (and its [data-accent]/[data-theme="light"]
+ * layers), not re-derived, so the two frontends read as one product. See
+ * that file's own comments for the full rationale behind each value (radius
+ * count, type-scale floor, gray-scale roles, contrast audits, etc.) — they
+ * aren't repeated here.
+ *
+ * Ported in this pass:
+ *   - Full token set: radii, fs-1..fs-6, sp-1..sp-6, gray-100..950 (dark +
+ *     light), --raised, --ok/--warn/--err (dark + light), and all 6 accent
+ *     themes (amber default + ocean/aurora/ember/forest/crema) with their
+ *     light-theme --accent-ink overrides.
+ *   - Figtree (400+600) vendored locally under static/fonts/ — no external
+ *     font CDN, same offline-under-Ingress requirement as the Node app.
+ *   - Button/form/list/badge/nav formulas re-applied to this frontend's
+ *     already-generic class names (.btn, .item-row, .badge, ... — this
+ *     frontend uses global classes where the Node original uses contextual
+ *     ones; only the visual formula is copied, not the class structure).
+ *
+ * Deliberately deferred to a follow-up package (documented, not forgotten):
+ *   - Fraunces (serif display face) — only needed once a Library/Beans page
+ *     renders bean names with .serif-display; no such page exists here yet.
+ *   - A theme/accent SWITCHER UI — every token below is defined for both
+ *     [data-theme="light"] and every [data-accent="..."], but nothing in
+ *     this frontend sets those attributes yet (layout.templ hardcodes
+ *     data-theme="dark"), so only the default dark/amber combination is
+ *     currently reachable. Turning it on later is a data-* toggle, not a
+ *     CSS change.
+ *   - A full Verdict-header rebuild of the Shots list (score as a large
+ *     hero figure instead of an inline chip) — this pass keeps
+ *     .shot-score as typography-only (no chip background), which is the
+ *     safe subset of that idea; the fuller layout change touches
+ *     shots.templ, not just CSS, and is scoped out here.
  */
 
 :root {
+  /* ── Radius ── two radii, not eight: --radius-sm for controls, --radius
+     for containers/cards. */
   --radius: 10px;
   --radius-sm: 4px;
 
+  /* ── Type scale ── six steps; a size not on this ladder is a
+     regression, not a nuance. */
   --fs-1: 0.8125rem;
   --fs-2: 0.875rem;
   --fs-3: 1rem;
   --fs-4: 1.25rem;
+  --fs-5: 1.625rem;
+  --fs-6: 2.25rem;
 
+  /* ── Spacing ladder ── a value off the ladder is a regression. */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
   --sp-4: 16px;
   --sp-5: 24px;
+  --sp-6: 32px;
 
+  /* ── Gray scale (dark theme) ── role-based, not brightness-based; the
+     scale inverts under [data-theme="light"] below, so --gray-200 is
+     always "primary text" and --gray-900 always "page background",
+     whichever theme is active.
+       100  strongest text (KPI values, large figures)
+       200  primary text
+       300  strong secondary text
+       400  soft text
+       500  muted text
+       600  muted, weakest
+       700  lines (border) — not a text colour
+       800  card / raised surface
+       900  page background
+       950  deepest surface
+  */
+  --gray-100: #f7f8f8;
   --gray-200: #eceded;
+  --gray-300: #d0d3d5;
+  --gray-400: #b6babd;
   --gray-500: #a4a9ad;
   --gray-600: #93989c;
   --gray-700: #2b2f33;
   --gray-800: #1a1c1f;
   --gray-900: #131416;
-  --raised:   #232629;
+  --gray-950: #0d0e10;
+  /* The nesting level that would otherwise be drawn as a card-in-a-card
+     with its own border — a surface step carries the hierarchy without
+     the boxes, which is what makes the border diet below possible. */
+  --raised: #232629;
 
-  --ok:   #5cb98a;
+  /* ── Functional ── */
+  --ok: #5cb98a;
   --warn: #d3a03f;
-  --err:  #e0705f;
+  --err: #e0705f;
 
+  /* ── Accent (Amber default) ── */
   --accent: #f59e0b;
+  --accent-from: #f59e0b;
+  --accent-to: #f97316;
+  --accent-text: #000;
+  --accent-glow: rgba(245, 158, 11, 0.15);
+  /* --on-fill: text/number sitting ON a full-strength semantic fill
+     (--ok/--warn/--err/--gray-600 used as a background). Black in the
+     dark theme, white in the light one — the dark theme's semantic
+     colours are the light, saturated ones. */
+  --on-fill: #000;
+  /* --accent-ink: the accent used as TEXT/icon rather than a fill. On
+     dark surfaces the accent itself is readable, so this is simply the
+     accent; the light theme overrides it per-accent below. */
+  --accent-ink: var(--accent);
+}
+
+/* ── Accent themes ── all 6 kept at their exact brand values; no
+   switcher UI wires these up yet (see header comment), but the tokens
+   are ready for one. */
+[data-accent="ocean"] {
+  --accent: #38bdf8;
+  --accent-from: #3b82f6;
+  --accent-to: #06b6d4;
+  --accent-text: #000;
+  --accent-glow: rgba(59, 130, 246, 0.15);
+}
+[data-accent="aurora"] {
+  --accent: #a78bfa;
+  --accent-from: #6366f1;
+  --accent-to: #a855f7;
+  --accent-text: #fff;
+  --accent-glow: rgba(167, 139, 250, 0.15);
+}
+[data-accent="ember"] {
+  --accent: #fb923c;
+  --accent-from: #ef4444;
+  --accent-to: #f97316;
+  --accent-text: #fff;
+  --accent-glow: rgba(239, 68, 68, 0.15);
+}
+[data-accent="forest"] {
+  --accent: #34d399;
+  --accent-from: #22c55e;
+  --accent-to: #10b981;
+  --accent-text: #000;
+  --accent-glow: rgba(34, 197, 94, 0.15);
+}
+/* Crema also warms the neutral gray scale (espresso-brown instead of true
+   gray) — every other accent only swaps --accent-*. */
+[data-accent="crema"] {
+  --gray-100: #fbf5ec;
+  --gray-200: #f2e6d8;
+  --gray-300: #dccbb6;
+  --gray-400: #c9b8a4;
+  --gray-500: #b0a08d;
+  --gray-600: #a2917d;
+  --gray-700: #4e3a2b;
+  --gray-800: #2e2118;
+  --gray-900: #1e1611;
+  --gray-950: #14100c;
+  --raised: #38291e;
+  --err: #e17363;
+  --accent: #d4a24c;
+  --accent-from: #d4a24c;
+  --accent-to: #b8823a;
+  --accent-text: #1c1410;
+  --accent-glow: rgba(212, 162, 76, 0.15);
+}
+
+/* ── Light theme ── same role scale, inverted: 100/200 are darkest here
+   because they are TEXT, 900/950 lightest because they are SURFACES. A
+   raised element gets DARKER in this theme (800 sits below 900) — the
+   opposite direction from dark, so --raised follows that same rule. */
+[data-theme="light"] {
+  --gray-100: #0e0f10;
+  --gray-200: #1b1d1f;
+  --gray-300: #303438;
+  --gray-400: #4a4e52;
+  --gray-500: #585d61;
+  --gray-600: #63686c;
+  --gray-700: #dcdcd8;
+  --gray-800: #eeeeec;
+  --gray-900: #f7f7f6;
+  --gray-950: #ffffff;
+  --raised: #e6e6e3;
+  --ok: #2f7350;
+  --warn: #7d5510;
+  --err: #a83526;
+  --on-fill: #fff;
+}
+/* --accent-ink for every accent in the light theme — the raw brand
+   values fail contrast on a light ground, so only the TEXT form is
+   darkened; --accent/--accent-from/--accent-to (fills/gradients/glows)
+   stay exactly the configured brand colour. */
+[data-theme="light"]:not([data-accent]),
+[data-theme="light"][data-accent="amber"] {
+  --accent: #d97706;
+  --accent-from: #d97706;
+  --accent-to: #ea580c;
+  --accent-ink: #9a5504;
+}
+[data-theme="light"][data-accent="ocean"] { --accent-ink: #056e9c; }
+[data-theme="light"][data-accent="aurora"] { --accent-ink: #6d3ff7; }
+[data-theme="light"][data-accent="ember"] { --accent-ink: #a74d03; }
+[data-theme="light"][data-accent="forest"] { --accent-ink: #197553; }
+/* Crema's light variant reads as warm paper, not an inverted dark
+   palette — every neutral gets its own value. */
+[data-theme="light"][data-accent="crema"] {
+  --gray-100: #1a0f06;
+  --gray-200: #2a1b0f;
+  --gray-300: #40301f;
+  --gray-400: #55442f;
+  --gray-500: #5f4c38;
+  --gray-600: #65523e;
+  --gray-700: #d4b48c;
+  --gray-800: #ead5b5;
+  --gray-900: #f3e4ce;
+  --gray-950: #fbf3e7;
+  --raised: #e0c7a2;
+  --ok: #0d622c;
+  --warn: #7a4a05;
+  --err: #a71b1b;
+  --on-fill: #fff;
+  --accent: #7a4a21;
+  --accent-from: #8b5e34;
+  --accent-to: #6b3f1d;
+  --accent-text: #fff;
+  --accent-glow: rgba(122, 74, 33, 0.15);
+  --accent-ink: #7a4a21;
+}
+
+/* Bundled locally (static/fonts/) so this renders fully offline / behind
+ * HA Ingress — no external font CDN, same rule public-src/style.css
+ * follows. 400/600 latin only, the two weights this frontend uses.
+ * Fraunces is NOT vendored here yet — see header comment. */
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/figtree-400-latin.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("fonts/figtree-600-latin.woff2") format("woff2");
 }
 
 * { box-sizing: border-box; }
@@ -51,9 +256,16 @@ body {
   margin: 0;
   background: var(--gray-900);
   color: var(--gray-200);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: "Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: var(--fs-3);
+  /* Fixed-width digits everywhere — scores, durations, timestamps never
+     jitter/reflow as values change. */
+  font-variant-numeric: tabular-nums;
 }
+
+/* Form controls don't inherit font-family from the page by default (the
+   browser UA stylesheet gives them their own system font). */
+button, input, select, textarea { font-family: inherit; }
 
 .topnav {
   display: flex;
@@ -61,12 +273,15 @@ body {
   flex-wrap: wrap;
   gap: var(--sp-4) var(--sp-3);
   padding: var(--sp-3) var(--sp-5);
-  border-bottom: 1px solid var(--gray-700);
+  /* Border diet: a hard 1px separator replaced by a surface-fill step
+     (deepest surface, since the nav sticks above the page content),
+     matching the Node original's "surface, not a line" nesting rule. */
+  background: var(--gray-950);
 }
 
 .topnav-brand {
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-ink);
   text-decoration: none;
 }
 
@@ -77,6 +292,19 @@ body {
 }
 
 .topnav-link:hover { color: var(--gray-200); }
+
+.topnav-group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding-right: var(--sp-4);
+  border-right: 1px solid var(--gray-700);
+}
+
+.topnav-group:last-child {
+  border-right: none;
+  padding-right: 0;
+}
 
 .page {
   max-width: 720px;
@@ -91,6 +319,7 @@ body {
 
 .filter-input {
   width: 100%;
+  min-height: 44px;
   padding: var(--sp-2) var(--sp-3);
   margin-bottom: var(--sp-4);
   border-radius: var(--radius-sm);
@@ -98,6 +327,12 @@ body {
   background: var(--raised);
   color: var(--gray-200);
   font-size: var(--fs-2);
+  transition: border-color .15s;
+}
+
+.filter-input:focus {
+  outline: none;
+  border-color: var(--accent-ink);
 }
 
 .shot-list {
@@ -125,11 +360,14 @@ body {
   font-size: var(--fs-1);
 }
 
+/* Verdict-lite: score reads as typography (weight + colour), not a boxed
+ * chip — the safe subset of the Verdict-header idea that fits a CSS-only
+ * pass. A full hero-figure treatment is a shots.templ layout change,
+ * deferred (see header comment). */
 .shot-score {
   font-weight: 700;
-  font-size: var(--fs-2);
-  padding: 1px var(--sp-2);
-  border-radius: var(--radius-sm);
+  font-size: var(--fs-3);
+  margin-left: var(--sp-2);
 }
 
 .score-great { color: var(--ok); }
@@ -139,18 +377,38 @@ body {
 .shot-actions { display: flex; align-items: center; gap: var(--sp-2); }
 
 .btn {
+  background: var(--gray-800);
   border: 1px solid var(--gray-700);
-  background: transparent;
   color: var(--gray-200);
-  border-radius: var(--radius-sm);
-  padding: var(--sp-1) var(--sp-3);
-  font-size: var(--fs-1);
+  border-radius: var(--radius);
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-2);
   cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s;
 }
 
-.btn:hover { border-color: var(--gray-500); }
+.btn:hover { background: var(--raised); border-color: var(--gray-600); }
+.btn:active { background: var(--gray-700); }
 
 .btn-danger { color: var(--err); border-color: var(--err); }
+.btn-danger:hover { background: rgba(224, 112, 95, 0.12); }
+
+.btn-active {
+  border-color: var(--accent-ink);
+  color: var(--accent-ink);
+}
+
+/* Touch targets: list-row action buttons only need to grow to 44x44 on
+ * devices with no hover (touch) — gated on the feature query rather than
+ * a width breakpoint, same convention the Node original uses for its
+ * comparable/star hit areas. */
+@media (hover: none) {
+  .shot-actions .btn,
+  .item-actions .btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
 
 .confirm-bar {
   display: flex;
@@ -166,10 +424,9 @@ body {
   text-align: center;
 }
 
-/* Phase 2b (#901) — Library pages (Beans/Grinders/Baskets/Puck Screens/
- * Milks/Recipes): generic, entity-agnostic row classes (unlike shots.templ's
- * shot-* classes, which are Shots-page-specific) so every library list page
- * shares one set of rules instead of six near-duplicates. */
+/* Library pages (Beans/Grinders/Baskets/Puck Screens/Milks/Recipes):
+ * generic, entity-agnostic row classes so every library list page shares
+ * one set of rules instead of six near-duplicates. */
 .item-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 
 .item-row {
@@ -203,15 +460,27 @@ body {
   color: var(--gray-500);
 }
 
-.badge-speciality { color: var(--accent); border-color: var(--accent); }
+.badge-speciality { color: var(--accent-ink); border-color: var(--accent-ink); }
 
-.badge-ok  { color: var(--ok);  border-color: var(--ok); }
-.badge-err { color: var(--err); border-color: var(--err); }
+.badge-ok   { color: var(--ok);   border-color: var(--ok); }
+.badge-err  { color: var(--err);  border-color: var(--err); }
+.badge-warn { color: var(--warn); border-color: var(--warn); }
 
-/* Phase 2c (#901) — Live page (templates/live.templ + static/live.js): the
- * status badge/preheat widget/readouts/chart wrap static/live.js binds to
- * and drives client-side (see that file's own header comment for why this
- * page isn't htmx-driven like every other one). */
+/* New-entity forms (Library/Machines create forms): raised card, same
+ * surface-step nesting principle as .item-row/.shot-row rather than a
+ * bordered box. */
+.new-entity-form {
+  margin-top: var(--sp-4);
+  padding: var(--sp-4);
+  background: var(--raised);
+  border-radius: var(--radius);
+}
+
+.new-entity-form .item-meta { display: block; margin-top: var(--sp-2); }
+
+/* Live page (templates/live.templ + static/live.js): the status
+ * badge/preheat widget/readouts/chart wrap static/live.js binds to and
+ * drives client-side. */
 .live-meta-row {
   display: flex;
   align-items: center;
@@ -229,7 +498,7 @@ body {
   color: var(--gray-500);
 }
 
-.live-status-badge.brewing     { color: var(--accent); border-color: var(--accent); }
+.live-status-badge.brewing     { color: var(--accent-ink); border-color: var(--accent-ink); }
 .live-status-badge.ready,
 .live-status-badge.idle        { color: var(--ok);     border-color: var(--ok); }
 .live-status-badge.unreachable { color: var(--err);    border-color: var(--err); }
@@ -300,10 +569,10 @@ body {
   margin: 0 0 var(--sp-3);
 }
 
-/* Phase 2d (#901) — Orders/Menu pages: the customer order form
- * (templates/menu.templ) is this frontend's first <form>, reusing
- * .filter-input for its text/select fields and .item-meta for labels rather
- * than introducing a parallel set of form-field classes. */
+/* Orders/Menu pages: the customer order form (templates/menu.templ) and
+ * the Library/Machines create forms all share this layout, reusing
+ * .filter-input for text/select/date fields and .item-meta for labels
+ * rather than a parallel set of form-field classes. */
 .order-form {
   display: flex;
   flex-direction: column;
@@ -316,28 +585,7 @@ body {
   align-self: flex-start;
 }
 
-/* Phase 2e (#901) — Maintenance/Backup/Settings pages, and the nav grouping
- * added alongside them once the top nav grew past a dozen links. */
-.topnav-group {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  padding-right: var(--sp-4);
-  border-right: 1px solid var(--gray-700);
-}
-
-.topnav-group:last-child {
-  border-right: none;
-  padding-right: 0;
-}
-
-.badge-warn { color: var(--warn); border-color: var(--warn); }
-
-.btn-active {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
+/* Maintenance/Backup/Settings pages. */
 .maint-switcher { margin-bottom: var(--sp-4); flex-wrap: wrap; }
 
 .maint-bar {
