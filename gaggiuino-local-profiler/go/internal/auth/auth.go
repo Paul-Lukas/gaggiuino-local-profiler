@@ -142,15 +142,34 @@ func writeTokenFile(path, content string) error {
 
 // SecurityHeaders wraps next with server.js's security-header middleware
 // (the app.use((req, res, next) => {...}) block near the top of that file,
-// lines ~83-98) — same header names and values verbatim, applied to every
-// response before any route-specific handler runs. Chart.js, ECharts,
-// topojson-client, QRCode and both fonts (Figtree, Fraunces) are bundled
-// into the app, hence no third-party host needed in the CSP.
+// lines ~83-98) — same header names and values, with one deliberate
+// deviation: X-Frame-Options is SAMEORIGIN here, not server.js's DENY.
+//
+// DENY blocks framing unconditionally, including same-origin — which broke
+// the HA sidebar panel embed live in production (2026-08-21): HA's Ingress
+// proxy serves this app under the *same origin* as the Home Assistant
+// frontend itself (https://<ha-host>/api/hassio_ingress/<token>/..., same
+// scheme+host+port as https://<ha-host>/), so the panel_icon/panel_title
+// sidebar iframe this app's config.yaml opts into is a same-origin embed,
+// not cross-origin — exactly what SAMEORIGIN exists to allow while still
+// blocking the cross-origin clickjacking DENY/SAMEORIGIN both guard
+// against. This is very likely a latent, identical bug in the Node app
+// (server.js sends the same unconditional DENY) that has simply never been
+// hit there — not something introduced by this port. Left unfixed on the
+// Node side deliberately: out of scope for this migration, flag for a
+// separate issue instead of touching server.js here.
+//
+// Chart.js, ECharts, topojson-client, QRCode and both fonts (Figtree,
+// Fraunces) are bundled into the app, hence no third-party host needed in
+// the CSP. frame-ancestors 'self' is added (absent from server.js's CSP)
+// as defense-in-depth alongside the header fix above — belt-and-braces,
+// not required, since X-Frame-Options already governs when frame-ancestors
+// is absent.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Frame-Options", "SAMEORIGIN")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
 		h.Set("Content-Security-Policy",
@@ -159,7 +178,8 @@ func SecurityHeaders(next http.Handler) http.Handler {
 				"style-src 'self' 'unsafe-inline'; "+
 				"font-src 'self' data:; "+
 				"img-src 'self' data: blob:; "+
-				"connect-src 'self';")
+				"connect-src 'self'; "+
+				"frame-ancestors 'self';")
 		next.ServeHTTP(w, r)
 	})
 }

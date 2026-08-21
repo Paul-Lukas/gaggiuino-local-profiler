@@ -385,7 +385,7 @@ func TestSecurityHeaders(t *testing.T) {
 
 	want := map[string]string{
 		"X-Content-Type-Options": "nosniff",
-		"X-Frame-Options":        "DENY",
+		"X-Frame-Options":        "SAMEORIGIN",
 		"Referrer-Policy":        "same-origin",
 		"Permissions-Policy":     "camera=(self), microphone=(), geolocation=()",
 		"Content-Security-Policy": "default-src 'self'; " +
@@ -393,7 +393,8 @@ func TestSecurityHeaders(t *testing.T) {
 			"style-src 'self' 'unsafe-inline'; " +
 			"font-src 'self' data:; " +
 			"img-src 'self' data: blob:; " +
-			"connect-src 'self';",
+			"connect-src 'self'; " +
+			"frame-ancestors 'self';",
 	}
 	for header, expected := range want {
 		if got := rec.Header().Get(header); got != expected {
