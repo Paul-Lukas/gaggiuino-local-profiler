@@ -1,6 +1,10 @@
 package machines
 
-import "context"
+import (
+	"context"
+
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/httputil"
+)
 
 // This file (#901, Go web-UI Create/Edit follow-up) extracts POST
 // /api/machines' validate -> SSRF-check -> Registry.CreateMachine sequence
@@ -11,13 +15,10 @@ import "context"
 // (internal/library/create.go) apply for that domain's own Create* forms.
 
 // ValidationError carries the 400 message CreateMachineChecked's caller
-// should surface — the same status-carrying-error convention
-// internal/orders.OrderError already established for that package.
-type ValidationError struct {
-	Message string
-}
-
-func (e *ValidationError) Error() string { return e.Message }
+// should surface. Aliased to httputil.ValidationError (#901 code review
+// finding #5) rather than redeclared — internal/library's own create.go
+// used to define an identical type independently; both now share one.
+type ValidationError = httputil.ValidationError
 
 // CreateMachineChecked ports POST /api/machines' full request-body ->
 // machine sequence (handlers_registry.go's createMachine): MachineInput
@@ -28,18 +29,18 @@ func (e *ValidationError) Error() string { return e.Message }
 // "always a 400" mapping for both validate() and the SSRF guard.
 func CreateMachineChecked(ctx context.Context, registry *Registry, in MachineInput) (*Machine, error) {
 	if err := in.validate(true); err != nil {
-		return nil, &ValidationError{"invalid machine: " + err.Error()}
+		return nil, &ValidationError{Message: "invalid machine: " + err.Error()}
 	}
 	if in.Host != nil && *in.Host != "" {
 		hostname, err := hostnameOf(*in.Host)
 		if err != nil {
-			return nil, &ValidationError{err.Error()}
+			return nil, &ValidationError{Message: err.Error()}
 		}
 		if err := assertMachineHost(ctx, hostname); err != nil {
 			if isSSRFBlocked(err) {
-				return nil, &ValidationError{"host not allowed"}
+				return nil, &ValidationError{Message: "host not allowed"}
 			}
-			return nil, &ValidationError{err.Error()}
+			return nil, &ValidationError{Message: err.Error()}
 		}
 	}
 	return registry.CreateMachine(in)

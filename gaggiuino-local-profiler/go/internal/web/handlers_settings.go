@@ -43,18 +43,48 @@ import (
 // no such logic at all, per this phase's "use the existing service/adapter
 // layer unchanged, no new parsing logic" instruction.
 //
-// # All five categories are editable
+// # display/led/scales are editable — boiler/system stay read-only
 //
 // An earlier pass of this page only made "display" editable (boiler/led/
 // scales/system stayed read-only <pre> blocks) — a dispatch-brief-allowed
 // reduced scope for "a full five-way form is too much for this phase". A
 // later pass (#901, the Go web-UI Create/Edit follow-up prompted by "ich
-// kann garnix anlegen") closed that gap: every category now gets the same
-// raw-JSON <textarea> form and its own POST /settings/{category} route,
-// sharing saveAction/renderCategoryFragment below instead of duplicating
-// per-category handler code. settingsCategoryNames is both the fixed
-// fetch/render order and the allow-list saveAction checks an incoming
-// {category} path value against.
+// kann garnix anlegen") made all five editable — but a subsequent code
+// review (finding #1) flagged that as a real safety regression:
+// machines.ValidateSettingsPayload only checks "is this valid JSON",
+// never per-field ranges or types, before forwarding the payload straight
+// to adapter.UpdateSettings — and that's not a gap this page introduced.
+// The REST proxy (routes/machine-control.js's POST /api/machine/settings/
+// :category) has always had the exact same opaque check
+// (lib/validation/schemas.js's settingsPayloadSchema = z.record(z.string(),
+// z.any())) for every one of Node's GAGGIUINO_SETTINGS_CATEGORIES
+// (lib/constants.js), boiler included — so closing this for the REST API
+// too is out of scope for a web-UI forms package and belongs to a
+// dedicated validation-hardening pass across both.
+//
+// What this page controls is only whether *its own* write path exposes
+// that gap. boiler holds real hardware setpoints (targetBrewTemp,
+// brewDeltaState — see the fixture data in handlers_settings_test.go) that
+// a bad value can genuinely damage or endanger the machine; system holds
+// releaseChannel, which selects which firmware channel the machine's own
+// OTA flow tracks (stable/test/debug — see
+// internal/machines/firmware_check.go) — a wrong value there risks landing
+// unstable firmware on real hardware, not just a cosmetic glitch. Neither
+// is something this page can safely validate itself (the payload is
+// deliberately never decoded into typed fields — see this file's own
+// "opaque JSON" section above), so saveAction and settingsCategoryBlock
+// (settings.templ) go back to treating both as read-only, restoring their
+// pre-#901 behavior, while display/led/scales — cosmetic (display/led) or
+// calibration-only (scales), where a bad value is at worst a wrong number
+// on screen or a mis-scaled reading — stay editable. See
+// settingsReadOnlyCategories below.
+//
+// Every category still gets fetched and shown (read-only categories render
+// as a <pre> block instead of a form), sharing saveAction/
+// renderCategoryFragment below instead of duplicating per-category handler
+// code. settingsCategoryNames is the fixed fetch/render order;
+// isEditableSettingsCategory is the allow-list saveAction checks an
+// incoming {category} path value's write access against.
 //
 // # No per-machine switcher
 //
@@ -88,6 +118,16 @@ type AdapterProvider interface {
 // editable category before the other four joined it.
 var settingsCategoryNames = []string{"display", "boiler", "led", "scales", "system"}
 
+// settingsReadOnlyCategories are the settings categories this page never
+// exposes a write path for — boiler (temperature/PID setpoints — see this
+// file's own doc comment) and system (releaseChannel, the OTA firmware
+// channel selector). Still fetched and rendered, just as a <pre> block
+// instead of an editable form; see isEditableSettingsCategory.
+var settingsReadOnlyCategories = map[string]bool{
+	"boiler": true,
+	"system": true,
+}
+
 func isKnownSettingsCategory(name string) bool {
 	for _, c := range settingsCategoryNames {
 		if c == name {
@@ -95,6 +135,13 @@ func isKnownSettingsCategory(name string) bool {
 		}
 	}
 	return false
+}
+
+// isEditableSettingsCategory is isKnownSettingsCategory further narrowed to
+// the categories this page allows a POST /settings/{category} write for —
+// see settingsReadOnlyCategories.
+func isEditableSettingsCategory(name string) bool {
+	return isKnownSettingsCategory(name) && !settingsReadOnlyCategories[name]
 }
 
 // SettingsHandlers wires machines.Registry + AdapterProvider into the HTML
@@ -151,7 +198,7 @@ func (h *SettingsHandlers) fetchCategory(ctx context.Context, adapter machines.A
 	if err != nil {
 		return templates.SettingsCategory{Name: category, FetchError: "Could not reach machine: " + err.Error()}
 	}
-	return templates.SettingsCategory{Name: category, JSON: prettyJSON(raw)}
+	return templates.SettingsCategory{Name: category, JSON: prettyJSON(raw), Editable: isEditableSettingsCategory(category)}
 }
 
 // prettyJSON formats raw for the <textarea>/<pre> round trip — falls back
@@ -207,7 +254,7 @@ func (h *SettingsHandlers) settingsPage(w http.ResponseWriter, r *http.Request) 
 }
 
 // saveAction ports the htmx `hx-post="settings/{category}"` interaction,
-// shared by all five categories: forward the submitted textarea's exact
+// shared by every editable category: forward the submitted textarea's exact
 // bytes to adapter.UpdateSettings, unmodified — see this file's own doc
 // comment on why this stays a raw-bytes round trip. Re-fetches the category
 // from the machine after a successful save (rather than trusting the
@@ -215,11 +262,19 @@ func (h *SettingsHandlers) settingsPage(w http.ResponseWriter, r *http.Request) 
 // machine actually persisted. {category} is checked against
 // isKnownSettingsCategory before anything else — a request for a category
 // this page doesn't know about (a stale link, a hand-crafted request) gets
-// a plain 404 rather than reaching the adapter at all.
+// a plain 404 rather than reaching the adapter at all — and then against
+// isEditableSettingsCategory: a request naming a real but read-only
+// category (boiler, system — see this file's own doc comment) 403s instead
+// of forwarding an unvalidated payload to the machine, even if a client
+// crafts the POST directly rather than going through the (form-less) page.
 func (h *SettingsHandlers) saveAction(w http.ResponseWriter, r *http.Request) {
 	category := r.PathValue("category")
 	if !isKnownSettingsCategory(category) {
 		writeFragmentError(w, http.StatusNotFound, "Unknown settings category")
+		return
+	}
+	if !isEditableSettingsCategory(category) {
+		writeFragmentError(w, http.StatusForbidden, "This settings category is read-only")
 		return
 	}
 	machine, adapter, err := h.resolveDefaultAdapter()
@@ -242,11 +297,11 @@ func (h *SettingsHandlers) saveAction(w http.ResponseWriter, r *http.Request) {
 	submitted := r.FormValue("raw")
 	raw := json.RawMessage(submitted)
 	if err := machines.ValidateSettingsPayload(raw); err != nil {
-		h.renderCategoryFragment(w, r, templates.SettingsCategory{Name: category, JSON: submitted}, err.Error())
+		h.renderCategoryFragment(w, r, templates.SettingsCategory{Name: category, JSON: submitted, Editable: true}, err.Error())
 		return
 	}
 	if _, err := adapter.UpdateSettings(r.Context(), machine, category, raw); err != nil {
-		h.renderCategoryFragment(w, r, templates.SettingsCategory{Name: category, JSON: submitted}, "Save failed: "+err.Error())
+		h.renderCategoryFragment(w, r, templates.SettingsCategory{Name: category, JSON: submitted, Editable: true}, "Save failed: "+err.Error())
 		return
 	}
 	h.renderCategoryFragment(w, r, h.fetchCategory(r.Context(), adapter, machine, category), "")

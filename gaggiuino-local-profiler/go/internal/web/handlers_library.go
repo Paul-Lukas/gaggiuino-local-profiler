@@ -44,6 +44,13 @@ type LibraryHandlers struct {
 	repo      *library.Repository
 	shotsRepo *shots.Repository
 	rl        *ratelimit.KeyedLimiter
+	// imageDir mirrors internal/library.Handlers' own unexported imageDir
+	// field (#901 code review finding #4) — createBeanAction used to pass
+	// the hardcoded library.DefaultImageDir straight to library.CreateBean
+	// instead of a configurable field the way the REST path does, so a test
+	// (or a future caller) overriding where bean images land had no way to
+	// reach this package's own create action.
+	imageDir string
 }
 
 // NewLibraryHandlers builds LibraryHandlers around repo and shotsRepo — the
@@ -51,7 +58,7 @@ type LibraryHandlers struct {
 // once and shares with internal/library's and internal/shots' own REST
 // handlers.
 func NewLibraryHandlers(repo *library.Repository, shotsRepo *shots.Repository) *LibraryHandlers {
-	return &LibraryHandlers{repo: repo, shotsRepo: shotsRepo, rl: ratelimit.NewKeyed()}
+	return &LibraryHandlers{repo: repo, shotsRepo: shotsRepo, rl: ratelimit.NewKeyed(), imageDir: library.DefaultImageDir}
 }
 
 // RegisterRoutes registers this file's page and htmx-action routes onto
@@ -94,6 +101,15 @@ func (h *LibraryHandlers) beanRows() ([]templates.BeanRow, error) {
 	if err != nil {
 		return nil, err
 	}
+	return h.beanRowsFromLib(lib)
+}
+
+// beanRowsFromLib is beanRows' projection step split out from its own
+// repo.GetLibrary() read (#901 code review finding #3) — createBeanAction
+// already gets the freshly-saved Library back from library.CreateBean, so
+// it calls this directly instead of paying a second, redundant GetLibrary
+// read purely to re-render the row it just created.
+func (h *LibraryHandlers) beanRowsFromLib(lib library.Library) ([]templates.BeanRow, error) {
 	doseRows, err := h.shotsRepo.GetAnnotatedDoses()
 	if err != nil {
 		return nil, err
@@ -145,7 +161,8 @@ func (h *LibraryHandlers) createBeanAction(w http.ResponseWriter, r *http.Reques
 		"roaster":  r.FormValue("roaster"),
 		"category": r.FormValue("category"),
 	}
-	if _, err := library.CreateBean(h.repo, library.DefaultImageDir, body); err != nil {
+	_, lib, err := library.CreateBean(h.repo, h.imageDir, body)
+	if err != nil {
 		var verr *library.ValidationError
 		if errors.As(err, &verr) {
 			h.renderBeansFragment(w, r, verr.Message)
@@ -154,14 +171,30 @@ func (h *LibraryHandlers) createBeanAction(w http.ResponseWriter, r *http.Reques
 		httputil.InternalError(w, "web", err)
 		return
 	}
-	h.renderBeansFragment(w, r, "")
+	h.renderBeansFragmentFromLib(w, r, lib, "")
 }
 
 // renderBeansFragment re-reads the current bean list and renders
-// BeansContentFragment with formError — shared by createBeanAction's
-// success and validation-failure paths (see that method's own doc comment).
+// BeansContentFragment with formError — used for the "no Library available
+// yet" paths (rate-limited, bad form, validation failure) that never
+// reached library.CreateBean.
 func (h *LibraryHandlers) renderBeansFragment(w http.ResponseWriter, r *http.Request, formError string) {
 	rows, err := h.beanRows()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.BeansContentFragment(rows, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /beans fragment: %v", err)
+	}
+}
+
+// renderBeansFragmentFromLib is renderBeansFragment's counterpart for a
+// caller that already has the current Library (a just-succeeded create) —
+// see beanRowsFromLib's own doc comment.
+func (h *LibraryHandlers) renderBeansFragmentFromLib(w http.ResponseWriter, r *http.Request, lib library.Library, formError string) {
+	rows, err := h.beanRowsFromLib(lib)
 	if err != nil {
 		httputil.InternalError(w, "web", err)
 		return
@@ -217,6 +250,13 @@ func (h *LibraryHandlers) grinderRows() ([]templates.GrinderRow, error) {
 	if err != nil {
 		return nil, err
 	}
+	return h.grinderRowsFromLib(lib)
+}
+
+// grinderRowsFromLib is grinderRows' projection step split out from its own
+// repo.GetLibrary() read — see beanRowsFromLib's doc comment (#901 code
+// review finding #3).
+func (h *LibraryHandlers) grinderRowsFromLib(lib library.Library) ([]templates.GrinderRow, error) {
 	rows := make([]templates.GrinderRow, len(lib.Grinders))
 	for i, grinder := range lib.Grinders {
 		shotsSince, gramsSince, err := library.ComputeGrinderWearStats(h.shotsRepo, grinder)
@@ -259,7 +299,8 @@ func (h *LibraryHandlers) createGrinderAction(w http.ResponseWriter, r *http.Req
 		"burrType":     r.FormValue("burrType"),
 		"purchaseDate": r.FormValue("purchaseDate"),
 	}
-	if _, err := library.CreateGrinder(h.repo, body); err != nil {
+	_, lib, err := library.CreateGrinder(h.repo, body)
+	if err != nil {
 		var verr *library.ValidationError
 		if errors.As(err, &verr) {
 			h.renderGrindersFragment(w, r, verr.Message)
@@ -268,11 +309,23 @@ func (h *LibraryHandlers) createGrinderAction(w http.ResponseWriter, r *http.Req
 		httputil.InternalError(w, "web", err)
 		return
 	}
-	h.renderGrindersFragment(w, r, "")
+	h.renderGrindersFragmentFromLib(w, r, lib, "")
 }
 
 func (h *LibraryHandlers) renderGrindersFragment(w http.ResponseWriter, r *http.Request, formError string) {
 	rows, err := h.grinderRows()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.GrindersContentFragment(rows, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /grinders fragment: %v", err)
+	}
+}
+
+func (h *LibraryHandlers) renderGrindersFragmentFromLib(w http.ResponseWriter, r *http.Request, lib library.Library, formError string) {
+	rows, err := h.grinderRowsFromLib(lib)
 	if err != nil {
 		httputil.InternalError(w, "web", err)
 		return
@@ -295,11 +348,18 @@ func (h *LibraryHandlers) basketRows() ([]templates.BasketRow, error) {
 	if err != nil {
 		return nil, err
 	}
+	return h.basketRowsFromLib(lib), nil
+}
+
+// basketRowsFromLib is basketRows' projection step split out from its own
+// repo.GetLibrary() read — see beanRowsFromLib's doc comment (#901 code
+// review finding #3).
+func (h *LibraryHandlers) basketRowsFromLib(lib library.Library) []templates.BasketRow {
 	rows := make([]templates.BasketRow, len(lib.Baskets))
 	for i, basket := range lib.Baskets {
 		rows[i] = toBasketRow(basket)
 	}
-	return rows, nil
+	return rows
 }
 
 func (h *LibraryHandlers) basketsPage(w http.ResponseWriter, r *http.Request) {
@@ -328,7 +388,8 @@ func (h *LibraryHandlers) createBasketAction(w http.ResponseWriter, r *http.Requ
 		"wallType": r.FormValue("wallType"),
 		"shape":    r.FormValue("shape"),
 	}
-	if _, err := library.CreateBasket(h.repo, body); err != nil {
+	_, lib, err := library.CreateBasket(h.repo, body)
+	if err != nil {
 		var verr *library.ValidationError
 		if errors.As(err, &verr) {
 			h.renderBasketsFragment(w, r, verr.Message)
@@ -337,7 +398,10 @@ func (h *LibraryHandlers) createBasketAction(w http.ResponseWriter, r *http.Requ
 		httputil.InternalError(w, "web", err)
 		return
 	}
-	h.renderBasketsFragment(w, r, "")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.BasketsContentFragment(h.basketRowsFromLib(lib), "").Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /baskets fragment: %v", err)
+	}
 }
 
 func (h *LibraryHandlers) renderBasketsFragment(w http.ResponseWriter, r *http.Request, formError string) {
@@ -357,11 +421,18 @@ func (h *LibraryHandlers) puckScreenRows() ([]templates.PuckScreenRow, error) {
 	if err != nil {
 		return nil, err
 	}
+	return h.puckScreenRowsFromLib(lib), nil
+}
+
+// puckScreenRowsFromLib is puckScreenRows' projection step split out from
+// its own repo.GetLibrary() read — see beanRowsFromLib's doc comment (#901
+// code review finding #3).
+func (h *LibraryHandlers) puckScreenRowsFromLib(lib library.Library) []templates.PuckScreenRow {
 	rows := make([]templates.PuckScreenRow, len(lib.PuckScreens))
 	for i, puckScreen := range lib.PuckScreens {
 		rows[i] = toPuckScreenRow(puckScreen)
 	}
-	return rows, nil
+	return rows
 }
 
 func (h *LibraryHandlers) puckScreensPage(w http.ResponseWriter, r *http.Request) {
@@ -390,7 +461,8 @@ func (h *LibraryHandlers) createPuckScreenAction(w http.ResponseWriter, r *http.
 		"thickness": r.FormValue("thickness"),
 		"material":  r.FormValue("material"),
 	}
-	if _, err := library.CreatePuckScreen(h.repo, body); err != nil {
+	_, lib, err := library.CreatePuckScreen(h.repo, body)
+	if err != nil {
 		var verr *library.ValidationError
 		if errors.As(err, &verr) {
 			h.renderPuckScreensFragment(w, r, verr.Message)
@@ -399,7 +471,10 @@ func (h *LibraryHandlers) createPuckScreenAction(w http.ResponseWriter, r *http.
 		httputil.InternalError(w, "web", err)
 		return
 	}
-	h.renderPuckScreensFragment(w, r, "")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.PuckScreensContentFragment(h.puckScreenRowsFromLib(lib), "").Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /puckscreens fragment: %v", err)
+	}
 }
 
 func (h *LibraryHandlers) renderPuckScreensFragment(w http.ResponseWriter, r *http.Request, formError string) {
@@ -419,11 +494,18 @@ func (h *LibraryHandlers) milkRows() ([]templates.MilkRow, error) {
 	if err != nil {
 		return nil, err
 	}
+	return h.milkRowsFromLib(lib), nil
+}
+
+// milkRowsFromLib is milkRows' projection step split out from its own
+// repo.GetLibrary() read — see beanRowsFromLib's doc comment (#901 code
+// review finding #3).
+func (h *LibraryHandlers) milkRowsFromLib(lib library.Library) []templates.MilkRow {
 	rows := make([]templates.MilkRow, len(lib.Milks))
 	for i, milk := range lib.Milks {
 		rows[i] = toMilkRow(milk)
 	}
-	return rows, nil
+	return rows
 }
 
 func (h *LibraryHandlers) milksPage(w http.ResponseWriter, r *http.Request) {
@@ -447,19 +529,21 @@ func (h *LibraryHandlers) createMilkAction(w http.ResponseWriter, r *http.Reques
 		h.renderMilksFragment(w, r, "Invalid form submission")
 		return
 	}
+	// stockMl is handed to library.CreateMilk as the raw submitted string,
+	// same as every other field here — CreateMilk's own floatOrZero
+	// coercion (jsParseFloat) already handles a string amount, matching
+	// what POST /api/library/milk's JSON body decode produces. This used to
+	// pre-parse with strconv.ParseFloat, stricter than floatOrZero and the
+	// only one of the six create actions with different parsing behavior
+	// from its own REST counterpart for the same field (#901 code review
+	// finding #6).
 	body := library.Entity{
-		"name":  r.FormValue("name"),
-		"emoji": r.FormValue("emoji"),
+		"name":    r.FormValue("name"),
+		"emoji":   r.FormValue("emoji"),
+		"stockMl": r.FormValue("stockMl"),
 	}
-	if raw := r.FormValue("stockMl"); raw != "" {
-		if v, err := strconv.ParseFloat(raw, 64); err == nil {
-			body["stockMl"] = v
-		} else {
-			h.renderMilksFragment(w, r, "Invalid stock amount")
-			return
-		}
-	}
-	if _, err := library.CreateMilk(h.repo, body); err != nil {
+	_, lib, err := library.CreateMilk(h.repo, body)
+	if err != nil {
 		var verr *library.ValidationError
 		if errors.As(err, &verr) {
 			h.renderMilksFragment(w, r, verr.Message)
@@ -468,7 +552,10 @@ func (h *LibraryHandlers) createMilkAction(w http.ResponseWriter, r *http.Reques
 		httputil.InternalError(w, "web", err)
 		return
 	}
-	h.renderMilksFragment(w, r, "")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.MilksContentFragment(h.milkRowsFromLib(lib), "").Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /milks fragment: %v", err)
+	}
 }
 
 func (h *LibraryHandlers) renderMilksFragment(w http.ResponseWriter, r *http.Request, formError string) {
@@ -488,11 +575,18 @@ func (h *LibraryHandlers) recipeRows() ([]templates.RecipeRow, error) {
 	if err != nil {
 		return nil, err
 	}
+	return h.recipeRowsFromLib(lib), nil
+}
+
+// recipeRowsFromLib is recipeRows' projection step split out from its own
+// repo.GetLibrary() read — see beanRowsFromLib's doc comment (#901 code
+// review finding #3).
+func (h *LibraryHandlers) recipeRowsFromLib(lib library.Library) []templates.RecipeRow {
 	rows := make([]templates.RecipeRow, len(lib.Recipes))
 	for i, recipe := range lib.Recipes {
 		rows[i] = toRecipeRow(recipe)
 	}
-	return rows, nil
+	return rows
 }
 
 func (h *LibraryHandlers) recipesPage(w http.ResponseWriter, r *http.Request) {
@@ -521,7 +615,8 @@ func (h *LibraryHandlers) createRecipeAction(w http.ResponseWriter, r *http.Requ
 		"brewMethod": r.FormValue("brewMethod"),
 		"drinkType":  r.FormValue("drinkType"),
 	}
-	if _, err := library.CreateRecipe(h.repo, body); err != nil {
+	_, lib, err := library.CreateRecipe(h.repo, body)
+	if err != nil {
 		var verr *library.ValidationError
 		if errors.As(err, &verr) {
 			h.renderRecipesFragment(w, r, verr.Message)
@@ -530,7 +625,10 @@ func (h *LibraryHandlers) createRecipeAction(w http.ResponseWriter, r *http.Requ
 		httputil.InternalError(w, "web", err)
 		return
 	}
-	h.renderRecipesFragment(w, r, "")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.RecipesContentFragment(h.recipeRowsFromLib(lib), "").Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering POST /recipes fragment: %v", err)
+	}
 }
 
 func (h *LibraryHandlers) renderRecipesFragment(w http.ResponseWriter, r *http.Request, formError string) {

@@ -523,24 +523,32 @@ func TestCreateMilkAction_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestCreateMilkAction_InvalidStockRejected verifies a non-numeric stockMl
-// is rejected before ever reaching library.CreateMilk.
-func TestCreateMilkAction_InvalidStockRejected(t *testing.T) {
+// TestCreateMilkAction_InvalidStockCoercedToZero verifies a non-numeric
+// stockMl no longer gets its own stricter pre-validation (#901 code review
+// finding #6: createMilkAction used to strconv.ParseFloat stockMl itself
+// and reject a bad value outright — the only one of the six create actions
+// with parsing behavior stricter than, and different from, its own REST
+// counterpart for the same field). It's now handed to library.CreateMilk
+// exactly like every other field, whose own floatOrZero coercion silently
+// treats an unparseable value as 0 — the same behavior POST
+// /api/library/milk already has for a non-numeric stockMl, so a form
+// submission and the REST endpoint now agree.
+func TestCreateMilkAction_InvalidStockCoercedToZero(t *testing.T) {
 	mux, libRepo, _ := newTestLibraryServer(t)
 
 	rec := doFormPost(t, mux, "/milks", url.Values{"name": {"Oat Milk"}, "stockMl": {"not-a-number"}})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST /milks (bad stockMl): status = %d, want 200, body = %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "Invalid stock amount") {
-		t.Errorf("POST /milks (bad stockMl) body missing validation error\nbody:\n%s", rec.Body.String())
-	}
 	lib, err := libRepo.GetLibrary()
 	if err != nil {
 		t.Fatalf("GetLibrary: %v", err)
 	}
-	if len(lib.Milks) != 0 {
-		t.Errorf("library has %d milks after a rejected create, want 0", len(lib.Milks))
+	if len(lib.Milks) != 1 {
+		t.Fatalf("library has %d milks after create, want 1", len(lib.Milks))
+	}
+	if stock := lib.Milks[0]["stockMl"]; stock != float64(0) {
+		t.Errorf("milk.stockMl = %v, want 0 (non-numeric input coerced, not rejected)", stock)
 	}
 }
 

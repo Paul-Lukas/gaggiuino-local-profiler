@@ -39,7 +39,7 @@ func (h *Handlers) createPuckScreen(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	puckScreen, err := CreatePuckScreen(h.repo, body)
+	puckScreen, _, err := CreatePuckScreen(h.repo, body)
 	if err != nil {
 		var verr *ValidationError
 		if errors.As(err, &verr) {

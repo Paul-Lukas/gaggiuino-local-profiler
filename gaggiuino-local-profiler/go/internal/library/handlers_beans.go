@@ -30,7 +30,7 @@ func (h *Handlers) createBean(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	bean, err := CreateBean(h.repo, h.imageDir, body)
+	bean, _, err := CreateBean(h.repo, h.imageDir, body)
 	if err != nil {
 		var verr *ValidationError
 		if errors.As(err, &verr) {

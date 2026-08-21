@@ -3,11 +3,12 @@ package templates
 import "strings"
 
 // This file is Phase 2e's (#901) Settings-domain page: GET /settings shows
-// the default machine's Gaggiuino settings categories (boiler/led/scales/
-// system read-only, display editable) via internal/machines.Adapter's
-// GetSettings/UpdateSettings — the exact same #597 settings/control proxy
-// GET/POST /api/machine/settings(/save|/{category}) uses (see
-// go/internal/web/handlers_settings.go's own doc comment).
+// the default machine's Gaggiuino settings categories via internal/machines.
+// Adapter's GetSettings/UpdateSettings — the exact same #597 settings/
+// control proxy GET/POST /api/machine/settings(/{category}) uses (see
+// go/internal/web/handlers_settings.go's own doc comment). display/led/
+// scales are editable; boiler/system stay read-only <pre> blocks — see
+// handlers_settings.go's doc comment for why (code review finding #1).
 //
 // Every category is round-tripped as opaque JSON text, never parsed into
 // typed Go fields: internal/machines/doc.go's "bool-as-string quirk"
@@ -20,28 +21,23 @@ import "strings"
 // decodes a category into a typed struct or a generic form-field set, so
 // there's no risk of this page's own code re-encoding a quoted "true"
 // string as an unquoted boolean (or vice versa) the way a naive per-field
-// form would have to explicitly guard against. Editing four other
-// categories (boiler/led/scales/system) the same way, and a friendlier
-// typed form for "display" specifically, are both left to a later phase —
-// see handlers_settings.go's doc comment for the explicit scope call.
+// form would have to explicitly guard against.
 
-// SettingsCategory is one category block — either read-only or (for
-// EditableCategory) an editable form. JSON is the pretty-printed raw
-// settings payload; FetchError is set instead when GetSettings itself
-// failed (e.g. the machine is unreachable), in which case JSON is empty.
+// SettingsCategory is one category block — read-only <pre> or (when
+// Editable) an editable form. JSON is the pretty-printed raw settings
+// payload; FetchError is set instead when GetSettings itself failed (e.g.
+// the machine is unreachable), in which case JSON is empty.
 type SettingsCategory struct {
 	Name       string
 	JSON       string
 	FetchError string
+	Editable   bool
 }
 
 // SettingsPage is GET /settings. supported is false when the default
 // machine's adapter doesn't implement the settings/control proxy at all
 // (GaggiMate — see internal/machines.Capabilities.SettingsProxy), in which
-// case machineName is still shown but no category is fetched. Every
-// category in categories is editable (see handlers_settings.go's doc
-// comment on why all five — not just "display" — now round-trip through
-// the same raw-JSON <textarea> form).
+// case machineName is still shown but no category is fetched.
 templ SettingsPage(supported bool, machineName string, categories []SettingsCategory, saveErrors map[string]string) {
 	@Layout("Settings") {
 		<h1 class="page-title">Settings</h1>
@@ -50,9 +46,7 @@ templ SettingsPage(supported bool, machineName string, categories []SettingsCate
 			<div class="empty-state">This machine type does not support the settings proxy.</div>
 		} else {
 			for _, c := range categories {
-				<div id={ "settings-" + c.Name }>
-					@settingsEditableBlock(c, saveErrors[c.Name])
-				</div>
+				@settingsCategoryBlock(c, saveErrors[c.Name])
 			}
 		}
 	}
@@ -62,17 +56,30 @@ templ SettingsPage(supported bool, machineName string, categories []SettingsCate
 // answers with — just that one block, re-fetched from the machine after a
 // successful save so the textarea reflects whatever the machine actually
 // persisted (which can differ from what was submitted — the machine's own
-// settings endpoint is the source of truth, not this page's form).
+// settings endpoint is the source of truth, not this page's form). Named
+// for the write action it answers (saveAction only ever reaches an
+// editable category — see handlers_settings.go's own isEditableSettingsCategory
+// check), but renders through the same settingsCategoryBlock every category
+// uses.
 templ SettingsEditableFragment(editable SettingsCategory, saveError string) {
-	@settingsEditableBlock(editable, saveError)
+	@settingsCategoryBlock(editable, saveError)
 }
 
-templ settingsEditableBlock(c SettingsCategory, saveError string) {
+// settingsCategoryBlock is this page's one per-category block, both on
+// initial load (SettingsPage's loop) and in a save's fragment response
+// (SettingsEditableFragment) — the <section> itself carries the
+// "settings-{name}" id both times, so hx-target/hx-swap="outerHTML" always
+// replaces the same single element instead of leaving a stale wrapper
+// behind (#901 code review finding #2: an earlier version wrapped this
+// <section> in its own same-id <div>, so the two elements shared one DOM id
+// until a category was saved once, which collapsed just that category's
+// wrapper — inconsistent DOM between saved and unsaved categories).
+templ settingsCategoryBlock(c SettingsCategory, saveError string) {
 	<section class="settings-block" id={ "settings-" + c.Name }>
 		<h2 class="trash-heading">{ titleCase(c.Name) }</h2>
 		if c.FetchError != "" {
 			<div class="badge badge-err">{ c.FetchError }</div>
-		} else {
+		} else if c.Editable {
 			if saveError != "" {
 				<div class="badge badge-err">{ saveError }</div>
 			}
@@ -80,6 +87,8 @@ templ settingsEditableBlock(c SettingsCategory, saveError string) {
 				<textarea class="filter-input settings-textarea" name="raw" rows="12">{ c.JSON }</textarea>
 				<button type="submit" class="btn">Save</button>
 			</form>
+		} else {
+			<pre class="settings-json">{ c.JSON }</pre>
 		}
 	</section>
 }

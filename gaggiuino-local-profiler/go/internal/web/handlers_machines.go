@@ -49,6 +49,15 @@ func NewMachinesHandlers(registry *machines.Registry, poller *system.Poller) *Ma
 	return &MachinesHandlers{registry: registry, poller: poller, rl: ratelimit.NewKeyed()}
 }
 
+// allowCreate rate-limits a "New machine" form submission — the same
+// per-page helper convention handlers_library.go's own allowCreate
+// establishes (#901 code review finding #7: createMachineAction used to
+// call h.rl.Allow inline instead of through a named helper, the only one of
+// this phase's create actions that did).
+func (h *MachinesHandlers) allowCreate(r *http.Request) bool {
+	return h.rl.Allow("web-machines:"+auth.RemoteIP(r), 30)
+}
+
 // RegisterRoutes registers this file's page and htmx-action routes onto
 // mux — not prefixed with /api/, for the same GET/HEAD-auth-bypass reason
 // handlers.go's RegisterRoutes documents.
@@ -115,7 +124,7 @@ func (h *MachinesHandlers) machinesPage(w http.ResponseWriter, r *http.Request) 
 // re-rendering the form+list block with formError set on a validation/SSRF
 // failure, or cleared (and the new machine shown) on success.
 func (h *MachinesHandlers) createMachineAction(w http.ResponseWriter, r *http.Request) {
-	if !h.rl.Allow("web-machines:"+auth.RemoteIP(r), 30) {
+	if !h.allowCreate(r) {
 		h.renderMachinesFragment(w, r, "Too many requests — please slow down")
 		return
 	}

@@ -28,7 +28,7 @@ func (h *Handlers) createGrinder(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	grinder, err := CreateGrinder(h.repo, body)
+	grinder, _, err := CreateGrinder(h.repo, body)
 	if err != nil {
 		var verr *ValidationError
 		if errors.As(err, &verr) {

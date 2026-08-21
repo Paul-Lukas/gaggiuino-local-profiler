@@ -110,3 +110,21 @@ func DecodeJSONBodyInto(w http.ResponseWriter, r *http.Request, limit int64, v a
 	}
 	return true
 }
+
+// ValidationError carries a caller-facing 400 message — the same
+// status-carrying-error convention internal/orders.OrderError established
+// for that package, generalized here (#901 code review finding #5) since
+// internal/library and internal/machines each independently defined an
+// identical `type ValidationError struct{ Message string }` in their own
+// create.go for their Create*/CreateMachineChecked functions to signal
+// "reject with 400 and this message" to their web and REST callers alike.
+// Both packages now alias this type (`type ValidationError =
+// httputil.ValidationError`) instead of redeclaring it, so every existing
+// `*library.ValidationError`/`*machines.ValidationError` call site — and
+// the bare `*ValidationError` used within each package — keeps working
+// unchanged.
+type ValidationError struct {
+	Message string
+}
+
+func (e *ValidationError) Error() string { return e.Message }

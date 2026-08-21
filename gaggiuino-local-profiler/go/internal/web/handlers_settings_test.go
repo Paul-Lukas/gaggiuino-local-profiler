@@ -163,7 +163,9 @@ func newTestSettingsServer(t *testing.T, adapter *fakeSettingsAdapter) *http.Ser
 // that the bool-as-string quirk (led.state as the JSON *string* "false",
 // not a real boolean — see internal/machines/doc.go) survives the
 // pretty-print round trip unchanged, pinning that this page never decodes
-// a category into a typed struct.
+// a category into a typed struct. Also pins the code-review fix (finding
+// #1): only display/led/scales get an editable form; boiler/system render
+// as read-only <pre> blocks with no hx-post at all.
 func TestSettingsPage_RendersCategoriesPreservingBoolAsStringQuirk(t *testing.T) {
 	adapter := &fakeSettingsAdapter{
 		caps:     machines.Capabilities{SettingsProxy: true},
@@ -179,20 +181,36 @@ func TestSettingsPage_RendersCategoriesPreservingBoolAsStringQuirk(t *testing.T)
 	for _, want := range []string{
 		`&#34;state&#34;: &#34;false&#34;`,         // led's bool-as-string quirk, unmodified (templ HTML-escapes the quotes)
 		`&#34;lcdDarkMode&#34;: &#34;true&#34;`,    // display's, in its editable textarea
-		`&#34;brewDeltaState&#34;: &#34;true&#34;`, // boiler's
-		// #901 made every one of the 5 categories editable — each gets its
-		// own POST /settings/{category} form now, not just display's.
+		`&#34;brewDeltaState&#34;: &#34;true&#34;`, // boiler's, in its read-only <pre>
+		`&#34;releaseChannel&#34;: 0`,              // system's, in its read-only <pre>
 		`hx-post="settings/display"`,
-		`hx-post="settings/boiler"`,
 		`hx-post="settings/led"`,
 		`hx-post="settings/scales"`,
-		`hx-post="settings/system"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /settings body missing %q\nbody:\n%s", want, body)
 		}
 	}
+	for _, notWant := range []string{
+		`hx-post="settings/boiler"`,
+		`hx-post="settings/system"`,
+	} {
+		if strings.Contains(body, notWant) {
+			t.Errorf("GET /settings body unexpectedly contains %q — boiler/system must stay read-only\nbody:\n%s", notWant, body)
+		}
+	}
 	assertNoRootAbsolutePaths(t, body)
+
+	// Code-review finding #2: each category's "settings-{name}" id must
+	// appear exactly once in the initial render — an earlier version wrapped
+	// settingsCategoryBlock's <section id="settings-{name}"> in its own
+	// same-id <div>, so every category had the id twice until saved once.
+	for _, cat := range settingsCategoryNames {
+		id := `id="settings-` + cat + `"`
+		if n := strings.Count(body, id); n != 1 {
+			t.Errorf("GET /settings: %q appears %d times, want exactly 1\nbody:\n%s", id, n, body)
+		}
+	}
 }
 
 // TestSettingsPage_UnsupportedAdapter verifies the "this machine type
@@ -265,31 +283,56 @@ func TestSettingsPage_FetchesCategoriesConcurrently(t *testing.T) {
 
 // ── Save (POST /settings/{category}) ─────────────────────────────────────
 
-// TestSaveAction_NonDisplayCategoryRoundTrip pins #901's "all five
-// categories are editable" change: POST /settings/boiler (previously
-// read-only) round-trips the same way POST /settings/display always has —
-// same saveAction handler, different {category} path value.
-func TestSaveAction_NonDisplayCategoryRoundTrip(t *testing.T) {
+// TestSaveAction_EditableCategoryRoundTrip verifies a POST /settings/{category}
+// for a genuinely editable category (led here — display already has its own
+// dedicated tests below) round-trips.
+func TestSaveAction_EditableCategoryRoundTrip(t *testing.T) {
 	adapter := &fakeSettingsAdapter{
 		caps:     machines.Capabilities{SettingsProxy: true},
 		settings: defaultTestSettings(),
 	}
 	mux := newTestSettingsServer(t, adapter)
 
-	submitted := `{"brewDeltaState":"false","targetBrewTemp":95}`
-	rec := doFormPost(t, mux, "/settings/boiler", url.Values{"raw": {submitted}})
+	submitted := `{"state":"true"}`
+	rec := doFormPost(t, mux, "/settings/led", url.Values{"raw": {submitted}})
 	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /settings/boiler: status = %d, body = %s", rec.Code, rec.Body.String())
+		t.Fatalf("POST /settings/led: status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if string(adapter.settings["boiler"]) != submitted {
-		t.Errorf("UpdateSettings(boiler) received %q, want the exact submitted bytes %q", adapter.settings["boiler"], submitted)
+	if string(adapter.settings["led"]) != submitted {
+		t.Errorf("UpdateSettings(led) received %q, want the exact submitted bytes %q", adapter.settings["led"], submitted)
 	}
-	if !strings.Contains(rec.Body.String(), `&#34;targetBrewTemp&#34;: 95`) {
-		t.Errorf("POST /settings/boiler response doesn't reflect the saved value\nbody:\n%s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `&#34;state&#34;: &#34;true&#34;`) {
+		t.Errorf("POST /settings/led response doesn't reflect the saved value\nbody:\n%s", rec.Body.String())
 	}
-	// display must be untouched by a boiler save.
+	// display must be untouched by a led save.
 	if string(adapter.settings["display"]) != string(defaultTestSettings()["display"]) {
-		t.Errorf("POST /settings/boiler unexpectedly changed the display category")
+		t.Errorf("POST /settings/led unexpectedly changed the display category")
+	}
+}
+
+// TestSaveAction_ReadOnlyCategoryRejected pins the code-review fix (finding
+// #1): boiler/system hold real hardware setpoints and a firmware-channel
+// selector respectively (see handlers_settings.go's own doc comment) — a
+// POST to either must 403 before ever reaching adapter.UpdateSettings, even
+// though both are known, fetchable categories.
+func TestSaveAction_ReadOnlyCategoryRejected(t *testing.T) {
+	for _, category := range []string{"boiler", "system"} {
+		t.Run(category, func(t *testing.T) {
+			adapter := &fakeSettingsAdapter{
+				caps:     machines.Capabilities{SettingsProxy: true},
+				settings: defaultTestSettings(),
+			}
+			mux := newTestSettingsServer(t, adapter)
+
+			before := string(defaultTestSettings()[category])
+			rec := doFormPost(t, mux, "/settings/"+category, url.Values{"raw": {`{"anything":"goes"}`}})
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("POST /settings/%s: status = %d, want 403, body = %s", category, rec.Code, rec.Body.String())
+			}
+			if string(adapter.settings[category]) != before {
+				t.Errorf("POST /settings/%s reached adapter.UpdateSettings despite being read-only", category)
+			}
+		})
 	}
 }
 
@@ -401,16 +444,28 @@ func TestSettingsPagesRequireAuthBehindRequireToken(t *testing.T) {
 		t.Errorf("POST /settings/display with a valid token: status = %d, want 200, body = %s", rec.Code, rec.Body.String())
 	}
 
-	// #901 made boiler/led/scales/system editable too, each its own
-	// POST /settings/{category} route — spot-check one of them (boiler)
-	// gets the same auth treatment as display, not just the original
-	// editable category.
+	// led/scales are editable too, each its own POST /settings/{category}
+	// route — spot-check one of them (led) gets the same auth treatment as
+	// display, not just the original editable category.
+	ledForm := url.Values{"raw": {`{"state":"true"}`}}
+	if rec := doAuthedRequest("POST", "/settings/led", "", ledForm); rec.Code != http.StatusUnauthorized {
+		t.Errorf("POST /settings/led without a token: status = %d, want 401", rec.Code)
+	}
+	if rec := doAuthedRequest("POST", "/settings/led", testToken, ledForm); rec.Code != http.StatusOK {
+		t.Errorf("POST /settings/led with a valid token: status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+
+	// boiler is read-only (finding #1) — defense in depth: the auth
+	// middleware still 401s it unauthenticated (auth is checked before this
+	// page's own handler ever runs), and even with a valid token it 403s
+	// rather than 200ing, since saveAction rejects it before reaching the
+	// adapter.
 	boilerForm := url.Values{"raw": {`{"brewDeltaState":"true"}`}}
 	if rec := doAuthedRequest("POST", "/settings/boiler", "", boilerForm); rec.Code != http.StatusUnauthorized {
 		t.Errorf("POST /settings/boiler without a token: status = %d, want 401", rec.Code)
 	}
-	if rec := doAuthedRequest("POST", "/settings/boiler", testToken, boilerForm); rec.Code != http.StatusOK {
-		t.Errorf("POST /settings/boiler with a valid token: status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	if rec := doAuthedRequest("POST", "/settings/boiler", testToken, boilerForm); rec.Code != http.StatusForbidden {
+		t.Errorf("POST /settings/boiler with a valid token: status = %d, want 403 (read-only), body = %s", rec.Code, rec.Body.String())
 	}
 }
 
