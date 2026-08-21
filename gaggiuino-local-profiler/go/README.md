@@ -4,9 +4,11 @@ This directory holds the future Go implementation of the Gaggiuino Local
 Profiler backend and frontend. It exists **parallel to** the current
 Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
-is wired into the Docker image, CI, or the running add-on yet.
+is wired into the repo-root Docker image or the running stable/dev add-on
+yet — the one exception is the standalone beta channel described in "Go
+preview channel (publishing)" below.
 
-## Status: Phase 4 complete (multi-arch build-only CI — go/Dockerfile + .github/workflows/go-build.yaml, on top of Phase 2's complete frontend and Phase 3b's complete backend)
+## Status: Phase 5 in progress (go-preview beta channel — mxkissnr/glp-go-preview-app + .github/workflows/go-preview-publish.yaml, on top of Phase 4's complete build-only CI, Phase 2's complete frontend and Phase 3b's complete backend)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
 packages everything else builds on. Phase 1b added a real, listening HTTP
@@ -629,3 +631,80 @@ work — see "Image" above), `HEALTHCHECK` observed transitioning to
 passed, 0 failed**, identical to the native-binary run's own 30/0. A real
 `docker buildx build --platform linux/arm64,linux/arm/v7` (see "Multi-arch"
 above) also completed successfully for both non-amd64 targets.
+
+## Go preview channel (publishing, #901 Phase 5)
+
+A third, independent Home Assistant app channel — separate from both the
+stable app and the Node dev channel (`glp-dev-app`) — so the Go rewrite can
+be beta-tested on a real HA instance without waiting for the still-
+undecided full cutover. This is exactly the "ship the Go binary first on
+the dev channel as an opt-in beta" rollout the "Why" section above
+describes, now underway.
+
+**Manifest repository:** [`mxkissnr/glp-go-preview-app`](https://github.com/mxkissnr/glp-go-preview-app)
+(same reason the manifest lives outside this repo as `glp-dev-app` does —
+see `build-dev.yaml`'s own header comment: Home Assistant shows every app
+in a repository's root to everyone who has added that repository, so a
+separate repository keeps this invisible unless deliberately added). Slug
+`glp_go_preview`, host port 8097 (stable=8099, Node dev=8098), sidebar
+"GLP Go" with its own icon so all three channels are visually distinguishable.
+Its `options`/`schema` mirror this app's own `config.yaml` exactly —
+`internal/system/options.go` reads `/data/options.json` with the same keys
+Node's `lib/data.js` `loadOptions()` does, so the Configuration tab behaves
+identically. `hassio_api`/`services: - mqtt:want` are deliberately not
+requested there — `lib/mqtt-discovery.js` has no Go port yet.
+
+**Publish workflow:** `.github/workflows/go-preview-publish.yaml` (repo
+root) — triggers on push to `go-migration` (paths-scoped to
+`gaggiuino-local-profiler/go/**` and the workflow file itself, same scoping
+as `go-build.yaml`) plus `workflow_dispatch`. Separate from `go-build.yaml`,
+which stays build-only CI (`push: false`, no registry login) and gates
+nothing here directly — this workflow re-runs the same `test` job (`go
+build`/`go vet`/`go test -race`/`gofmt -l .`) itself so a broken push can
+never reach the registry-push jobs regardless of `go-build.yaml`'s own run.
+Once `test` passes: `build-amd64` and `build-other-archs` (armv7, aarch64 —
+note the HA/ghcr.io arch names, not `go-build.yaml`'s CI-internal `arm64`
+label) push real multi-arch images to
+`ghcr.io/mxkissnr/gaggiuino-local-profiler/{arch}` tagged
+`go-preview-YYYYMMDD_HHMM` plus a floating `:go-preview` tag — the same
+registry repository the stable/dev images already live in, just a
+different tag scheme, exactly like the Node dev channel's `:dev` tag.
+`publish-manifest` then (gated on `build-amd64` only, same `#705` trade-off
+`build-dev.yaml` accepts for its own two occasional-testing architectures)
+bumps `glp-go-preview-app`'s `config.yaml` version, re-syncs its
+`options`/`schema` from this app's own `config.yaml` via the existing
+`scripts/sync-dev-config.mjs` (generic over any two `config.yaml` paths,
+reused as-is — no Go-specific version of that script exists or is needed),
+copies `go/apparmor.txt` over the manifest's copy, and prepends a
+`CHANGELOG.md` entry, committing and pushing straight to
+`glp-go-preview-app`'s `main` branch.
+
+**`go/apparmor.txt`** (this directory) is the source of truth the publish
+workflow copies from — adapted, not copied verbatim, from the repo-root
+(Node) `apparmor.txt`: alpine base instead of `node:22-slim`, `su-exec`
+instead of `gosu` (path `/sbin/su-exec`), no `/app` directory (`embed.FS`
+ships every template/static asset inside the single `glp-server` binary),
+no native-addon/font paths (no CGo, no `@napi-rs/canvas` port), and no
+MQTT-specific network reasoning (no `lib/mqtt-discovery.js` port). Same
+broad `file,`-rule strategy and privilege-drop capability set as the Node
+profile — see the file's own header comment for the full reasoning. Its
+declared profile name (`glp_go_preview`) deliberately differs from the
+Node profile's own (`gaggiuino_local_profiler`, reused unchanged by
+`glp-dev-app` today) so the three channels never share one kernel-loaded
+AppArmor profile identity, even though today's rule bodies happen to be
+functionally equivalent.
+
+**Not live yet:** `publish-manifest`'s checkout-and-push step needs
+`secrets.GO_PREVIEW_ADDON_REPO_TOKEN` — a GitHub PAT with `contents: write`
+scope on `mxkissnr/glp-go-preview-app` only — configured as a repository
+secret on `mxkissnr/gaggiuino-local-profiler` (Settings → Secrets and
+variables → Actions → New repository secret, name
+`GO_PREVIEW_ADDON_REPO_TOKEN`). This is deliberately a separate secret from
+`secrets.DEV_ADDON_REPO_TOKEN` (the Node dev channel's own PAT, scoped only
+to `glp-dev-app`) so the two beta channels' write access never overlaps.
+Until that secret exists, `go-preview-publish.yaml` will build and push
+images successfully but fail at the `publish-manifest` job's checkout step
+— the images land in `ghcr.io` either way, only the manifest repo's
+`version` bump (and therefore the HA update banner) won't happen. Nobody
+but Max can create this PAT or add it as a secret; no agent has the
+GitHub account access required.
