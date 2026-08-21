@@ -398,6 +398,16 @@ button, input, select, textarea { font-family: inherit; }
   font-size: var(--fs-1);
 }
 
+/* Generic small metadata-sized text for htmx error fragments (writeFragmentError,
+ * #901) — same size/base color formula as .verdict-subline/old .shot-meta, but
+ * named for its own (non-verdict) purpose since it renders on every domain's
+ * hx-target (shots, library, machines, maintenance, orders, settings), not just
+ * the Shots list. Callers add an inline color:var(--err) override on top. */
+.fragment-error {
+  color: var(--gray-500);
+  font-size: var(--fs-1);
+}
+
 .score-great { color: var(--ok); }
 .score-ok    { color: var(--warn); }
 .score-bad   { color: var(--err); }

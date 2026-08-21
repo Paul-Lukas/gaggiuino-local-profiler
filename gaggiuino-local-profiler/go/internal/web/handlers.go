@@ -169,5 +169,5 @@ func parseShotID(param string) (int64, bool) {
 func writeFragmentError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	_, _ = w.Write([]byte(`<div class="shot-row"><span class="shot-meta" style="color:var(--err)">` + html.EscapeString(message) + `</span></div>`))
+	_, _ = w.Write([]byte(`<div class="shot-row"><span class="fragment-error" style="color:var(--err)">` + html.EscapeString(message) + `</span></div>`))
 }
