@@ -230,9 +230,11 @@ below, plus one fully working page (`GET /shots`, built on
 later page follows — the same role `internal/shots` played for the REST
 domain packages above. Phase 2b (#901) follows that template for the
 Library domain: `GET /beans` (plus its one htmx write action,
-toggle-active) and read-only list pages for Grinders, Baskets, Puck
-Screens, Milks, and Recipes, all built on `internal/library`'s existing
-Repository/service functions (`ComputeGrinderWearStats`,
+toggle-active) and, at this phase, read-only list pages for Grinders,
+Baskets, Puck Screens, Milks, and Recipes — a later pass gave every one of
+these six pages a "New ..." create form too, see the "Create/Edit
+follow-up pass" paragraph below — all built on `internal/library`'s
+existing Repository/service functions (`ComputeGrinderWearStats`,
 `ComputeBeanRemaining`, the now-exported `ToggleBeanActive`) rather than
 its REST handlers. Phase 2c (#901) follows the same template for the
 Machines domain: `GET /machines` (the registry list, with set-default and
@@ -288,11 +290,13 @@ new `maintenance.MarkTaskDone` service-layer function, not a duplicate of
 `internal/maintenance`'s own REST `taskDone` handler's logic; that REST
 handler is now a thin wrapper around the same function, closing the class
 of gap Phase 2d found the hard way — see that function's own doc comment),
-`GET /settings` (the default machine's Gaggiuino settings categories —
-boiler/led/scales/system read-only, display editable via a raw-JSON
-`<textarea>` round trip that preserves the bool-as-string quirk
-byte-for-byte, the same opaque-bytes discipline `internal/machines`'
-adapter layer already holds end to end — built on `machines.Adapter`'s
+`GET /settings` (the default machine's Gaggiuino settings categories — at
+this phase, "display" editable via a raw-JSON `<textarea>` round trip that
+preserves the bool-as-string quirk byte-for-byte, the same opaque-bytes
+discipline `internal/machines`' adapter layer already holds end to end,
+boiler/led/scales/system read-only — a later pass changed which
+categories land on which side of that line, see the "Create/Edit
+follow-up pass" paragraph below — built on `machines.Adapter`'s
 `GetSettings`/`UpdateSettings` via a small `AdapterProvider` interface seam
 mirroring `internal/system/poll.go`'s own), and `GET /backup` (a download
 link for the existing `GET /api/backup` export). Backup restore is a
@@ -304,6 +308,31 @@ restore needs a dry-run preview step to be safe to expose at all, which is
 its own follow-up-sized piece of work). Every frontend domain the original
 migration plan named now has a page — see "Frontend" below for the
 complete list.
+
+**Create/Edit follow-up pass (#901):** a later pass, prompted by Max
+hitting a real "ich kann garnix anlegen" (I can't create anything) wall
+live-testing Phase 2b/2c/2e's read-only pages, gave every Library page
+(Beans, Grinders, Baskets, Puck Screens, Milks, Recipes) a "New ..."
+create form and gave Machines the same, each posting straight to the
+existing `internal/library.Create*`/`machines.CreateMachineChecked`
+service functions (`internal/library/create.go`, `internal/machines/
+create.go`) rather than reimplementing validation — still create-only,
+not a full edit UI (see the Phase 2b/2c paragraphs above for the fields
+each form exposes). That same pass also made all five Settings categories
+editable via the raw-JSON `<textarea>` round trip. A follow-up code review
+(finding #1) flagged that last change as a real safety regression:
+`machines.ValidateSettingsPayload` only checks "is this valid JSON", never
+field ranges/types, before forwarding straight to `adapter.UpdateSettings`
+— boiler holds real hardware temperature/PID setpoints and system holds
+the OTA firmware release channel, so both went back to read-only
+`<pre>` blocks; display/led/scales (cosmetic/calibration-only, where a bad
+value is at worst a wrong number on screen) stay editable — see
+`internal/web/handlers_settings.go`'s own doc comment for the full
+reasoning. A later design pass (#901, design pass 3) added Beans'/Milks'
+inline stock bars, a Maintenance due/soon/ok verdict-first summary, and a
+Machines default-machine status header, all built on data these pages
+already fetch — no new service-layer wiring — see `internal/web/static/
+style.css`'s own header comment for the exact component list.
 
 ## Why
 
@@ -376,8 +405,10 @@ customer ordering form, and (Phase 2e) Maintenance's per-machine task
 tracking, Settings' machine-settings categories, and a Backup download
 page — see "Frontend" below for what's deliberately still read-only or
 deferred within each (per-task threshold editing and the maintenance log,
-four of five settings categories, and backup restore's own upload UI all
-stay JSON-API-only pending a follow-up phase).
+two of five settings categories — boiler/system, a deliberate safety-scoped
+revert, see the "Status" section's "Create/Edit follow-up pass" paragraph
+above — and backup restore's own upload UI all stay JSON-API-only pending
+a follow-up phase).
 
 ## Frontend
 
@@ -405,10 +436,12 @@ confirm step before the destructive htmx POST) and restoring one from the
 trash section, plus a client-side Alpine filter over profile/coffee text.
 Phase 2b adds the Library domain: `GET /beans` (with its one write action,
 toggle-active, ported onto `internal/library`'s now-exported
-`ToggleBeanActive`) and read-only list pages for Grinders (with computed
-wear stats via `ComputeGrinderWearStats`), Baskets, Puck Screens, Milks,
-and Recipes — a full CRUD UI for the non-Beans entities is deferred to a
-later phase. Phase 2c adds the Machines domain: `GET /machines` (with
+`ToggleBeanActive`) and, at this phase, read-only list pages for Grinders
+(with computed wear stats via `ComputeGrinderWearStats`), Baskets, Puck
+Screens, Milks, and Recipes — a later Create/Edit follow-up pass (see the
+"Status" section above) gave every one of these six pages a "New ..."
+create form too; a full edit UI stays deferred. Phase 2c adds the Machines
+domain: `GET /machines` (with
 set-default and Alpine-confirmed delete htmx actions, built on
 `internal/machines.Registry` directly) and `GET /live`, the live shot chart
 — the one page that breaks from the htmx-fragment-swap pattern the other
@@ -427,10 +460,12 @@ rather than half-wired. Phase 2e adds the last three pages: `GET /maintenance`
 doc comment for why REST handler and web page now share it rather than the
 web page duplicating a private REST-handler method, the same class of gap
 Phase 2d found and fixed for orders' HA-notify side effect), `GET /settings`
-(the default machine's Gaggiuino settings categories, one — "display" —
-editable via a raw-JSON `<textarea>` round trip chosen specifically to
-preserve the settings bool-as-string quirk without any new per-field
-parsing logic), and `GET /backup` (a download link only; restore stays
+(the default machine's Gaggiuino settings categories, at this phase only
+"display" editable via a raw-JSON `<textarea>` round trip chosen
+specifically to preserve the settings bool-as-string quirk without any new
+per-field parsing logic — the Create/Edit follow-up pass above widened
+this to display/led/scales, after a security-motivated revert took boiler/
+system back out), and `GET /backup` (a download link only; restore stays
 JSON-API-only, a documented scope cut — see `handlers_backup.go`'s doc
 comment). Together Phase 2a/2b's pages are the *template* every later page
 follows, the same role `internal/shots` played for the REST domain

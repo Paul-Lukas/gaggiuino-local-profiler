@@ -39,6 +39,23 @@
  *     (.settings-readonly-badge, .settings-json's dimmed text) so
  *     editable vs. read-only categories read as a tone difference, not a
  *     greyed-out/disabled one.
+ *
+ * Design pass 3 (#901) brings the Library/Machines/Maintenance pages up to
+ * the same standard the Shots list's Verdict header set in design pass 2 —
+ * see go/README.md's "Create/Edit follow-up pass" paragraph for the
+ * surrounding functional context this visual pass shipped alongside:
+ *   - Bean/milk stock bars (.stock-bar*, .milk-stock-bar-*) — ported from
+ *     public-src/style.css's .lib-stock-bar/.lib-milk-stock-bar formulas,
+ *     purely supplementary to the exact gram/ml figure next to them.
+ *   - A KPI-tile row (.stat-row/.stat-tile/.stat-num/.stat-label) for the
+ *     Maintenance page's verdict-first due/soon/ok summary, ahead of the
+ *     per-task tile list — ported from public-src/style.css's .maint-tile
+ *     family, reusing --fs-5 for the count the same way .verdict-score-num
+ *     does for a shot's score.
+ *   - .verdict-status + .machine-status-header for the Machines page's
+ *     default-machine reachability header — a colour-coded status word
+ *     substituting for the numeric score .verdict-score-num normally
+ *     holds, composed with .score-great/.score-bad the same way.
  */
 
 :root {
