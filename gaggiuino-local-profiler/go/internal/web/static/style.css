@@ -663,6 +663,36 @@ button, input, select, textarea { font-family: inherit; }
 }
 
 /* Maintenance/Backup/Settings pages. */
+
+/* Maintenance's verdict-first summary (design pass 3, #901) — three KPI
+ * tiles (due/soon/ok counts), ported from public-src/style.css's
+ * .maint-tile family, the punchline ahead of the per-task detail list
+ * below it. Reuses --raised (surface step, not a border) and --fs-5 (the
+ * same display size shots.templ's .verdict-score-num uses for its own
+ * hero figure) so a KPI count reads with the same weight as a shot score. */
+.stat-row { display: flex; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+
+.stat-tile {
+  flex: 1;
+  text-align: center;
+  padding: var(--sp-3);
+  background: var(--raised);
+  border-radius: var(--radius);
+}
+
+.stat-num {
+  font-size: var(--fs-5);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-num.due  { color: var(--err); }
+.stat-num.soon { color: var(--warn); }
+.stat-num.ok   { color: var(--ok); }
+
+.stat-label { font-size: var(--fs-1); color: var(--gray-500); margin-top: 2px; }
+
 .maint-switcher { margin-bottom: var(--sp-4); flex-wrap: wrap; }
 
 .maint-bar {

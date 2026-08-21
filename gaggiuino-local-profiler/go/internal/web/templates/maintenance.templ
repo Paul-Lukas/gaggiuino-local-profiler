@@ -41,6 +41,9 @@ type MaintTile struct {
 templ MaintenancePage(machineOptions []MaintMachineOption, currentMachineID int64, tiles []MaintTile) {
 	@Layout("Maintenance") {
 		<h1 class="page-title">Maintenance</h1>
+		if len(tiles) > 0 {
+			@maintSummary(maintCounts(tiles))
+		}
 		if len(machineOptions) > 1 {
 			<div class="item-actions maint-switcher">
 				for _, m := range machineOptions {
@@ -67,6 +70,48 @@ templ MaintenancePage(machineOptions []MaintMachineOption, currentMachineID int6
 // consistent with those precedents rather than a special one-tile path).
 templ MaintenanceListFragment(tiles []MaintTile, machineID int64) {
 	@maintList(tiles, machineID)
+}
+
+// maintSummary is this page's verdict-first header (design pass 3, #901) —
+// ported from public-src/views/maintenance.js's _renderMaintSummary (three
+// KPI tiles: due/soon/ok counts), the punchline every visitor of this page
+// actually wants ("does anything need attention right now") ahead of the
+// per-task detail list below it. No card border, --raised surface step
+// only, same de-boxing rule the rest of this package's cards already
+// follow.
+templ maintSummary(due, soon, ok int) {
+	<div class="stat-row">
+		<div class="stat-tile">
+			<div class="stat-num due">{ fmt.Sprintf("%d", due) }</div>
+			<div class="stat-label">due</div>
+		</div>
+		<div class="stat-tile">
+			<div class="stat-num soon">{ fmt.Sprintf("%d", soon) }</div>
+			<div class="stat-label">soon</div>
+		</div>
+		<div class="stat-tile">
+			<div class="stat-num ok">{ fmt.Sprintf("%d", ok) }</div>
+			<div class="stat-label">ok</div>
+		</div>
+	</div>
+}
+
+// maintCounts tallies tiles into the same three buckets maintBarClass
+// collapses status into (a "never" tile is exactly as actionable as a
+// "due" one — both mean "no completion on record" — so it counts as due
+// here too).
+func maintCounts(tiles []MaintTile) (due, soon, ok int) {
+	for _, t := range tiles {
+		switch t.Status {
+		case "due", "never":
+			due++
+		case "soon":
+			soon++
+		default:
+			ok++
+		}
+	}
+	return due, soon, ok
 }
 
 templ maintList(tiles []MaintTile, machineID int64) {
