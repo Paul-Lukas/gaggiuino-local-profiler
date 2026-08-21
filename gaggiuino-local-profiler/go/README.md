@@ -6,7 +6,7 @@ Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
 root, which remains the shipping, stable implementation. Nothing under `go/`
 is wired into the Docker image, CI, or the running add-on yet.
 
-## Status: Phase 2 complete (Go frontend — templ+htmx+Alpine tooling covering every frontend domain: Shots, the Library domain's pages, Machines + the live shot chart, Orders' barista queue + customer ordering form, and now Maintenance, Settings, and Backup, on top of Phase 3b's complete backend)
+## Status: Phase 4 complete (multi-arch build-only CI — go/Dockerfile + .github/workflows/go-build.yaml, on top of Phase 2's complete frontend and Phase 3b's complete backend)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
 packages everything else builds on. Phase 1b added a real, listening HTTP
@@ -356,7 +356,14 @@ go/
       templates/             .templ sources (own package — see internal/web/doc.go)
       static/                vendored htmx/Alpine/Chart.js + style.css + live.js, embedded via embed.FS
   Makefile                 `make generate`/`build`/`vet`/`test`/`fmt-check` — templ codegen first, every target (Phase 2a)
+  Dockerfile               build-only multi-arch image, native Go cross-compile (implemented, Phase 4, see "Docker")
+  docker-entrypoint.sh     chown /data + drop to unprivileged `glp` user, mirrors the repo-root Node entrypoint (Phase 4)
+  scripts/
+    smoke-test.sh            native-binary + (GLP_SMOKE_DOCKER_IMAGE mode) Docker-image smoke test (Phase 3a, extended Phase 4)
 ```
+
+`.github/workflows/go-build.yaml` (repo root) is this package's CI — see
+"Docker" below; it's separate from the repo root's Node-app workflows.
 
 Every backend package under `internal/` is implemented — see
 `go/internal/system/doc.go` for the small, deliberate set of
@@ -525,3 +532,100 @@ make generate   # templ codegen — required before build/vet/test, see "Fronten
                 # if missing — see "Frontend"'s "Codegen" section)
 go build ./...
 ```
+
+## Docker (#901 Phase 4, build-only — no release channel yet)
+
+`go/Dockerfile` and `.github/workflows/go-build.yaml` (repo root) exist so
+this binary's containerization is proven ahead of time, not so it ships:
+neither is wired into any real install, dev channel, or registry push yet —
+that's Phase 5, still undecided (see the top of this file and the "Why"
+section above). The repo-root `Dockerfile`/`config.yaml`/`build.yaml`/
+`docker-entrypoint.sh` and `.github/workflows/{build,build-dev}.yaml` are
+the Node app's unchanged release pipeline and are untouched by any of this.
+
+**Image:** one build stage instead of the Node Dockerfile's three
+(builder + prod-deps + runtime) — there's no separate frontend build, no
+npm prod-dependency stage, and no `better-sqlite3` native module to rebuild
+per target arch, since `modernc.org/sqlite` is pure Go (no CGo) and every
+template/static asset is compiled into the binary via `embed.FS` (see
+`internal/web/assets.go`). Runtime is Alpine (`alpine:3.22`), not
+scratch/distroless: those have no shell, so they can't keep the Node
+image's chown-`/data`-then-run-unprivileged entrypoint pattern
+(`docker-entrypoint.sh`, ported almost verbatim from the repo-root one,
+just for `su-exec`/the `glp` user instead of `gosu`/`node`) — see the
+Dockerfile's own top-of-file comment for the full reasoning, including why
+Alpine's tiny `apk add` is the one place a few seconds of QEMU emulation
+can still happen (see "Multi-arch" below). `HEALTHCHECK` hits
+`/web/static/style.css`, not `/` — the Go frontend has no route registered
+at `/` yet (its entry points are `/shots`, `/beans`, etc.), and that vendored
+static asset is always 200 without a token, matching the Node healthcheck's
+actual intent (proving the HTTP server answers) without depending on
+DB/auth state. `/data` is created and chowned to `glp` at build time too,
+so the image also runs standalone without an explicit `-v` (Supervisor
+always provides the real mount; `docker-entrypoint.sh`'s own `chown -R`
+still re-fixes ownership for that case, whose host-side UID isn't known at
+build time). Verified locally: **25.1 MB** built image (`docker build`,
+`docker run`, curl against every domain, healthy `HEALTHCHECK` — see
+"Local verification" below for exact numbers and reasoning), versus the
+Node image's multi-hundred-MB `node:22-slim`-based one.
+
+**Multi-arch:** native Go cross-compilation (`GOOS`/`GOARCH`/`GOARM`), not
+QEMU emulation, for the expensive step — the central speed win this phase
+exists to prove. `go/Dockerfile`'s builder stage is pinned
+`FROM --platform=$BUILDPLATFORM golang:1.25-alpine`, so it always runs on
+the CI runner's own amd64 regardless of which target platform buildx is
+assembling; `go build` cross-compiles the actual target binary without
+ever executing target-arch code. Verified locally with a real
+`docker buildx build --platform linux/arm64,linux/arm/v7` (binfmt/QEMU
+registered via `tonistiigi/binfmt` for the exercise): the build log's own
+step names it `linux/amd64->arm64 builder`/`linux/amd64->arm/v7 builder`,
+confirming the compile itself ran natively. This has no equivalent to the
+Node image's actual pain point (rebuilding `better-sqlite3`'s C++ addon
+from source under QEMU for non-amd64 — see the repo-root Dockerfile's
+`prod-deps` stage comment) at all, since there's no native module here.
+The one place emulation is still needed: the runtime stage's `apk add`
+(three tiny prebuilt Alpine packages) executes target-arch code to install,
+which — unlike a C++ compile — costs a few seconds, not minutes; the CI
+workflow keeps `docker/setup-qemu-action` scoped to exactly that, with a
+comment on the step explaining it's not needed for (and not used by) the Go
+build itself.
+
+**CI (`.github/workflows/go-build.yaml`):** triggers on push to
+`go-migration` (paths-scoped to `gaggiuino-local-profiler/go/**` and the
+workflow file itself) plus `workflow_dispatch`, separate from `build.yaml`/
+`build-dev.yaml` since there's no Go release channel to trigger on
+`release: published` or push-to-`dev` yet. Two jobs: `test` (`go build`,
+`go vet`, `go test -race`, `gofmt -l .`, working-directory
+`gaggiuino-local-profiler/go`, mirroring this section's own gates) gates
+`docker` (the amd64/arm64/armv7 build matrix above, `push: false`, no
+registry login step exists in the job at all). Only the amd64 image is
+`load: true`d into the runner's own Docker daemon and smoke-tested — that's
+the only arch this runner can actually *run* a container from without
+QEMU-emulating execution (not just a package install); arm64/armv7 stay
+build-verified only (a full behavioral test under emulated execution
+defeats the point of avoiding QEMU and adds nothing `go build`/`go vet`/
+`go test -race` for that `GOARCH` didn't already prove).
+
+**Smoke test:** `go/scripts/smoke-test.sh` — the same script Phase 3a
+built for the native binary — gained a `GLP_SMOKE_DOCKER_IMAGE` mode: when
+set, every assertion (auth, all seven REST domains, SSE priming/padding,
+all three cross-domain scenarios including the direct-SQLite-file
+maintenance-row check and the two-instance backup/restore round trip) runs
+against real `docker run` containers from that image tag instead of two
+native processes, proving the whole container — entrypoint, privilege
+drop, `embed.FS` static assets, port, healthcheck — works end to end, not
+just the Go code in isolation. Container `/data` is left as the
+container's own ephemeral writable layer (no bind mount); the token file
+and SQLite DB (including its `-wal`/`-shm` siblings, needed for a
+consistent read — a single-file `docker cp` would risk missing
+not-yet-checkpointed commits) are pulled out via `docker cp` instead,
+so this never depends on the container's UID (1000, `glp`) matching
+whatever UID the host or CI runner happens to use.
+
+**Local verification (this phase):** `docker build` (image, 25.1 MB),
+manual `docker run` both with and without a bind-mounted `/data` (both
+work — see "Image" above), `HEALTHCHECK` observed transitioning to
+`healthy`, then the full `GLP_SMOKE_DOCKER_IMAGE` smoke-test run — **30
+passed, 0 failed**, identical to the native-binary run's own 30/0. A real
+`docker buildx build --platform linux/arm64,linux/arm/v7` (see "Multi-arch"
+above) also completed successfully for both non-amd64 targets.

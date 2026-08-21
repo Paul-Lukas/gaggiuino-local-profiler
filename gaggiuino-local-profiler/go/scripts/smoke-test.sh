@@ -22,6 +22,16 @@
 # Exit code is non-zero if any check fails. Meant to be run locally
 # (`go/scripts/smoke-test.sh` from anywhere) and reused verbatim from CI in
 # a later phase — see go/README.md.
+#
+# Phase 4 (#901): GLP_SMOKE_DOCKER_IMAGE, when set, points every assertion
+# below at two `docker run` containers from that image tag instead of two
+# native `go build`ed processes — the same checks, but proving the actual
+# go/Dockerfile image boots and serves correctly, not just the Go code in
+# isolation (see go/README.md's "Docker" section). Container /data is left
+# unmounted (ephemeral, ok for a throwaway smoke run); the token file and
+# SQLite DB are read back out via `docker cp` rather than a bind mount, so
+# this never depends on the container's UID (1000, "glp") matching whatever
+# UID the host/CI runner happens to use.
 set -uo pipefail
 
 GO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,6 +41,7 @@ PORT_A="${GLP_SMOKE_PORT_A:-8199}"
 PORT_B="${GLP_SMOKE_PORT_B:-8200}"
 BASE_A="http://127.0.0.1:$PORT_A"
 BASE_B="http://127.0.0.1:$PORT_B"
+DOCKER_IMAGE="${GLP_SMOKE_DOCKER_IMAGE:-}"
 
 PASS=0
 FAIL=0
@@ -42,9 +53,14 @@ bad() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n' "$1"; }
 step() { printf '\n== %s ==\n' "$1"; }
 
 cleanup() {
-	[[ -n "$PID_A" ]] && kill "$PID_A" >/dev/null 2>&1
-	[[ -n "$PID_B" ]] && kill "$PID_B" >/dev/null 2>&1
-	wait >/dev/null 2>&1
+	if [[ -n "$DOCKER_IMAGE" ]]; then
+		[[ -n "$PID_A" ]] && docker stop "$PID_A" >/dev/null 2>&1
+		[[ -n "$PID_B" ]] && docker stop "$PID_B" >/dev/null 2>&1
+	else
+		[[ -n "$PID_A" ]] && kill "$PID_A" >/dev/null 2>&1
+		[[ -n "$PID_B" ]] && kill "$PID_B" >/dev/null 2>&1
+		wait >/dev/null 2>&1
+	fi
 	rm -rf "$SMOKE_DIR"
 }
 trap cleanup EXIT
@@ -53,25 +69,42 @@ rm -rf "$SMOKE_DIR"
 mkdir -p "$SMOKE_DIR/a" "$SMOKE_DIR/b"
 
 step "build"
-# Phase 2a (#901): cmd/server now imports internal/web, whose .templ
-# sources aren't valid Go until `templ generate` writes their _templ.go
-# files (git-ignored — see go/README.md's Frontend section) — required
-# before this build step on a clean checkout.
-if ! (cd "$GO_DIR" && go generate ./... && go build -o "$BIN" ./cmd/server) 2>"$SMOKE_DIR/build.log"; then
-	bad "go generate && go build ./cmd/server"
-	cat "$SMOKE_DIR/build.log"
-	exit 1
+if [[ -n "$DOCKER_IMAGE" ]]; then
+	ok "using pre-built Docker image $DOCKER_IMAGE (skipping native go build)"
+else
+	# Phase 2a (#901): cmd/server now imports internal/web, whose .templ
+	# sources aren't valid Go until `templ generate` writes their _templ.go
+	# files (git-ignored — see go/README.md's Frontend section) — required
+	# before this build step on a clean checkout.
+	if ! (cd "$GO_DIR" && go generate ./... && go build -o "$BIN" ./cmd/server) 2>"$SMOKE_DIR/build.log"; then
+		bad "go generate && go build ./cmd/server"
+		cat "$SMOKE_DIR/build.log"
+		exit 1
+	fi
+	ok "go generate && go build ./cmd/server"
 fi
-ok "go generate && go build ./cmd/server"
 
-# start_server launches the binary against dbdir/{glp.db,api_token.txt} on
-# port, backgrounded, with GLP_ENABLE_ORDERS=true — options.json (the
-# normal source of enable_orders) never exists in this throwaway
-# environment, and isOrdersEnabled() falls back to this env var exactly the
-# way #764's standalone-Docker fallback intends (see
-# internal/orders/options.go).
+# start_server launches either the native binary against
+# dbdir/{glp.db,api_token.txt} (default) or, when DOCKER_IMAGE is set, a
+# `docker run` container from that image (/data left as the container's own
+# ephemeral writable layer — see the DOCKER_IMAGE doc comment above). Either
+# way GLP_ENABLE_ORDERS=true, since options.json (the normal source of
+# enable_orders) never exists in this throwaway environment, and
+# isOrdersEnabled() falls back to this env var exactly the way #764's
+# standalone-Docker fallback intends (see internal/orders/options.go).
+# Prints the PID (native) or the container name (docker) — the identifier
+# wait_ready/cleanup key off of.
 start_server() {
 	local dbdir="$1" port="$2"
+	if [[ -n "$DOCKER_IMAGE" ]]; then
+		local name="glp-smoke-$port-$$"
+		docker run -d --rm --name "$name" \
+			-p "127.0.0.1:${port}:8099" \
+			-e GLP_ENABLE_ORDERS=true \
+			"$DOCKER_IMAGE" >"$dbdir/server.log" 2>&1
+		echo "$name"
+		return
+	fi
 	(
 		export GLP_DB_PATH="$dbdir/glp.db"
 		export GLP_TOKEN_FILE="$dbdir/api_token.txt"
@@ -82,11 +115,32 @@ start_server() {
 	echo $!
 }
 
+# sync_container_data (docker mode only) pulls the whole /data directory
+# out of the container into dbdir in one `docker cp` — not just glp.db,
+# since SQLite's WAL mode keeps recent commits in glp.db-wal/-shm
+# sitting next to it; copying only the main file could read a stale view
+# that hasn't been checkpointed back into it yet.
+sync_container_data() {
+	local dbdir="$1" id="$2"
+	docker cp "$id:/data/." "$dbdir/" >/dev/null 2>&1
+}
+
+# token_file_path returns where to read the running server's API token
+# from: the native process's own dbdir file directly, or (docker mode) a
+# fresh sync_container_data pull first — see the DOCKER_IMAGE doc comment
+# above for why cp, not a bind mount.
+token_file_path() {
+	local dbdir="$1" id="$2"
+	[[ -n "$DOCKER_IMAGE" ]] && sync_container_data "$dbdir" "$id"
+	printf '%s' "$dbdir/api_token.txt"
+}
+
 # wait_ready polls until the token file exists and an authenticated request
 # against it succeeds, then prints the token. Fails after ~10s.
 wait_ready() {
-	local base="$1" token_file="$2" token=""
+	local base="$1" dbdir="$2" id="$3" token_file="" token=""
 	for _ in $(seq 1 50); do
+		token_file=$(token_file_path "$dbdir" "$id")
 		if [[ -s "$token_file" ]]; then
 			token=$(cat "$token_file")
 			if curl -sf -o /dev/null -H "X-GLP-Token: $token" "$base/shots.json"; then
@@ -101,7 +155,7 @@ wait_ready() {
 
 step "boot server A (standalone, fresh DB, port $PORT_A)"
 PID_A=$(start_server "$SMOKE_DIR/a" "$PORT_A")
-if ! TOKEN_A=$(wait_ready "$BASE_A" "$SMOKE_DIR/a/api_token.txt"); then
+if ! TOKEN_A=$(wait_ready "$BASE_A" "$SMOKE_DIR/a" "$PID_A"); then
 	bad "server A never became ready"
 	cat "$SMOKE_DIR/a/server.log"
 	exit 1
@@ -215,6 +269,17 @@ else
 	bad "GET /api/orders/active-beans: bean $bean_id missing: $active_beans"
 fi
 
+# db_snapshot_path returns a real, host-readable SQLite file to query
+# directly: the native process's own dbdir file, or (docker mode) a fresh
+# sync_container_data pull — same rationale as token_file_path above, and
+# needed again here since sqlite3 has to open an actual file, not a
+# container-internal path.
+db_snapshot_path() {
+	local dbdir="$1" id="$2"
+	[[ -n "$DOCKER_IMAGE" ]] && sync_container_data "$dbdir" "$id"
+	printf '%s' "$dbdir/glp.db"
+}
+
 step "cross-domain 2: machines -> library grinder -> delete -> maintenance row cleaned up (#901 Phase 1d/1g fix)"
 grinder=$(curl_a -X POST -H 'Content-Type: application/json' \
 	-d '{"name":"Smoke Test Grinder"}' \
@@ -226,14 +291,14 @@ curl_a -X POST -H 'Content-Type: application/json' \
 	-d '{"threshold_shots":150}' \
 	"$BASE_A/api/maintenance/grinder_${grinder_id}/threshold" >/dev/null
 
-row_before=$(sqlite3 "$SMOKE_DIR/a/glp.db" \
+row_before=$(sqlite3 "$(db_snapshot_path "$SMOKE_DIR/a" "$PID_A")" \
 	"SELECT COUNT(*) FROM maintenance WHERE machine_id=1 AND key='grinder_${grinder_id}';")
 [[ "$row_before" == "1" ]] && ok "maintenance row exists for grinder_$grinder_id before delete" \
 	|| bad "expected 1 maintenance row for grinder_$grinder_id before delete, got $row_before"
 
 curl_a -X POST "$BASE_A/api/library/grinder/${grinder_id}/delete" >/dev/null
 
-row_after=$(sqlite3 "$SMOKE_DIR/a/glp.db" \
+row_after=$(sqlite3 "$(db_snapshot_path "$SMOKE_DIR/a" "$PID_A")" \
 	"SELECT COUNT(*) FROM maintenance WHERE machine_id=1 AND key='grinder_${grinder_id}';")
 [[ "$row_after" == "0" ]] && ok "maintenance row for grinder_$grinder_id gone after delete" \
 	|| bad "grinder_$grinder_id maintenance row NOT cleaned up after delete (count=$row_after) -- #901 regression"
@@ -247,7 +312,7 @@ orders_count=$(curl_a "$BASE_A/api/orders" | jq 'length')
 curl_a "$BASE_A/api/backup" >"$SMOKE_DIR/backup.json"
 
 PID_B=$(start_server "$SMOKE_DIR/b" "$PORT_B")
-if ! TOKEN_B=$(wait_ready "$BASE_B" "$SMOKE_DIR/b/api_token.txt"); then
+if ! TOKEN_B=$(wait_ready "$BASE_B" "$SMOKE_DIR/b" "$PID_B"); then
 	bad "server B (fresh DB) never became ready"
 	cat "$SMOKE_DIR/b/server.log"
 else
