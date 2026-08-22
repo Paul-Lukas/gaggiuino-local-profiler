@@ -290,47 +290,98 @@ body {
    browser UA stylesheet gives them their own system font). */
 button, input, select, textarea { font-family: inherit; }
 
-.topnav {
+/* Left icon sidebar (design pass 4, #901) — replaces the original flat
+ * .topnav row (a single horizontal tab strip) with a fixed vertical icon
+ * rail, per the screenshot-driven comparison against the Node app's own
+ * global nav (public-src/index.html's #content-topbar — see
+ * templates/layout.templ's header comment for exactly which file this
+ * is/isn't ported from). .app-shell is the sidebar+content flex row every
+ * page's <body> now wraps; .side-nav is the rail itself, .page is the
+ * scrollable content column beside it. */
+.app-shell {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--sp-4) var(--sp-3);
-  padding: var(--sp-3) var(--sp-5);
+  align-items: stretch;
+  min-height: 100vh;
+}
+
+.side-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sp-4);
+  width: 176px;
+  flex-shrink: 0;
+  padding: var(--sp-4) var(--sp-2);
   /* Border diet: a hard 1px separator replaced by a surface-fill step
-     (deepest surface, since the nav sticks above the page content),
+     (deepest surface, since the rail sits beside the page content),
      matching the Node original's "surface, not a line" nesting rule. */
   background: var(--gray-950);
+  overflow-y: auto;
 }
 
-.topnav-brand {
-  font-weight: 700;
+.side-nav-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--accent-ink);
-  text-decoration: none;
+  padding: var(--sp-2) 0 var(--sp-3);
 }
 
-.topnav-link {
+.side-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--gray-700);
+}
+
+.side-nav-group:last-child { border-bottom: none; padding-bottom: 0; }
+
+.side-nav-link {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
   color: var(--gray-500);
   text-decoration: none;
   font-size: var(--fs-2);
+  font-weight: 600;
+  transition: background-color .15s, color .15s;
 }
 
-.topnav-link:hover { color: var(--gray-200); }
+.side-nav-link:hover { color: var(--gray-200); background: rgba(255, 255, 255, .04); }
 
-.topnav-group {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  padding-right: var(--sp-4);
-  border-right: 1px solid var(--gray-700);
+.side-nav-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.topnav-group:last-child {
-  border-right: none;
-  padding-right: 0;
+.side-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Icon-only rail on narrow viewports — labels hidden, not the links
+   themselves, so every page stays reachable at any width. */
+@media (max-width: 700px) {
+  .side-nav { width: 56px; }
+  .side-nav-link { justify-content: center; padding: var(--sp-2); }
+  .side-nav-label { display: none; }
 }
 
 .page {
-  max-width: 720px;
+  flex: 1;
+  min-width: 0;
+  max-width: 1100px;
   margin: 0 auto;
   padding: var(--sp-5);
 }
