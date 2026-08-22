@@ -27,8 +27,10 @@ package templates
 // public-src/index.html's #content-topbar nav (btnShots/btnLive/.../
 // rail-icon-slot/rail-label) — the Node app's actual *global* navigation —
 // not from public-src/components/sidebar.js, which despite its filename is
-// the shot-LIST panel (a Shots-page-only master list), not app-wide nav;
-// see go/README.md's Phase-2 UI-parity notes for that distinction.
+// the shot-LIST panel (a Shots-page-only master list, always rendered
+// beside #main regardless of which mode/tab is active — see that file's
+// own updateMobileShotSidebarVisibility and mode.js's switchMode, which
+// never toggles #sidebar itself), not app-wide nav.
 //
 // Only routes this Go port actually registers are linked — see each
 // handlers*.go's RegisterRoutes for the authoritative route list. Node-only
