@@ -1,0 +1,137 @@
+package templates
+
+import "fmt"
+
+// ShotDetail is the display-ready projection of a single shot for the
+// Shots master-detail view's right-hand column (Phase B, #901) — the
+// detail-panel counterpart to ShotRow's compact-list-row projection.
+// internal/web/view_shots_detail.go's toShotDetail builds one from a
+// hydrated shots.Shot plus shots.ComputeShotMetrics/ComputeGrindAdvice.
+//
+// Modeled on public-src/views/shots/index.js's updateView() — the Node
+// shot-detail's non-compare-mode fields this Go port covers: the Verdict
+// header (score + one-line dial-in advice, no delta chip — that needs the
+// same-profile "previous shot" lookup, out of scope here), the Recipe zone
+// (dose->yield, ratio+EY, duration+phase split), the bean/grinder/grind-
+// setting line, and the shot photo. NOT carried over: A/B compare mode,
+// the same-profile ghost-curve overlay and score-delta chip (#402, needs
+// findPreviousShot against the full shot list), the comparative grind-
+// advice panel (calcComparativeGrindAdvice, same "needs the full shot
+// list" reason), the freshness/firmware badges, and the "ordered by"
+// line — later-phase polish, not this pass's master-detail structure.
+type ShotDetail struct {
+	ID           int64
+	ProfileName  string
+	DateTime     string
+	Score        *int
+	ScoreClass   string
+	VerdictIcon  string
+	VerdictText  string
+	Coffee       string
+	GrinderLabel string
+	HasDoseYield bool
+	DoseYield    string
+	HasRatio     bool
+	Ratio        string
+	// EY is already the full "EY 19.4 %" label, empty when unset — unlike
+	// the other Has*-gated fields, its own emptiness is the gate (see
+	// ShotDetailFragment below), since it's always shown alongside Ratio,
+	// never standalone.
+	EY         string
+	Duration   string
+	PhasesSub  string
+	Channeling bool
+	Rating     int
+	HasImage   bool
+	ImageURL   string
+	HasChart   bool
+}
+
+// ShotDetailFragment renders the shot-detail column's content — both GET
+// /shots' initial full-page render (the newest live shot, pre-selected)
+// and GET /shots/{id}'s htmx fragment swap (any row's onclick selection)
+// render this same template, so the two can never visually drift apart.
+// The outer #shot-detail div (ShotsPage's own markup) is the htmx swap
+// target; this fragment is only ever the *content* of that div.
+templ ShotDetailFragment(d ShotDetail) {
+	<div class="shot-detail">
+		<div class="shot-detail-header">
+			<div class="verdict-line">
+				if d.Score != nil {
+					<span class={ "verdict-score-num", d.ScoreClass }>{ fmt.Sprintf("%d", *d.Score) }</span>
+					<span class="verdict-sep">·</span>
+				}
+				<span class="verdict-headline">
+					if d.VerdictIcon != "" {
+						{ d.VerdictIcon + " " }
+					}
+					{ d.VerdictText }
+				</span>
+			</div>
+			<div class="verdict-subline">{ d.ProfileName } · Shot { fmt.Sprintf("%d", d.ID) } · { d.DateTime }</div>
+			if d.HasImage {
+				<img class="shot-photo" src={ templ.URL(d.ImageURL) } alt="Shot photo"/>
+			}
+		</div>
+		if d.Channeling {
+			<div class="channeling-warning">⚡ Channeling detected</div>
+		}
+		<div class="metrics-grid">
+			if d.HasDoseYield {
+				<div class="metric-tile">
+					<div class="metric-label">Dose → Yield</div>
+					<div class="metric-value">{ d.DoseYield }</div>
+				</div>
+			}
+			if d.HasRatio {
+				<div class="metric-tile">
+					<div class="metric-label">Ratio</div>
+					<div class="metric-value">{ d.Ratio }</div>
+					if d.EY != "" {
+						<div class="metric-sub">{ d.EY }</div>
+					}
+				</div>
+			}
+			if d.Duration != "" {
+				<div class="metric-tile">
+					<div class="metric-label">Duration</div>
+					<div class="metric-value">{ d.Duration }</div>
+					if d.PhasesSub != "" {
+						<div class="metric-sub">{ d.PhasesSub }</div>
+					}
+				</div>
+			}
+		</div>
+		<div class="bean-line">
+			<span class="bean-name">
+				if d.Coffee != "" {
+					{ d.Coffee }
+				} else {
+					{ "–" }
+				}
+			</span>
+			if d.GrinderLabel != "" {
+				<span class="bean-sep">·</span>
+				<span class="grinder-label">{ d.GrinderLabel }</span>
+			}
+			if d.Rating > 0 {
+				<span class="bean-sep">·</span>
+				<span class="stars">{ stars(d.Rating) }</span>
+			}
+		</div>
+		if d.HasChart {
+			<div class="shot-chart-wrap">
+				<canvas id="shotDetailChart" data-shot-id={ fmt.Sprintf("%d", d.ID) }></canvas>
+			</div>
+		} else {
+			<div class="empty-state">No curve data recorded for this shot.</div>
+		}
+	</div>
+}
+
+// shotDetailEmpty is GET /shots' right-hand column when there is no shot
+// (live or trashed) to show at all — a brand new install with zero shots
+// recorded yet.
+templ shotDetailEmpty() {
+	<div class="empty-state">No shot selected.</div>
+}

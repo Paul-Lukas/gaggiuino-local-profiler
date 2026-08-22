@@ -407,6 +407,119 @@ func TestGlpTokenJS_UsesRelativeTokenFetchForIngress(t *testing.T) {
 	}
 }
 
+// upsertDetailTestShot builds a shot with real datapoints (not just the
+// id/timestamp/profileName/annotation upsertTestShot covers) so the
+// Phase B (#901) master-detail tests below can exercise
+// shots.ComputeShotMetrics/ComputeGrindAdvice's actual math instead of
+// just the "no data" branch. Values mirror a realistic ~28s pull: dose 18g
+// -> 36g yield (ratio 1:2.0), pressure ramping through preinfusion (2 bar)
+// into a 9-bar plateau, no channeling.
+func upsertDetailTestShot(t *testing.T, repo *shots.Repository, id int64) {
+	t.Helper()
+	shot := shots.Shot{
+		"id":          id,
+		"timestamp":   int64(1_700_000_000),
+		"duration":    int64(280), // 28.0s
+		"profileName": "Espresso Classic",
+		"machineId":   int64(1),
+		"datapoints": map[string]any{
+			// tenths of a second: 0, 1, 5, 10, 15, 20, 25, 28s
+			"timeInShot": []any{float64(0), float64(10), float64(50), float64(100), float64(150), float64(200), float64(250), float64(280)},
+			// tenths of a bar: 0, 2, 8.5, 9, 9.2, 9, 8.8, 7 bar
+			"pressure": []any{float64(0), float64(20), float64(85), float64(90), float64(92), float64(90), float64(88), float64(85)},
+			// tenths of a gram: 0, 0, 2, 8, 15, 23, 30, 36 g
+			"shotWeight": []any{float64(0), float64(0), float64(20), float64(80), float64(150), float64(230), float64(300), float64(360)},
+		},
+		"annotation": map[string]any{
+			"coffee":       "Ethiopia Yirgacheffe",
+			"dose":         18.0,
+			"grinder":      "Niche Zero",
+			"grindSetting": "18",
+			"rating":       4,
+		},
+	}
+	if err := repo.Upsert(shot); err != nil {
+		t.Fatalf("repo.Upsert(%d): %v", id, err)
+	}
+}
+
+// TestListPage_RendersNewestShotDetail verifies Phase B's (#901)
+// master-detail structure: GET /shots' initial render pre-selects the
+// newest live shot's own detail panel (ShotDetailFragment) inline, with
+// its Metrics-Grid/bean-grinder-line/chart-mount content all present and
+// no root-absolute path anywhere in it (the same Ingress-safety
+// requirement every page must satisfy).
+func TestListPage_RendersNewestShotDetail(t *testing.T) {
+	mux, repo := newTestServer(t)
+	upsertDetailTestShot(t, repo, 10)
+
+	rec := doRequest(t, mux, "GET", "/shots")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /shots: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"18.0 g → 36.0 g",
+		"1:2.0",
+		"00:28",
+		"Preinfusion 00:05 · Extraction 00:23",
+		"Niche Zero · 18",
+		`data-shot-id="10"`,
+		`hx-get="shots/10"`,
+		`hx-target="#shot-detail"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("GET /shots body missing %q\nbody:\n%s", want, body)
+		}
+	}
+	assertNoRootAbsolutePaths(t, body)
+}
+
+// TestDetailFragment_RoundTrip drives GET /shots/{id} — the htmx fragment
+// a compact-row click swaps into #shot-detail — end to end, and pins that
+// it renders the identical content the initial page's own inline render
+// does (so a click can never show something visually different from what
+// GET /shots already pre-selected for the same shot).
+func TestDetailFragment_RoundTrip(t *testing.T) {
+	mux, repo := newTestServer(t)
+	upsertDetailTestShot(t, repo, 10)
+
+	rec := doRequest(t, mux, "GET", "/shots/10")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /shots/10: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type = %q, want text/html prefix", ct)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"1:2.0", "18.0 g → 36.0 g", "Ethiopia Yirgacheffe"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("GET /shots/10 body missing %q\nbody:\n%s", want, body)
+		}
+	}
+	assertNoRootAbsolutePaths(t, body)
+}
+
+// TestDetailFragment_NotFound mirrors trashAction/restoreAction's own
+// 404 handling for an id with no matching shot.
+func TestDetailFragment_NotFound(t *testing.T) {
+	mux, _ := newTestServer(t)
+	rec := doRequest(t, mux, "GET", "/shots/999")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("GET /shots/999: status = %d, want 404", rec.Code)
+	}
+}
+
+// TestDetailFragment_InvalidID mirrors TestTrashAction_InvalidID's 400
+// boundary for a non-numeric id.
+func TestDetailFragment_InvalidID(t *testing.T) {
+	mux, _ := newTestServer(t)
+	rec := doRequest(t, mux, "GET", "/shots/not-a-number")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("GET /shots/not-a-number: status = %d, want 400", rec.Code)
+	}
+}
+
 // TestGlpTokenJS_WaitsForTokenBeforeIssuingHtmxRequests pins the #901
 // code-review fix for the click-before-fetch-resolves race: a Trash/
 // Restore click landing before fetchToken()'s GET /api/token settled used

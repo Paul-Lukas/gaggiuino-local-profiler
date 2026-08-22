@@ -474,6 +474,28 @@ Assistant or a standalone install actually sees until a later phase flips
 that switch — none of Phase 2a-2e is itself a cutover, only the frontend
 migration plan's page-by-page groundwork for one.
 
+**Design pass 4 (#901):** live testing in HA (screenshot comparison against
+the Node app) found two structural mismatches design passes 1-3's visual-
+polish work hadn't touched: `templates/layout.templ`'s original flat
+top-tab menu is now a fixed left icon sidebar (see that file's own doc
+comment for exactly which Node file the icon glyphs/visual language is and
+isn't ported from), and `GET /shots` is now a master-detail view — a
+compact left-column list (score, coffee-or-profile name, dose, star
+rating, date, a delete-icon button) beside a right-column detail panel for
+the selected shot (score + a single-shot dial-in-advice verdict line via
+the new `internal/shots.ComputeGrindAdvice`/`ComputeShotMetrics`, a dose to
+yield/ratio/duration Metrics Grid, the bean/grinder/grind-setting line, the
+shot photo, and a static post-shot Chart.js chart — `static/shot-chart.js`,
+fetching `GET /api/shots/{id}` directly rather than duplicating that
+endpoint's data server-side). Selecting a row is a plain htmx fragment
+swap (`GET /shots/{id}`, new) into `#shot-detail`, the same pattern every
+other Phase-2 write action already established. Deliberately NOT ported in
+this pass (all need the full shot list/history, not just one shot — a
+natural follow-up once a shot-list-aware endpoint exists on this side): A/B
+compare mode, the same-profile ghost-curve overlay and score-delta chip,
+the comparative grind-advice panel, and the freshness/firmware/"ordered by"
+badges.
+
 **Codegen:** `.templ` sources live under `internal/web/templates/` and are
 NOT valid Go until `templ generate` runs, which writes a `_templ.go` next
 to each `.templ` file. Those generated files are git-ignored (see the

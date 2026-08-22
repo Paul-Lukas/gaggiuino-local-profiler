@@ -731,6 +731,129 @@ button, input, select, textarea { font-family: inherit; }
   margin: 0 0 var(--sp-3);
 }
 
+/* Shots master-detail (Phase B, #901) — a narrow list column beside a wide
+ * detail column, replacing Phase 2a's single-column list-only page. The
+ * list column keeps .shot-list/.shot-row/.shot-info/.verdict-* from that
+ * original pass (still shared with .shot-detail's own header below);
+ * everything under .shot-detail-col is new. */
+.shots-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-5);
+}
+
+.shots-list-col {
+  width: 340px;
+  flex-shrink: 0;
+}
+
+.shots-detail-col {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Narrow viewports: stack instead of side-by-side (list first, so trashing/
+   picking a shot stays reachable without scrolling past the detail panel). */
+@media (max-width: 900px) {
+  .shots-layout { flex-direction: column; }
+  .shots-list-col { width: 100%; }
+}
+
+/* Compact list row: the read-only .shot-summary (score/coffee-or-profile/
+   dose/stars/date, hx-get-clickable) beside a SEPARATE .shot-actions
+   sibling (the icon-only delete button) — see shots.templ's shotRowActive
+   doc comment for why those two stay siblings, not nested. */
+.shot-summary { flex: 1; min-width: 0; cursor: pointer; }
+
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--gray-500);
+  cursor: pointer;
+  transition: background-color .15s, color .15s, border-color .15s;
+}
+
+.btn-icon:hover { background: var(--raised); border-color: var(--gray-700); }
+.btn-icon.btn-danger { color: var(--err); }
+.btn-icon.btn-danger:hover { background: rgba(224, 112, 95, 0.12); border-color: var(--err); }
+.btn-icon-svg { display: block; }
+
+@media (hover: none) {
+  .btn-icon { width: 44px; height: 44px; }
+}
+
+/* Detail panel — score/verdict header, dose->yield/ratio/duration Metrics
+   Grid, bean/grinder/grind-setting line, static post-shot chart. */
+.shot-detail-header { margin-bottom: var(--sp-4); }
+
+.shot-photo {
+  display: block;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-top: var(--sp-3);
+}
+
+.channeling-warning {
+  color: var(--err);
+  font-size: var(--fs-2);
+  font-weight: 600;
+  margin-bottom: var(--sp-4);
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.metric-tile {
+  padding: var(--sp-3);
+  background: var(--raised);
+  border-radius: var(--radius);
+}
+
+.metric-label { font-size: var(--fs-1); color: var(--gray-500); }
+
+.metric-value {
+  font-size: var(--fs-4);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+.metric-sub { font-size: var(--fs-1); color: var(--gray-500); margin-top: 2px; }
+
+.bean-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-2);
+  margin-bottom: var(--sp-4);
+}
+
+.bean-name { font-weight: 600; }
+.bean-sep { color: var(--gray-600); }
+.grinder-label, .stars { color: var(--gray-500); }
+
+.shot-chart-wrap {
+  position: relative;
+  height: 360px;
+  background: var(--raised);
+  border-radius: var(--radius);
+  padding: var(--sp-3);
+}
+
 /* Orders/Menu pages: the customer order form (templates/menu.templ) and
  * the Library/Machines create forms all share this layout, reusing
  * .filter-input for text/select/date fields and .item-meta for labels

@@ -89,7 +89,15 @@ func toShotRow(shot shots.Shot, score *int) templates.ShotRow {
 		row.ID = id
 	}
 	if ts, ok := shot["timestamp"].(int64); ok {
-		row.Time = time.Unix(ts, 0).Format("15:04")
+		// "02.01. 15:04": date + time, not just time-of-day — Phase B
+		// (#901) widens this list from a same-day rail into a
+		// potentially-many-days shot history, per the dispatch brief's
+		// "Score, Datum, Sterne, Kaffeename" compact-row spec, so the
+		// date itself has to be visible per row (the Node original's
+		// day-separator headers, public-src/components/sidebar.js's
+		// renderSidebar() groups, aren't ported here — out of scope for
+		// this pass, a per-row date is a much smaller change).
+		row.Time = time.Unix(ts, 0).Format("02.01. 15:04")
 	}
 	if pn, ok := shot["profileName"].(string); ok && pn != "" {
 		row.ProfileName = pn

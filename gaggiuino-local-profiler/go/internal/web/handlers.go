@@ -32,6 +32,7 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /web/static/", staticHandler())
 	mux.HandleFunc("GET /{$}", h.rootRedirect)
 	mux.HandleFunc("GET /shots", h.listPage)
+	mux.HandleFunc("GET /shots/{id}", h.detailFragment)
 	mux.HandleFunc("POST /shots/{id}/trash", h.trashAction)
 	mux.HandleFunc("POST /shots/{id}/restore", h.restoreAction)
 }
@@ -70,10 +71,14 @@ func (h *Handlers) rootRedirect(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusFound)
 }
 
-// listPage ports GET /shots: the full page, live shots plus any trashed
-// ones — the templ equivalent of loadData()+loadTrashData() in
-// public-src/views/shots/index.js, minus the chart/annotation panel this
-// list page doesn't render.
+// listPage ports GET /shots: Phase B's (#901) master-detail view — the
+// live+trashed compact list (loadData()+loadTrashData() in public-src/
+// views/shots/index.js) plus the newest live shot's own detail panel,
+// pre-selected exactly like the SPA's own default (S.primaryShotId falls
+// back to the most recent shot — see public-src/main.js's bootstrap). Both
+// live and trashed are reversed from Repository's timestamp-ASC order into
+// newest-first for display, matching that same default and every list
+// UI's normal reading order.
 func (h *Handlers) listPage(w http.ResponseWriter, r *http.Request) {
 	live, err := h.shots.GetAll()
 	if err != nil {
@@ -85,6 +90,8 @@ func (h *Handlers) listPage(w http.ResponseWriter, r *http.Request) {
 		httputil.InternalError(w, "web", err)
 		return
 	}
+	reverseShots(live)
+	reverseShots(trashed)
 
 	rows := make([]templates.ShotRow, len(live))
 	for i, shot := range live {
@@ -95,8 +102,14 @@ func (h *Handlers) listPage(w http.ResponseWriter, r *http.Request) {
 		trashRows[i] = toShotRow(shot, h.shots.ComputeScore(shot))
 	}
 
+	var detail *templates.ShotDetail
+	if len(live) > 0 {
+		d := toShotDetail(live[0], h.shots.ComputeScore(live[0]))
+		detail = &d
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := templates.ShotsPage(rows, trashRows).Render(r.Context(), w); err != nil {
+	if err := templates.ShotsPage(rows, trashRows, detail).Render(r.Context(), w); err != nil {
 		// Render can only fail after writing has already started (a
 		// broken client connection, mid-stream), so there's no valid
 		// status code left to send — log and stop, matching net/http's
@@ -106,6 +119,48 @@ func (h *Handlers) listPage(w http.ResponseWriter, r *http.Request) {
 		// partial HTML write only produces a "superfluous WriteHeader"
 		// warning plus a JSON blob appended straight after truncated HTML.
 		log.Printf("web: rendering /shots: %v", err)
+	}
+}
+
+// reverseShots reverses shots in place — Repository's own queries are
+// fixed at `ORDER BY timestamp ASC` (shared with the JSON API's own
+// listing, which this package doesn't want to reorder for every caller),
+// so the newest-first display order this page wants is applied here
+// instead of in the query.
+func reverseShots(list []shots.Shot) {
+	for i, j := 0, len(list)-1; i < j; i, j = i+1, j-1 {
+		list[i], list[j] = list[j], list[i]
+	}
+}
+
+// detailFragment ports GET /shots/{id}: the htmx fragment a shotRowActive
+// click swaps into #shot-detail (hx-target/hx-swap="innerHTML" — see
+// templates/shots.templ) — the same ShotDetailFragment template listPage's
+// initial render uses for the pre-selected newest shot, so the two can
+// never visually drift apart. A trashed shot's id still resolves (Service.
+// GetByID doesn't filter by trash status — trashAction's own confirm step
+// is the only place trashing removes a shot from view), which is harmless:
+// nothing currently links a click at a trashed row to this route.
+func (h *Handlers) detailFragment(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseShotID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid shot ID")
+		return
+	}
+	shot, err := h.shots.GetByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if shot == nil {
+		writeFragmentError(w, http.StatusNotFound, "Shot not found")
+		return
+	}
+
+	detail := toShotDetail(shot, h.shots.ComputeScore(shot))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.ShotDetailFragment(detail).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /shots/%d fragment: %v", id, err)
 	}
 }
 
