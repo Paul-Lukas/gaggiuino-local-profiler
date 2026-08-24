@@ -1,3 +1,8 @@
+## [Unreleased]
+### Changed
+- **Bumped the `@napi-rs/canvas` dependency to v1.0.8** (Renovate, #910). Upstream bug-fix release, no code change here.
+- **Bumped the `github/codeql-action` digest pin to `db488dd`** (Renovate, #909). CI/tooling only, no runtime effect on the app.
+
 ## [2.36.0] – 2026-08-24
 
 ### Fixed
