@@ -10,6 +10,7 @@ import { openImageCropEditor } from '../../components/image-crop.js';
 import { openLightbox } from '../../components/lightbox.js';
 import { COFFEE_ICON_SVG, CHECK_ICON_SVG } from '../../icons.js';
 import { localeFor } from '../../constants.js';
+import { computeBeanRemaining } from '../../bean-math.js';
 
 // ── Auto-save ─────────────────────────────────────────────────────────────
 
@@ -349,12 +350,30 @@ function _updateMilkFieldVisibility() {
 export function _renderBeanSelect(selectedName, selectedBeanId) {
   const select = document.getElementById('annCoffee');
   if (!select) return;
-  const beans = S.coffeeLibrary?.beans || [];
+  const allBeans = S.coffeeLibrary?.beans || [];
+  // #915: exhausted (zero-stock) beans are dropped from the general
+  // candidate list -- same computeBeanRemaining() convention already used
+  // by library.js and _activeFrozenPortionsForBean() above. null means
+  // untracked/unlimited stock and stays offered. doseRows mirrors
+  // library.js's own adapter from S.shots' { annotation, timestamp } shape.
+  const doseRows = S.shots
+    .filter(s => s.annotation?.coffee != null)
+    .map(s => ({ coffee: s.annotation.coffee, beanId: s.annotation.beanId, dose: s.annotation.dose, timestamp: s.timestamp }));
+  const beans = allBeans.filter(b => {
+    const remaining = computeBeanRemaining(b, doseRows, allBeans);
+    return remaining === null || remaining > 0;
+  });
   // #456: data-bean-id lets _buildAnnotationPayload read off the currently
   // selected bean's stable id — only real library beans get one; a stale
   // name kept around because it no longer matches any current bean does not.
   const options = beans.map(b => ({ name: b.name, id: b.id }));
-  if (selectedName && !options.some(o => o.name === selectedName)) options.push({ name: selectedName, id: null });
+  // #915: an already-selected bean must stay visible even if it's now
+  // exhausted -- reuses the same stale/renamed-selection preservation this
+  // function already had, just widened to cover the empty-stock case too.
+  if (selectedName && !options.some(o => o.name === selectedName)) {
+    const stale = allBeans.find(b => b.name === selectedName);
+    options.push({ name: selectedName, id: stale ? stale.id : null });
+  }
   const byId = selectedBeanId != null ? options.find(o => o.id === selectedBeanId) : null;
   const selected = byId ? byId.name : selectedName;
   // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
