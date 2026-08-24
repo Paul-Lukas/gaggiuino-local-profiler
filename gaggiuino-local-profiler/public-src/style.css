@@ -489,6 +489,27 @@
         #powerBtn.machine-on     { color: var(--ok); border-color: rgba(34,197,94,.35); }
         #powerBtn.machine-off    { color: var(--gray-600); }
 
+        /* #914: mobile topbar duplicate of #powerBtn -- same visual language,
+           desktop-hidden below (#sidebar already shows the real #powerBtn
+           there) since .topbar-machine itself renders on both breakpoints. */
+        #railPowerBtn {
+            display: none;
+            background: transparent;
+            color: var(--gray-400);
+            border: 1px solid transparent;
+            border-radius: var(--radius);
+            padding: 2px var(--sp-1);
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            transition: all .2s;
+            flex-shrink: 0;
+        }
+        #railPowerBtn:hover       { background: var(--gray-800); color: var(--gray-200); }
+        #railPowerBtn:disabled    { opacity: .4; cursor: not-allowed; }
+        #railPowerBtn.machine-on  { color: var(--ok); border-color: rgba(34,197,94,.35); }
+        #railPowerBtn.machine-off { color: var(--gray-600); }
+
         .loading-state { padding: var(--sp-5) var(--sp-5); color: var(--gray-600); font-size: var(--fs-2); text-align: center; }
 
         /* ── Main ── */
@@ -2032,6 +2053,14 @@
                (#425) takes its place. */
             .topbar-nav-scroll { display: none; }
             .mobile-drawer-btn { display: flex; }
+            /* #914: #powerBtn lives in #sidebar, which is hidden entirely on
+               mobile just below -- #railPowerBtn is its topbar stand-in.
+               updatePowerButton() (status.js) still gates visibility on
+               sw.configured via inline style (set directly on the element,
+               so it still wins over this class rule when not configured);
+               this only flips the desktop-default none to flex once
+               configured, matching .mobile-drawer-btn's pattern above. */
+            #railPowerBtn { display: flex; }
             /* #410: #sidebar (shot list) is a full-screen alternate of the
                Shots tab now, not a drawer overlay — shown/hidden via plain
                inline display (updateMobileShotSidebarVisibility() in
