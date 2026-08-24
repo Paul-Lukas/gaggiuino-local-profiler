@@ -1,4 +1,4 @@
-## [Unreleased]
+## [2.36.0] – 2026-08-24
 
 ### Fixed
 - **The power toggle button is now reachable on mobile.** It used to live only in the shot sidebar, which is hidden entirely on mobile screens, so there was no way to switch the machine on or off from a phone. Closes #914
