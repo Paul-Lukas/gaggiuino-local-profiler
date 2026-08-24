@@ -337,11 +337,15 @@ Loading demo data seeds a static sample dataset — about a dozen shots with pla
 
 ### Live tab, switch entity and preheat timer
 
-When `switch_entity` is set, the **Live** tab is hidden while the machine is off and appears automatically once it powers on. If no switch entity is configured the tab is always visible.
+When `switch_entity` is set, the **Live** tab is hidden while the machine is off and appears automatically once it powers on. If no switch entity is configured the tab is always visible. The power toggle itself lives in the shot sidebar on desktop; on mobile, where the sidebar is hidden, the same toggle is also available from the topbar.
 
 Once the machine turns on, a preheat progress bar and countdown are shown in the Live tab. The machine is considered ready when **thermal stability** is detected: temperature must remain within ±1.5 °C over the last 30 seconds while at or near the target temperature. The fixed `preheat_time` timer acts as a safety ceiling — the machine will always be marked ready after that many minutes even if stability was not detected. The timer does **not** reset on brief power cycles (off for < 5 minutes, still above 80 °C). The preheat state is exposed as HA sensors via the companion integration (`binary_sensor.…preheat_ready`, `sensor.…preheat_elapsed`, `sensor.…preheat_remaining`).
 
 **"Ready by" scheduling (backend, v2.20.0+):** `POST /api/preheat/ready-by` lets a caller set a target wall-clock time by which the machine should be thermally ready; the existing 30s preheat watcher works backward from `preheat_time` and turns `switch_entity` on automatically once the planned switch-on time is reached, then clears the target (one-shot). ⚠ This is a backend capability only — there is currently no UI in this app, the HA integration, or the Lovelace card to set a target. It becomes usable once the companion HA-integration service and Lovelace-card control ship in a later release.
+
+On a machine running BREW_AUTO, the shot timer ends the instant the firmware itself reports the brew as finished, rather than waiting for the physical brew switch to be flipped back down (which BREW_AUTO leaves up after an auto-stop).
+
+While idle (no shot, steam or flush running), the Live tab shows the machine's current stats — temperature and target, pressure, water level — instead of just "Ready to brew" with no numbers. Steam and flush mode are shown as their own live states (badge, timer, running temperature/pressure), the same treatment brewing already gets, with the animated machine icon reflecting whichever mode is active. If a network-level fetch failure occurs (e.g. the machine loses power or drops off the network), the Live tab clears its stale readings instead of continuing to display the last values it had.
 
 ### Import from kaffeebraun.com
 

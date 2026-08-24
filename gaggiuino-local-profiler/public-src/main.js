@@ -607,6 +607,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('sortDur').addEventListener('click', () => setSortMode('duration'));
   document.getElementById('trash-toggle').addEventListener('click', toggleTrash);
   document.getElementById('powerBtn').addEventListener('click', toggleMachinePower);
+  // #914: mobile topbar duplicate of #powerBtn -- see index.html comment.
+  document.getElementById('railPowerBtn').addEventListener('click', toggleMachinePower);
   document.getElementById('syncBtn').addEventListener('click', triggerSync);
   document.getElementById('onboardingDemoBtn').addEventListener('click', loadDemoData);
   document.getElementById('glpDemoEndBtn').addEventListener('click', endDemo);

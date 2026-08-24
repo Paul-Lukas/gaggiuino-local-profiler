@@ -1,4 +1,14 @@
-## [Unreleased]
+## [2.36.0] – 2026-08-24
+
+### Fixed
+- **The power toggle button is now reachable on mobile.** It used to live only in the shot sidebar, which is hidden entirely on mobile screens, so there was no way to switch the machine on or off from a phone. Closes #914
+- **Coffee beans with zero remaining stock no longer show up in the shot-annotation bean picker.** Closes #915
+- **The Live tab no longer keeps showing stale heating/pressure/weight data after the machine loses power or drops off the network.** Closes #913
+- **The Live tab's shot timer no longer keeps counting after a BREW_AUTO shot has actually finished on the machine**, even while the physical brew switch is still up. Closes #904
+
+### Added
+- **The Live tab now shows current machine stats (temperature/target, pressure, water level) even when idle**, instead of just "Ready to brew" with no numbers. Closes #905
+- **Steam and flush mode are now shown as active states in the Live tab and the animated machine icon** (timer, live temp/pressure readout, dedicated badge), matching the existing brewing treatment. Closes #906
 
 ## [2.35.0] – 2026-08-19
 
