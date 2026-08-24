@@ -398,10 +398,13 @@ export async function importDevDb(file) {
 
 export function updatePowerButton(sw) {
   const btn = document.getElementById('powerBtn');
+  // #914: mobile topbar duplicate of #powerBtn -- see index.html comment.
+  const railBtn = document.getElementById('railPowerBtn');
   const liveBtn = document.getElementById('btnLive');
   const bnLive  = document.getElementById('bnLive');
   if (!sw.configured) {
     btn.style.display = 'none';
+    if (railBtn) railBtn.style.display = 'none';
     S.machinePowerState = null;
     liveBtn.style.display = '';
     liveBtn.disabled = false;
@@ -410,12 +413,14 @@ export function updatePowerButton(sw) {
     return;
   }
   btn.style.display = '';
+  if (railBtn) railBtn.style.display = '';
   S.machinePowerState = sw.state;
   btn.className = sw.state === true  ? 'machine-on'
                 : sw.state === false ? 'machine-off' : '';
   btn.title = sw.state === true  ? 'Maschine AN – zum Ausschalten klicken'
             : sw.state === false ? 'Maschine AUS – zum Einschalten klicken'
             : 'Schalter-Status unbekannt';
+  if (railBtn) { railBtn.className = btn.className; railBtn.title = btn.title; }
 
   const machineOff = sw.state === false;
   liveBtn.style.display = machineOff ? 'none' : '';
@@ -430,7 +435,11 @@ export function updatePowerButton(sw) {
 
 export async function toggleMachinePower() {
   const btn = document.getElementById('powerBtn');
+  // #914: mobile topbar duplicate of #powerBtn -- kept disabled in lockstep
+  // so a tap on either surface can't double-fire the toggle.
+  const railBtn = document.getElementById('railPowerBtn');
   btn.disabled = true;
+  if (railBtn) railBtn.disabled = true;
   try {
     const r = await apiFetch('api/switch/toggle', { method: 'POST' });
     if (r.ok) {
@@ -442,7 +451,10 @@ export async function toggleMachinePower() {
       }, 2000);
     }
   } catch (e) { console.error('Power toggle Fehler:', e); }
-  finally { btn.disabled = false; }
+  finally {
+    btn.disabled = false;
+    if (railBtn) railBtn.disabled = false;
+  }
 }
 
 export async function triggerSync() {

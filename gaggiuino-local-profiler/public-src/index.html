@@ -150,6 +150,12 @@
             <button type="button" id="topbarMachineIcon" class="topbar-machine-icon" data-i18n-title="topbar_machine_icon_title" title="Maschinen-Status" aria-label="Maschinen-Status"></button>
             <span class="status-dot unknown" id="railStatusDot"></span>
             <span id="railMachineName" class="topbar-machine-name">–</span>
+            <!-- #914: mobile-only duplicate of #powerBtn -- #sidebar (which
+                 hosts #powerBtn) is hidden entirely on mobile
+                 (updateMobileShotSidebarVisibility() in sidebar.js), so the
+                 topbar needs its own power toggle there. Desktop-hidden via
+                 the max-width:768px block in style.css. -->
+            <button id="railPowerBtn" style="display:none" title=""><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v8"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg></button>
             <select id="machineSwitcher" class="machine-switcher" style="display:none" data-action="switch-machine" data-i18n-title="machine_switcher_title" title="Maschine"></select>
         </div>
     </div>
