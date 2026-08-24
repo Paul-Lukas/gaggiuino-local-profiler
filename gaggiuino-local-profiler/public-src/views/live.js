@@ -274,7 +274,14 @@ export async function fetchLiveData() {
 
     handleLiveData(msg);
   } catch {
-    setLiveBadge('error', 'Verbindung unterbrochen');
+    // #913: a network-level failure (e.g. the machine lost power and dropped
+    // off the network entirely, not just an HTTP error) used to only flip
+    // the badge -- the previously-rendered live values (preheat countdown,
+    // pressure/weight, machine-icon state) stayed frozen on screen
+    // indefinitely. Route through the same unreachable path as the explicit
+    // msg.machineReachable === false branch below so this failure mode
+    // clears the panel exactly like the other two already do.
+    handleLiveData({ machineReachable: false, datapoints: {} });
   }
 }
 

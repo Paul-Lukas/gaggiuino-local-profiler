@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
+- **The Live tab no longer keeps showing stale heating/pressure/weight data after the machine loses power or drops off the network.** Closes #913
 - **The Live tab's shot timer no longer keeps counting after a BREW_AUTO shot has actually finished on the machine**, even while the physical brew switch is still up. Closes #904
 
 ### Added
