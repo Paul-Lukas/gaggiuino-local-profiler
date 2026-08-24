@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Fixed
+- **The Live tab's shot timer no longer keeps counting after a BREW_AUTO shot has actually finished on the machine**, even while the physical brew switch is still up. Closes #904
+
 ## [2.35.0] – 2026-08-19
 
 ### Fixed
