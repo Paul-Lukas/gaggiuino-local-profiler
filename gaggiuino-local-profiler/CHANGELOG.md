@@ -1,6 +1,7 @@
 ## [Unreleased]
 
 ### Fixed
+- **Coffee beans with zero remaining stock no longer show up in the shot-annotation bean picker.** Closes #915
 - **The Live tab's shot timer no longer keeps counting after a BREW_AUTO shot has actually finished on the machine**, even while the physical brew switch is still up. Closes #904
 
 ### Added
