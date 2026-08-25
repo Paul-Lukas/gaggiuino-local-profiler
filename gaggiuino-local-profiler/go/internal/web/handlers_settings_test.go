@@ -163,9 +163,11 @@ func newTestSettingsServer(t *testing.T, adapter *fakeSettingsAdapter) *http.Ser
 // that the bool-as-string quirk (led.state as the JSON *string* "false",
 // not a real boolean — see internal/machines/doc.go) survives the
 // pretty-print round trip unchanged, pinning that this page never decodes
-// a category into a typed struct. Also pins the code-review fix (finding
-// #1): only display/led/scales get an editable form; boiler/system render
-// as read-only <pre> blocks with no hx-post at all.
+// a category into a typed struct. Also pins the follow-up to code-review
+// finding #1: all five categories get an editable form now that
+// machines.ValidateBoilerSettings/ValidateSystemSettings give boiler/system
+// their own field-level check — see
+// TestSaveAction_BoilerSystem_FieldLevelValidation for that check itself.
 func TestSettingsPage_RendersCategoriesPreservingBoolAsStringQuirk(t *testing.T) {
 	adapter := &fakeSettingsAdapter{
 		caps:     machines.Capabilities{SettingsProxy: true},
@@ -181,22 +183,16 @@ func TestSettingsPage_RendersCategoriesPreservingBoolAsStringQuirk(t *testing.T)
 	for _, want := range []string{
 		`&#34;state&#34;: &#34;false&#34;`,         // led's bool-as-string quirk, unmodified (templ HTML-escapes the quotes)
 		`&#34;lcdDarkMode&#34;: &#34;true&#34;`,    // display's, in its editable textarea
-		`&#34;brewDeltaState&#34;: &#34;true&#34;`, // boiler's, in its read-only <pre>
-		`&#34;releaseChannel&#34;: 0`,              // system's, in its read-only <pre>
+		`&#34;brewDeltaState&#34;: &#34;true&#34;`, // boiler's, now also editable
+		`&#34;releaseChannel&#34;: 0`,              // system's, now also editable
 		`hx-post="settings/display"`,
 		`hx-post="settings/led"`,
 		`hx-post="settings/scales"`,
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("GET /settings body missing %q\nbody:\n%s", want, body)
-		}
-	}
-	for _, notWant := range []string{
 		`hx-post="settings/boiler"`,
 		`hx-post="settings/system"`,
 	} {
-		if strings.Contains(body, notWant) {
-			t.Errorf("GET /settings body unexpectedly contains %q — boiler/system must stay read-only\nbody:\n%s", notWant, body)
+		if !strings.Contains(body, want) {
+			t.Errorf("GET /settings body missing %q\nbody:\n%s", want, body)
 		}
 	}
 	assertNoRootAbsolutePaths(t, body)
@@ -310,27 +306,75 @@ func TestSaveAction_EditableCategoryRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSaveAction_ReadOnlyCategoryRejected pins the code-review fix (finding
-// #1): boiler/system hold real hardware setpoints and a firmware-channel
-// selector respectively (see handlers_settings.go's own doc comment) — a
-// POST to either must 403 before ever reaching adapter.UpdateSettings, even
-// though both are known, fetchable categories.
-func TestSaveAction_ReadOnlyCategoryRejected(t *testing.T) {
-	for _, category := range []string{"boiler", "system"} {
-		t.Run(category, func(t *testing.T) {
+// TestSaveAction_BoilerSystem_EditableRoundTrip is the follow-up to what
+// used to be TestSaveAction_ReadOnlyCategoryRejected (code-review finding
+// #1): boiler/system are editable again, now that
+// machines.ValidateBoilerSettings/ValidateSystemSettings give them their
+// own field-level check instead of just machines.ValidateSettingsPayload's
+// generic "is this JSON" one — a valid payload reaches
+// adapter.UpdateSettings exactly like any other category.
+func TestSaveAction_BoilerSystem_EditableRoundTrip(t *testing.T) {
+	cases := []struct {
+		category  string
+		submitted string
+	}{
+		{"boiler", `{"brewDeltaState":"true","steamSetPoint":150}`},
+		{"system", `{"releaseChannel":1}`},
+	}
+	for _, c := range cases {
+		t.Run(c.category, func(t *testing.T) {
 			adapter := &fakeSettingsAdapter{
 				caps:     machines.Capabilities{SettingsProxy: true},
 				settings: defaultTestSettings(),
 			}
 			mux := newTestSettingsServer(t, adapter)
 
-			before := string(defaultTestSettings()[category])
-			rec := doFormPost(t, mux, "/settings/"+category, url.Values{"raw": {`{"anything":"goes"}`}})
-			if rec.Code != http.StatusForbidden {
-				t.Errorf("POST /settings/%s: status = %d, want 403, body = %s", category, rec.Code, rec.Body.String())
+			rec := doFormPost(t, mux, "/settings/"+c.category, url.Values{"raw": {c.submitted}})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("POST /settings/%s: status = %d, body = %s", c.category, rec.Code, rec.Body.String())
 			}
-			if string(adapter.settings[category]) != before {
-				t.Errorf("POST /settings/%s reached adapter.UpdateSettings despite being read-only", category)
+			if string(adapter.settings[c.category]) != c.submitted {
+				t.Errorf("UpdateSettings(%s) received %q, want the exact submitted bytes %q", c.category, adapter.settings[c.category], c.submitted)
+			}
+		})
+	}
+}
+
+// TestSaveAction_BoilerSystem_FieldLevelValidation is the actual safety
+// check code-review finding #1 asked for: boiler/system must reject a bad
+// payload before it ever reaches adapter.UpdateSettings, not merely accept
+// or reject based on "is this JSON" — see
+// internal/machines/settings_validation.go's own doc comment for exactly
+// what each field check does and doesn't claim.
+func TestSaveAction_BoilerSystem_FieldLevelValidation(t *testing.T) {
+	cases := []struct {
+		name      string
+		category  string
+		submitted string
+	}{
+		{"boiler numeric field holds a string", "boiler", `{"steamSetPoint":"not a number"}`},
+		{"boiler steamSetPoint wildly out of range", "boiler", `{"steamSetPoint":1500}`},
+		{"boiler bool-as-string field holds a real bool", "boiler", `{"brewDeltaState":true}`},
+		{"system releaseChannel out of range", "system", `{"releaseChannel":9}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			adapter := &fakeSettingsAdapter{
+				caps:     machines.Capabilities{SettingsProxy: true},
+				settings: defaultTestSettings(),
+			}
+			mux := newTestSettingsServer(t, adapter)
+
+			before := string(defaultTestSettings()[c.category])
+			rec := doFormPost(t, mux, "/settings/"+c.category, url.Values{"raw": {c.submitted}})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("POST /settings/%s: status = %d, want 200 (validation errors render inline, not a non-2xx), body = %s", c.category, rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "badge-err") {
+				t.Errorf("POST /settings/%s (%s) response missing a validation error\nbody:\n%s", c.category, c.name, rec.Body.String())
+			}
+			if string(adapter.settings[c.category]) != before {
+				t.Errorf("POST /settings/%s (%s) reached adapter.UpdateSettings despite failing field-level validation", c.category, c.name)
 			}
 		})
 	}
@@ -455,17 +499,17 @@ func TestSettingsPagesRequireAuthBehindRequireToken(t *testing.T) {
 		t.Errorf("POST /settings/led with a valid token: status = %d, want 200, body = %s", rec.Code, rec.Body.String())
 	}
 
-	// boiler is read-only (finding #1) — defense in depth: the auth
-	// middleware still 401s it unauthenticated (auth is checked before this
-	// page's own handler ever runs), and even with a valid token it 403s
-	// rather than 200ing, since saveAction rejects it before reaching the
-	// adapter.
+	// boiler is editable (see TestSaveAction_BoilerSystem_EditableRoundTrip)
+	// but still behind the same auth boundary as every other write action —
+	// the auth middleware 401s it unauthenticated (auth is checked before
+	// this page's own handler ever runs) regardless of what saveAction's own
+	// field-level validation would have done with the body.
 	boilerForm := url.Values{"raw": {`{"brewDeltaState":"true"}`}}
 	if rec := doAuthedRequest("POST", "/settings/boiler", "", boilerForm); rec.Code != http.StatusUnauthorized {
 		t.Errorf("POST /settings/boiler without a token: status = %d, want 401", rec.Code)
 	}
-	if rec := doAuthedRequest("POST", "/settings/boiler", testToken, boilerForm); rec.Code != http.StatusForbidden {
-		t.Errorf("POST /settings/boiler with a valid token: status = %d, want 403 (read-only), body = %s", rec.Code, rec.Body.String())
+	if rec := doAuthedRequest("POST", "/settings/boiler", testToken, boilerForm); rec.Code != http.StatusOK {
+		t.Errorf("POST /settings/boiler with a valid token: status = %d, want 200, body = %s", rec.Code, rec.Body.String())
 	}
 }
 

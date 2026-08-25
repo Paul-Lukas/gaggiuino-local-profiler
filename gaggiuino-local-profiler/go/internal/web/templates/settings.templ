@@ -6,9 +6,13 @@ import "strings"
 // the default machine's Gaggiuino settings categories via internal/machines.
 // Adapter's GetSettings/UpdateSettings — the exact same #597 settings/
 // control proxy GET/POST /api/machine/settings(/{category}) uses (see
-// go/internal/web/handlers_settings.go's own doc comment). display/led/
-// scales are editable; boiler/system stay read-only <pre> blocks — see
-// handlers_settings.go's doc comment for why (code review finding #1).
+// go/internal/web/handlers_settings.go's own doc comment). All five
+// categories are editable; boiler and system additionally run through
+// machines.ValidateBoilerSettings/ValidateSystemSettings before a save ever
+// reaches the machine — see handlers_settings.go's doc comment for why
+// those two specifically needed more than machines.ValidateSettingsPayload's
+// generic "is this JSON" check (code review finding #1, closed properly
+// rather than left as boiler/system's read-only revert).
 //
 // Every category is round-tripped as opaque JSON text, never parsed into
 // typed Go fields: internal/machines/doc.go's "bool-as-string quirk"
@@ -57,10 +61,8 @@ templ SettingsPage(supported bool, machineName string, categories []SettingsCate
 // successful save so the textarea reflects whatever the machine actually
 // persisted (which can differ from what was submitted — the machine's own
 // settings endpoint is the source of truth, not this page's form). Named
-// for the write action it answers (saveAction only ever reaches an
-// editable category — see handlers_settings.go's own isEditableSettingsCategory
-// check), but renders through the same settingsCategoryBlock every category
-// uses.
+// for the write action it answers, but renders through the same
+// settingsCategoryBlock every category uses.
 templ SettingsEditableFragment(editable SettingsCategory, saveError string) {
 	@settingsCategoryBlock(editable, saveError)
 }

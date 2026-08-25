@@ -233,9 +233,6 @@ func ValidateServiceTestPeripheral(p proto.ServiceTestPeripheral) error {
 // doc.go's bool-as-string quirk section for why this stays json.RawMessage
 // rather than a typed struct all the way through.
 func ValidateSettingsPayload(body json.RawMessage) error {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(body, &obj); err != nil {
-		return fmt.Errorf("invalid settings payload: %w", err)
-	}
-	return nil
+	_, err := decodeSettingsObject(body)
+	return err
 }

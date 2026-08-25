@@ -147,3 +147,55 @@ func TestValidateSettingsPayload(t *testing.T) {
 		t.Fatal("expected invalid JSON to be rejected")
 	}
 }
+
+func TestValidateBoilerSettings(t *testing.T) {
+	valid := json.RawMessage(`{"steamSetPoint":145,"offsetTemp":5,"hpwr":1200,"mainDivider":2,"brewDivider":4,"brewDeltaState":"true","dreamSteamState":"false","startupHeatDelta":10}`)
+	if err := ValidateBoilerSettings(valid); err != nil {
+		t.Fatalf("expected a valid boiler payload to be accepted, got: %v", err)
+	}
+	if err := ValidateBoilerSettings(json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("expected an empty object (no known fields present) to be accepted, got: %v", err)
+	}
+	if err := ValidateBoilerSettings(json.RawMessage(`{"steamSetPoint":"not a number"}`)); err == nil {
+		t.Fatal("expected a string in a numeric field to be rejected")
+	}
+	if err := ValidateBoilerSettings(json.RawMessage(`{"steamSetPoint":-5}`)); err == nil {
+		t.Fatal("expected a negative steamSetPoint to be rejected")
+	}
+	if err := ValidateBoilerSettings(json.RawMessage(`{"steamSetPoint":1450}`)); err == nil {
+		t.Fatal("expected a wildly out-of-range steamSetPoint (typo'd extra zero) to be rejected")
+	}
+	if err := ValidateBoilerSettings(json.RawMessage(`{"mainDivider":0}`)); err == nil {
+		t.Fatal("expected a zero divider to be rejected")
+	}
+	if err := ValidateBoilerSettings(json.RawMessage(`{"brewDeltaState":"yes"}`)); err == nil {
+		t.Fatal(`expected a bool-as-string field with a value other than "true"/"false" to be rejected`)
+	}
+	if err := ValidateBoilerSettings(json.RawMessage(`{"brewDeltaState":true}`)); err == nil {
+		t.Fatal("expected a real JSON boolean (not the bool-as-string quirk's string form) to be rejected")
+	}
+	if err := ValidateBoilerSettings(json.RawMessage(`not json`)); err == nil {
+		t.Fatal("expected invalid JSON to be rejected")
+	}
+}
+
+func TestValidateSystemSettings(t *testing.T) {
+	if err := ValidateSystemSettings(json.RawMessage(`{"releaseChannel":0}`)); err != nil {
+		t.Fatalf("expected releaseChannel 0 (stable) to be accepted, got: %v", err)
+	}
+	if err := ValidateSystemSettings(json.RawMessage(`{"releaseChannel":2}`)); err != nil {
+		t.Fatalf("expected releaseChannel 2 (debug) to be accepted, got: %v", err)
+	}
+	if err := ValidateSystemSettings(json.RawMessage(`{"wifiEnabled":true}`)); err != nil {
+		t.Fatalf("expected a payload without releaseChannel to be accepted (not required), got: %v", err)
+	}
+	if err := ValidateSystemSettings(json.RawMessage(`{"releaseChannel":3}`)); err == nil {
+		t.Fatal("expected an out-of-range releaseChannel to be rejected")
+	}
+	if err := ValidateSystemSettings(json.RawMessage(`{"releaseChannel":"stable"}`)); err == nil {
+		t.Fatal("expected a non-numeric releaseChannel string to be rejected")
+	}
+	if err := ValidateSystemSettings(json.RawMessage(`not json`)); err == nil {
+		t.Fatal("expected invalid JSON to be rejected")
+	}
+}
