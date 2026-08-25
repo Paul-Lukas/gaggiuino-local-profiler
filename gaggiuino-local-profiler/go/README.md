@@ -265,8 +265,8 @@ note field, built on `PlaceOrder`) — both pages degrade to a plain notice
 instead of an error when `enable_orders` is off
 (`orders.IsOrdersEnabled()`, a new exported wrapper around the same
 options.json read `withOrdersGate` already used) or, for the ordering form,
-when the barista's own shop-open toggle is off. Live updates use htmx
-polling (`hx-trigger="every 10s"`, matching
+when the barista's own shop-open toggle is off. Live updates originally
+used htmx polling (`hx-trigger="every 10s"`, matching
 `public-src/views/orders.js`'s own `setInterval(loadOrdersView, 10000)`
 cadence) rather than the htmx SSE extension: evaluating that first (per the
 architecture note in this phase's dispatch brief) found two concrete
@@ -277,12 +277,20 @@ code in this vendored version; only its `sse-swap` mechanism is fully
 wired), and `sse-swap` itself needs the SSE payload to be raw HTML while
 `internal/sse.Handler`'s `send()` unconditionally `json.Marshal`s
 `Event.Data` for every event on the shared `/api/events` stream (`live.js`'s
-own JSON consumers depend on that encoding staying JSON). A real SSE
-upgrade — either patching the vendored extension or teaching `sse.Handler`
-to pass a pre-rendered HTML payload through unmarshaled for one event type —
-is a legitimate follow-up, deliberately not attempted half-done in this
-phase; see `templates/orders.templ`'s own doc comment for the same
-reasoning in-code. Phase 2e (#901) closes out the frontend migration plan's
+own JSON consumers depend on that encoding staying JSON). A later pass
+(#901, design pass 4 follow-up) closed both: `sse.HTML` marks an event's
+Data as pre-rendered HTML to send through unmarshaled (every other event
+type is untouched — `live.js`'s JSON consumers keep working exactly as
+before), and `#orders-queue` now uses `sse-connect="api/events"` +
+`sse-swap="orders-update"` — no extension patch needed, since `sse-swap`
+itself was already fully wired. `internal/orders.Service`'s new
+`OnQueueChanged` callback (nil-safe, the same "callback field instead of a
+direct import" seam `internal/library`'s `SetOnGrinderDeleted` already
+established to avoid a package cycle) fires after every successful
+`PlaceOrder`/`AcceptOrder`/`CompleteOrder`/`DeclineOrder` regardless of
+caller — the REST API included, not just this page's own htmx actions —
+so every open `/orders` tab updates live. See `templates/orders.templ`'s
+own doc comment for the full wiring. Phase 2e (#901) closes out the frontend migration plan's
 last domain gap: `GET /maintenance` (per-machine task tracking —
 descaling/backflush/grouphead/gaskets/waterfilter plus one entry per
 currently registered grinder — with a "mark done" htmx action built on a
@@ -405,10 +413,11 @@ customer ordering form, and (Phase 2e) Maintenance's per-machine task
 tracking, Settings' machine-settings categories, and a Backup download
 page — see "Frontend" below for what's deliberately still read-only or
 deferred within each (per-task threshold editing and the maintenance log,
-two of five settings categories — boiler/system, a deliberate safety-scoped
-revert, see the "Status" section's "Create/Edit follow-up pass" paragraph
-above — and backup restore's own upload UI all stay JSON-API-only pending
-a follow-up phase).
+and backup restore's own upload UI all stay JSON-API-only pending a
+follow-up phase; all five settings categories, including boiler/system,
+are now editable — see the "Status" section's "Design pass 4 follow-up"
+paragraph for how that closed the safety-scoped revert instead of just
+undoing it).
 
 ## Frontend
 
@@ -450,11 +459,11 @@ pages establish, per the paragraph above. Phase 2d adds the Orders domain:
 whole-queue-fragment re-renders since accepting/declining moves an order
 between sections — the same convention Phase 2c's set-default action
 established) and `GET /menu` (the customer ordering form, its one write
-action `POST /menu/order` built on `PlaceOrder`) — the first pages in this
-package to poll (`hx-trigger="every 10s"`) rather than either the plain
-htmx-fragment pattern or Phase 2c's vanilla-JS SSE consumer; see the
-"Status" section above for exactly why SSE was evaluated and deferred
-rather than half-wired. Phase 2e adds the last three pages: `GET /maintenance`
+action `POST /menu/order` built on `PlaceOrder`) — `GET /orders` originally
+polled (`hx-trigger="every 10s"`) rather than using either the plain
+htmx-fragment pattern or Phase 2c's vanilla-JS SSE consumer, later upgraded
+to real `sse-swap`-driven SSE (see the "Status" section above for the full
+wiring). Phase 2e adds the last three pages: `GET /maintenance`
 (per-machine task tracking, with a "mark done" htmx action built on the new
 `maintenance.MarkTaskDone` service-layer function — see that function's own
 doc comment for why REST handler and web page now share it rather than the
@@ -489,12 +498,62 @@ shot photo, and a static post-shot Chart.js chart — `static/shot-chart.js`,
 fetching `GET /api/shots/{id}` directly rather than duplicating that
 endpoint's data server-side). Selecting a row is a plain htmx fragment
 swap (`GET /shots/{id}`, new) into `#shot-detail`, the same pattern every
-other Phase-2 write action already established. Deliberately NOT ported in
-this pass (all need the full shot list/history, not just one shot — a
-natural follow-up once a shot-list-aware endpoint exists on this side): A/B
-compare mode, the same-profile ghost-curve overlay and score-delta chip,
-the comparative grind-advice panel, and the freshness/firmware/"ordered by"
-badges.
+other Phase-2 write action already established.
+
+**Design pass 4 follow-up (#901):** a later round closed every item design
+pass 4 itself had deferred for needing the full shot list/history rather
+than just one shot. `internal/web/handlers_library.go`/
+`handlers_machines.go` gained a full inline Edit UI for every Library
+entity (Beans/Grinders/Baskets/Puck Screens/Milks/Recipes) and Machines —
+an Edit button swaps a row for a pre-filled htmx form (`GET
+/{kind}/{id}/edit`), Save persists via new `internal/library.UpdateX`/
+`machines.UpdateMachineChecked` functions (`internal/library/update.go`,
+`internal/machines/update.go` — extracted from what were the REST PUT
+handlers' own inline field-patch logic, the same "one service function,
+called from both REST and web" convention `CreateBean` et al. already
+established for POST), and Cancel swaps back to the view row (`GET
+/{kind}/{id}`) — still create-and-edit, no delete UI added for Library
+entities (Machines already had one). `templates/shots.templ`'s list rows
+gained freshness/firmware/"ordered by" badges (`internal/web/view.go`'s
+`freshnessDays`/`orderedByLabel`/`firmwareVersion`, reading
+`annotation.beanAgeDays`/`glpFirmwareVersion`/`annotation.orderedBy` —
+display-only pass-throughs of data other layers already write, not new
+business logic). `templates/settings.templ`'s boiler/system categories are
+editable again, this time with real field-level validation
+(`internal/machines/settings_validation.go`'s `ValidateBoilerSettings`/
+`ValidateSystemSettings`, sourced from the official Gaggiuino REST API
+docs) closing the code-review finding that had reverted them to read-only,
+instead of just re-reverting it. `templates/orders.templ`'s barista queue
+dropped its 10s poll for real SSE: `internal/sse.HTML`
+(`internal/sse/sse.go`) lets an event's Data be pre-rendered HTML sent
+through `Handler`'s `send()` unmarshaled instead of always
+`json.Marshal`ed, and `internal/orders.Service`'s new `OnQueueChanged`
+callback (fired after every `PlaceOrder`/`AcceptOrder`/`CompleteOrder`/
+`DeclineOrder`, REST API included) renders and publishes the queue
+fragment as an `orders-update` event `#orders-queue`'s `sse-swap` picks up
+— no extension patch needed, `sse-swap` (unlike `hx-trigger="sse:*"`) was
+already fully wired in the vendored `htmx-sse-ext-2.0.10.js`. And
+`templates/shots_detail.templ` gained everything design pass 4 itself
+deferred: a score-delta chip and a same-profile ghost-curve overlay (both
+via `shots.Service.GetPreviousByProfile`, which already existed from an
+earlier phase), a comparative grind-advice panel
+(`internal/shots.ComputeComparativeGrindAdvice`, a new port of
+`calcComparativeGrindAdvice` — "which grind setting scores best among this
+shot's comparable siblings", grouped by bean/grinder/profile/dose), and a
+real A/B compare mode (a "Compare with…" `<select>` driving `GET
+/shots/{id}?compare={id2}`, rendering `ShotCompareFragment` — both shots'
+verdict/metrics side by side, one shared chart with both curves drawn by
+`static/shot-chart.js`'s extended `buildDatasets`, matching
+`public-src/views/shots/index.js`'s exact per-series colors/dash-patterns/
+opacities for the solid-A/dashed-B/dashed-ghost three-layer styling).
+
+One known gap remains, not attempted this round: neither the web UI's new
+Edit forms nor `internal/machines/settings_validation.go` close the
+REST API's own equivalent gap (`internal/machines.ValidateSettingsPayload`
+stays the same opaque "is this JSON" check for every REST caller,
+boiler/system included) — extending that hardening to the REST surface
+too is its own dedicated pass, deliberately not bundled into a frontend-UI
+round.
 
 **Codegen:** `.templ` sources live under `internal/web/templates/` and are
 NOT valid Go until `templ generate` runs, which writes a `_templ.go` next
