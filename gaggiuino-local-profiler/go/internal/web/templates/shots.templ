@@ -21,6 +21,18 @@ type ShotRow struct {
 	Rating       int
 	GrindSetting string
 	Grinder      string
+
+	// Badges (#901, design pass 4 follow-up) — see internal/web/view.go's
+	// freshnessDays/orderedByLabel/firmwareVersion for exactly what each
+	// reads and, for freshness, the deliberate list-vs-detail divergence
+	// from Node's own logic. All three are "" (Freshness: FreshnessLabel
+	// == "") when the underlying data isn't present on this shot — every
+	// use site below is a plain non-empty check, no separate "known" flag
+	// needed.
+	FreshnessLabel  string // e.g. "12d", already bucket-checked into [0,365]
+	FreshnessClass  string // "badge-ok" | "badge-warn" | "badge-err"
+	FirmwareVersion string
+	OrderedBy       string // "Customer · Item · Variant · note"
 }
 
 // ShotsPage is GET /shots: Phase B's (#901) master-detail view — a narrow
@@ -179,6 +191,19 @@ templ shotInfo(row ShotRow) {
 			}
 			{ row.Time }
 		</div>
+		if row.FreshnessLabel != "" || row.FirmwareVersion != "" {
+			<div class="verdict-subline shot-badges">
+				if row.FreshnessLabel != "" {
+					<span class={ "badge", row.FreshnessClass }>{ row.FreshnessLabel }</span>
+				}
+				if row.FirmwareVersion != "" {
+					<span class="badge">{ "fw " + row.FirmwareVersion }</span>
+				}
+			</div>
+		}
+		if row.OrderedBy != "" {
+			<div class="verdict-subline">☕ { row.OrderedBy }</div>
+		}
 	</div>
 }
 

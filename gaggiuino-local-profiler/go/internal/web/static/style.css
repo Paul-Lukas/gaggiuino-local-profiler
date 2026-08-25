@@ -466,6 +466,13 @@ button, input, select, textarea { font-family: inherit; }
   font-size: var(--fs-1);
 }
 
+/* Shots list badges (freshness/firmware, #901 design pass 4 follow-up) —
+ * .shot-badges is just a .verdict-subline with its .badge children laid
+ * out with a bit of breathing room; freshness itself reuses the generic
+ * .badge-ok/.badge-warn/.badge-err classes above (view.go's
+ * freshnessClass) rather than a parallel freshness-only palette. */
+.shot-badges { display: flex; gap: var(--sp-2); }
+
 /* Machines' default-machine status word (design pass 3, #901) — sits where
  * .verdict-score-num normally would, a colour-coded word instead of a
  * number since there's no scalar to show; combined with .score-great/

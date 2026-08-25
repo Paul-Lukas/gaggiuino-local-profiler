@@ -79,6 +79,94 @@ func annotationDose(ann map[string]any) string {
 	return ""
 }
 
+// freshnessDays reads annotation.beanAgeDays — the bean's age in days at
+// the moment this specific shot was pulled, computed and stored
+// client-side when the shot was annotated (public-src/views/shots/
+// annotation.js's calcBeanAgeAtShot; internal/shots has no server-side
+// equivalent of that computation, it only stores whatever an annotate
+// request submits — see internal/shots/doc.go). Unlike shot detail's own
+// freshness badge (public-src/views/shots/index.js's renderShotDetail,
+// which also falls back to computing "how fresh is this bean right now"
+// from roastDate when beanAgeDays is unset — meaningful for one freshly
+// selected shot), the Shots LIST spans many days of history, so a
+// now-vs-roastDate fallback would mislabel an old row with today's
+// freshness instead of the bean's age when that shot was actually pulled.
+// This list only ever shows the stored beanAgeDays, a pragmatic, deliberate
+// divergence from Node's single-shot logic — see go/README.md's badges
+// section (#901, design pass 4 follow-up).
+func freshnessDays(ann map[string]any) (int, bool) {
+	switch v := ann["beanAgeDays"].(type) {
+	case float64:
+		return int(v), true
+	case int64:
+		return int(v), true
+	case int:
+		return v, true
+	}
+	return 0, false
+}
+
+// freshnessClass mirrors public-src/views/shots/index.js's own
+// freshness-badge thresholds (<=21 fresh, <=35 ok, else old), mapped onto
+// this rewrite's existing generic badge-ok/badge-warn/badge-err classes
+// (style.css) instead of porting a parallel freshness-badge-only class
+// family — same "reuse existing tokens" convention view_library.go's own
+// stock-bar/badge helpers already follow.
+func freshnessClass(days int) string {
+	switch {
+	case days <= 21:
+		return "badge-ok"
+	case days <= 35:
+		return "badge-warn"
+	default:
+		return "badge-err"
+	}
+}
+
+// orderedByLabel builds "Customer · Item · Variant · note" from
+// shot["annotation"]["orderedBy"] — written by
+// internal/orders.Service.CompleteOrder's read-modify-write onto the shot
+// that order's queue-ETA matched against (see internal/shots/repository.go's
+// GetAnnotation doc comment), mirroring public-src/views/shots/index.js's
+// own orderedBy renderer's "item, or item · variant when both are set"
+// drink-label construction.
+func orderedByLabel(ann map[string]any) string {
+	ob, _ := ann["orderedBy"].(map[string]any)
+	customer, _ := ob["customer"].(string)
+	if customer == "" {
+		return ""
+	}
+	item, _ := ob["item"].(string)
+	variant, _ := ob["variant"].(string)
+	note, _ := ob["note"].(string)
+	drink := item
+	if item != "" && variant != "" {
+		drink = item + " · " + variant
+	}
+	label := customer
+	if drink != "" {
+		label += " · " + drink
+	}
+	if note != "" {
+		label += " · " + note
+	}
+	return label
+}
+
+// firmwareVersion reads shot["glpFirmwareVersion"] — a top-level field
+// lib/sync.js's own shot-history sync engine stamps onto a synced shot
+// (r.data.glpFirmwareVersion = state.cachedMachineVersion). That sync
+// engine itself is out of this Go rewrite's scope (go/README.md's
+// internal/system section: "lib/sync.js entirely ... its own future
+// phase"), so this only ever renders a firmware badge for shots that
+// already carry the field from before this server started handling them —
+// a pass-through display, not a claim this rewrite computes the value
+// itself.
+func firmwareVersion(shot shots.Shot) string {
+	v, _ := shot["glpFirmwareVersion"].(string)
+	return v
+}
+
 // toShotRow builds a templates.ShotRow from a hydrated shots.Shot plus its
 // pre-computed score — the Go-side equivalent of sidebar.js's
 // _buildShotWrapper's field extraction.
@@ -121,6 +209,13 @@ func toShotRow(shot shots.Shot, score *int) templates.ShotRow {
 	row.Rating = annotationInt(ann, "rating")
 	row.GrindSetting = annotationString(ann, "grindSetting")
 	row.Grinder = annotationString(ann, "grinder")
+
+	if days, ok := freshnessDays(ann); ok && days >= 0 && days <= 365 {
+		row.FreshnessLabel = fmt.Sprintf("%dd", days)
+		row.FreshnessClass = freshnessClass(days)
+	}
+	row.OrderedBy = orderedByLabel(ann)
+	row.FirmwareVersion = firmwareVersion(shot)
 
 	return row
 }

@@ -122,6 +122,52 @@ func TestListPage_RendersShots(t *testing.T) {
 	assertNoRootAbsolutePaths(t, body)
 }
 
+// TestListPage_RendersBadges verifies the Shots list's freshness/firmware/
+// "ordered by" badges (#901, design pass 4 follow-up — view.go's
+// freshnessDays/orderedByLabel/firmwareVersion): a shot whose annotation
+// carries beanAgeDays/orderedBy and whose top-level glpFirmwareVersion is
+// set gets all three; a shot with none of that data gets none.
+func TestListPage_RendersBadges(t *testing.T) {
+	mux, repo := newTestServer(t)
+	if err := repo.Upsert(shots.Shot{
+		"id": int64(1), "timestamp": int64(1_700_000_000), "profileName": "Espresso Classic",
+		"machineId": int64(1), "glpFirmwareVersion": "1.2.3",
+		"annotation": map[string]any{
+			"coffee":      "Ethiopia Yirgacheffe",
+			"beanAgeDays": float64(14),
+			"orderedBy": map[string]any{
+				"customer": "Alice", "item": "Latte", "variant": "Oat", "note": "extra hot",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("Upsert(1): %v", err)
+	}
+	// A stale bean (>35d) exercises the "old" bucket's badge-err class; a
+	// plain shot with no annotation data at all must render none of the
+	// three badges.
+	upsertTestShot(t, repo, 2, 1_700_000_100, "Filter", map[string]any{
+		"beanAgeDays": float64(40),
+	})
+	upsertTestShot(t, repo, 3, 1_700_000_200, "No Data", nil)
+
+	rec := doRequest(t, mux, "GET", "/shots")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /shots: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`badge-ok">14d`,                     // shot 1: fresh bucket
+		"fw 1.2.3",                          // shot 1: firmware badge
+		"☕ Alice · Latte · Oat · extra hot", // shot 1: ordered-by
+		`badge-err">40d`,                    // shot 2: old bucket
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("GET /shots body missing %q\nbody:\n%s", want, body)
+		}
+	}
+	assertNoRootAbsolutePaths(t, body)
+}
+
 // TestListPage_Empty verifies the empty-state branch when no shots exist.
 func TestListPage_Empty(t *testing.T) {
 	mux, _ := newTestServer(t)
