@@ -175,3 +175,38 @@ func TestComputeComparativeGrindAdvice_BeanIDTakesPrecedenceOverName(t *testing.
 		t.Errorf("SampleCount = %d, want 1 (only the beanId match)", advice.SampleCount)
 	}
 }
+
+// TestComputeComparativeGrindAdvice_TiedAverageIsDeterministic pins the
+// #901 code review fix (CONFIRMED finding #3): two grind-setting buckets
+// with the exact same average score (every comparableShot here scores
+// a flat 100 via fullScoreShot, so a 3.0-only bucket and a 5.0-only bucket
+// tie exactly) used to pick "best" via unsorted map iteration — Go
+// randomizes that order per run, so the same shot could recommend a
+// different grind setting across repeated calls. Calling this many times
+// (each a fresh internal map) must always return the same answer — the
+// documented tiebreak, the lower/finer grind setting wins ties.
+func TestComputeComparativeGrindAdvice_TiedAverageIsDeterministic(t *testing.T) {
+	shot := comparableShot(1, "Kenya AA", "Niche Zero", "4.0", 18, "Espresso")
+	others := []Shot{
+		comparableShot(2, "Kenya AA", "Niche Zero", "5.0", 18, "Espresso"),
+		comparableShot(3, "Kenya AA", "Niche Zero", "3.0", 18, "Espresso"),
+	}
+
+	var first *ComparativeGrindAdvice
+	for i := 0; i < 50; i++ {
+		advice := ComputeComparativeGrindAdvice(shot, others)
+		if advice == nil {
+			t.Fatal("expected non-nil advice")
+		}
+		if first == nil {
+			first = advice
+			continue
+		}
+		if advice.BestGrindSetting != first.BestGrindSetting {
+			t.Fatalf("run %d: BestGrindSetting = %v, want %v (same as the first run — tied-average pick must be deterministic)", i, advice.BestGrindSetting, first.BestGrindSetting)
+		}
+	}
+	if first.BestGrindSetting != 3.0 {
+		t.Errorf("BestGrindSetting = %v, want 3.0 (the documented tiebreak: lower grind setting wins an exact tie)", first.BestGrindSetting)
+	}
+}

@@ -3,6 +3,7 @@ package shots
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -135,10 +136,30 @@ func ComputeComparativeGrindAdvice(shot Shot, allShots []Shot) *ComparativeGrind
 		byGrind[key] = append(byGrind[key], c.score)
 	}
 
+	// #901 code review (CONFIRMED finding #3): Go's map iteration order is
+	// randomized per-run, so picking the best bucket via `for key := range
+	// byGrind` made the result nondeterministic whenever two grind-setting
+	// buckets landed on the exact same average score (realistic — avg is
+	// sum(int)/len(int), a common rational) — the same shot's page could
+	// recommend a different "best" grind setting on different loads. Sort
+	// the keys first and iterate in that fixed order, with a strict `>`
+	// comparison so the first (lowest) key seen wins any exact tie — a
+	// pragmatic, explicit tiebreak (favor the finer/lower setting) rather
+	// than Node's own `Object.entries` order, which for this function's
+	// non-integer-string keys ("3.5" etc.) was itself just whatever
+	// insertion order happened to produce, not a rule this port could
+	// faithfully carry over.
+	keys := make([]float64, 0, len(byGrind))
+	for key := range byGrind {
+		keys = append(keys, key)
+	}
+	sort.Float64s(keys)
+
 	bestSetting := 0.0
 	bestAvg := -1.0
 	haveBest := false
-	for key, scores := range byGrind {
+	for _, key := range keys {
+		scores := byGrind[key]
 		sum := 0
 		for _, sc := range scores {
 			sum += sc
