@@ -81,17 +81,21 @@ func activeBagRoastDate(bean library.Entity) string {
 // this first Library page's dispatch brief actually needs: name, roaster,
 // remaining/bag status, speciality category).
 func toBeanRow(bean library.Entity, doseRows []shots.AnnotatedDose, allBeans []library.Entity) templates.BeanRow {
+	stockG, _ := bean["stock_g"].(float64)
 	row := templates.BeanRow{
 		ID:         entityID(bean),
 		Name:       strField(bean, "name"),
 		Roaster:    strField(bean, "roaster"),
+		Category:   strField(bean, "category"),
 		Speciality: strField(bean, "category") == "speciality",
 		Decaf:      boolField(bean, "decaf"),
 		Enabled:    beanEnabled(bean),
 		RoastDate:  activeBagRoastDate(bean),
+		Notes:      strField(bean, "notes"),
+		StockGRaw:  stockG,
 		BagCount:   len(beanBags(bean)),
 	}
-	if stockG, ok := bean["stock_g"].(float64); ok && stockG > 0 {
+	if stockG > 0 {
 		row.StockG = fmt.Sprintf("%g g", stockG)
 		if remaining, ok := library.ComputeBeanRemaining(bean, doseRows, allBeans); ok {
 			row.Remaining = fmt.Sprintf("%d g", remaining)
@@ -133,6 +137,7 @@ func toGrinderRow(grinder library.Entity, shotsSinceBurrs int, gramsSinceBurrs f
 		Name:            strField(grinder, "name"),
 		BurrType:        strField(grinder, "burrType"),
 		PurchaseDate:    strField(grinder, "purchaseDate"),
+		Notes:           strField(grinder, "notes"),
 		ShotsSinceBurrs: shotsSinceBurrs,
 		GramsSinceBurrs: formatWearGrams(gramsSinceBurrs),
 	}
@@ -146,6 +151,7 @@ func toBasketRow(basket library.Entity) templates.BasketRow {
 		Shape:        strField(basket, "shape"),
 		DoseCapacity: strField(basket, "doseCapacity"),
 		HoleCount:    strField(basket, "holeCount"),
+		Notes:        strField(basket, "notes"),
 	}
 }
 
@@ -155,6 +161,7 @@ func toPuckScreenRow(puckScreen library.Entity) templates.PuckScreenRow {
 		Name:      strField(puckScreen, "name"),
 		Thickness: strField(puckScreen, "thickness"),
 		Material:  strField(puckScreen, "material"),
+		Notes:     strField(puckScreen, "notes"),
 	}
 }
 
@@ -174,6 +181,7 @@ func toMilkRow(milk library.Entity) templates.MilkRow {
 		Name:       strField(milk, "name"),
 		Emoji:      emoji,
 		StockMl:    fmt.Sprintf("%g ml", stockMl),
+		StockMlRaw: stockMl,
 		StockPct:   milkStockPct(stockMl),
 		StockClass: milkStockClass(stockMl),
 	}
@@ -207,5 +215,6 @@ func toRecipeRow(recipe library.Entity) templates.RecipeRow {
 		Name:       strField(recipe, "name"),
 		BrewMethod: strField(recipe, "brewMethod"),
 		DrinkType:  strField(recipe, "drinkType"),
+		Notes:      strField(recipe, "notes"),
 	}
 }

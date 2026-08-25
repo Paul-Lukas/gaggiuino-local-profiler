@@ -247,6 +247,79 @@ func TestToggleBeanActiveAction_NotFound(t *testing.T) {
 	}
 }
 
+// TestBeanEditAction_RendersForm verifies GET /beans/{id}/edit swaps the
+// row for a pre-filled edit form (#901 Edit UI).
+func TestBeanEditAction_RendersForm(t *testing.T) {
+	mux, libRepo, _ := newTestLibraryServer(t)
+	if err := libRepo.SaveLibrary(library.Library{
+		Beans: []library.Entity{{"id": int64(1), "name": "Kenya AA", "roaster": "Roaster B", "category": "speciality"}},
+	}); err != nil {
+		t.Fatalf("SaveLibrary: %v", err)
+	}
+
+	rec := doRequest(t, mux, "GET", "/beans/1/edit")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /beans/1/edit: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`hx-put="beans/1"`, `value="Kenya AA"`, `value="Roaster B"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("GET /beans/1/edit body missing %q\nbody:\n%s", want, body)
+		}
+	}
+}
+
+// TestUpdateBeanAction_RoundTrip drives the Edit form's save action end to
+// end, including the decaf checkbox's decaf_present hidden-field trick
+// (BeanEditFragment's own doc comment) — unchecking (i.e. omitting) decaf
+// while decaf_present is still submitted must clear a previously-true decaf
+// flag, not silently leave it set.
+func TestUpdateBeanAction_RoundTrip(t *testing.T) {
+	mux, libRepo, _ := newTestLibraryServer(t)
+	if err := libRepo.SaveLibrary(library.Library{
+		Beans: []library.Entity{{"id": int64(1), "name": "Kenya AA", "decaf": true}},
+	}); err != nil {
+		t.Fatalf("SaveLibrary: %v", err)
+	}
+
+	rec := doFormPut(t, mux, "/beans/1", url.Values{
+		"name":          {"Kenya AA Updated"},
+		"roaster":       {"New Roaster"},
+		"category":      {"speciality"},
+		"stock_g":       {"180"},
+		"decaf_present": {"1"}, // decaf checkbox itself omitted -> unchecked
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /beans/1: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Kenya AA Updated") || !strings.Contains(body, "New Roaster") {
+		t.Errorf("PUT /beans/1 response missing updated fields\nbody:\n%s", body)
+	}
+	if strings.Contains(body, ">decaf<") {
+		t.Errorf("PUT /beans/1 response still shows the decaf badge after unchecking it\nbody:\n%s", body)
+	}
+
+	lib, err := libRepo.GetLibrary()
+	if err != nil {
+		t.Fatalf("GetLibrary: %v", err)
+	}
+	if lib.Beans[0]["name"] != "Kenya AA Updated" {
+		t.Errorf("bean name = %v, want %q", lib.Beans[0]["name"], "Kenya AA Updated")
+	}
+	if decaf, _ := lib.Beans[0]["decaf"].(bool); decaf {
+		t.Errorf("bean decaf = true, want false after unchecking the Edit form's checkbox")
+	}
+}
+
+func TestUpdateBeanAction_NotFound(t *testing.T) {
+	mux, _, _ := newTestLibraryServer(t)
+	rec := doFormPut(t, mux, "/beans/999", url.Values{"name": {"x"}})
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("PUT /beans/999: status = %d, want 404", rec.Code)
+	}
+}
+
 // ── Grinders ───────────────────────────────────────────────────────────
 
 func TestGrindersPage_RendersGrinders(t *testing.T) {
@@ -398,6 +471,33 @@ func TestCreateBasketAction_InvalidWallTypeRejected(t *testing.T) {
 	}
 	if len(lib.Baskets) != 0 {
 		t.Errorf("library has %d baskets after a rejected create, want 0", len(lib.Baskets))
+	}
+}
+
+// TestUpdateBasketAction_InvalidWallTypeRejected verifies the Edit form's
+// save action carries the same wallType/shape enum validation
+// library.UpdateBasket enforces — not just the New-basket create form.
+func TestUpdateBasketAction_InvalidWallTypeRejected(t *testing.T) {
+	mux, libRepo, _ := newTestLibraryServer(t)
+	if err := libRepo.SaveLibrary(library.Library{
+		Baskets: []library.Entity{{"id": int64(1), "name": "VST", "wallType": "single-wall"}},
+	}); err != nil {
+		t.Fatalf("SaveLibrary: %v", err)
+	}
+
+	rec := doFormPut(t, mux, "/baskets/1", url.Values{"name": {"VST"}, "wallType": {"not-a-real-type"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /baskets/1 (bad wallType): status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid wallType") {
+		t.Errorf("PUT /baskets/1 (bad wallType) body missing validation error\nbody:\n%s", rec.Body.String())
+	}
+	lib, err := libRepo.GetLibrary()
+	if err != nil {
+		t.Fatalf("GetLibrary: %v", err)
+	}
+	if lib.Baskets[0]["wallType"] != "single-wall" {
+		t.Errorf("basket wallType = %v, want unchanged %q after a rejected update", lib.Baskets[0]["wallType"], "single-wall")
 	}
 }
 
@@ -685,5 +785,20 @@ func TestLibraryPagesRequireAuthBehindRequireToken(t *testing.T) {
 		if rec := doAuthedRequest("POST", path, testToken); rec.Code != http.StatusOK {
 			t.Errorf("POST %s with a valid token: status = %d, want 200, body = %s", path, rec.Code, rec.Body.String())
 		}
+	}
+
+	// The Edit UI's PUT save action must be behind the same bypass — GET
+	// (view/edit fragment) stays public, PUT (the actual write) doesn't.
+	if rec := doAuthedRequest("GET", "/beans/1", ""); rec.Code != http.StatusOK {
+		t.Errorf("GET /beans/1 without a token: status = %d, want 200", rec.Code)
+	}
+	if rec := doAuthedRequest("GET", "/beans/1/edit", ""); rec.Code != http.StatusOK {
+		t.Errorf("GET /beans/1/edit without a token: status = %d, want 200", rec.Code)
+	}
+	if rec := doAuthedRequest("PUT", "/beans/1", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("PUT /beans/1 without a token: status = %d, want 401", rec.Code)
+	}
+	if rec := doAuthedRequest("PUT", "/beans/1", testToken); rec.Code != http.StatusOK {
+		t.Errorf("PUT /beans/1 with a valid token: status = %d, want 200, body = %s", rec.Code, rec.Body.String())
 	}
 }

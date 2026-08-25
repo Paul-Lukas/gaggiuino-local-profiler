@@ -162,6 +162,59 @@ func TestCreateMachineAction_ValidationError(t *testing.T) {
 	}
 }
 
+// TestUpdateAction_RoundTrip drives the Edit form's save action end to end
+// on the seeded default machine (id 1) — Edit is offered for the default
+// machine too, unlike Set default/Delete (machines.templ's own
+// `if !row.IsDefault` gate on those two).
+func TestUpdateAction_RoundTrip(t *testing.T) {
+	mux, registry := newTestMachinesServer(t)
+
+	rec := doFormPut(t, mux, "/machines/1", url.Values{
+		"name": {"Renamed Gaggiuino"},
+		"type": {"gaggiuino"},
+		"host": {""},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /machines/1: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Renamed Gaggiuino") {
+		t.Errorf("PUT /machines/1 response missing the renamed machine\nbody:\n%s", rec.Body.String())
+	}
+
+	m, err := registry.GetMachine(1)
+	if err != nil {
+		t.Fatalf("GetMachine(1): %v", err)
+	}
+	if m == nil || m.Name != "Renamed Gaggiuino" {
+		t.Errorf("machine 1 name = %v, want %q", m, "Renamed Gaggiuino")
+	}
+}
+
+// TestUpdateAction_ValidationError verifies a blank name is rejected by
+// MachineInput.validate before reaching Registry.UpdateMachine, answered as
+// a 200 with formError set in the re-rendered edit form (same "success and
+// failure share one fragment" convention MachinesContentFragment's own doc
+// comment documents for the create form).
+func TestUpdateAction_ValidationError(t *testing.T) {
+	mux, registry := newTestMachinesServer(t)
+
+	rec := doFormPut(t, mux, "/machines/1", url.Values{"name": {""}, "type": {"gaggiuino"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /machines/1 (blank name): status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid machine") {
+		t.Errorf("PUT /machines/1 (blank name) body missing validation error\nbody:\n%s", rec.Body.String())
+	}
+
+	m, err := registry.GetMachine(1)
+	if err != nil {
+		t.Fatalf("GetMachine(1): %v", err)
+	}
+	if m == nil || m.Name == "" {
+		t.Errorf("machine 1 lost its name after a rejected update: %v", m)
+	}
+}
+
 // TestSetDefaultAction_RoundTrip drives the one two-row-changing write
 // action this page has: setting machine 2 as default flips both rows'
 // badges/actions in the re-rendered list fragment.
@@ -392,6 +445,22 @@ func TestMachinesPagesRequireAuthBehindRequireToken(t *testing.T) {
 	}
 	if rec := doAuthedRequest("POST", "/machines", testToken); rec.Code != http.StatusOK {
 		t.Errorf("POST /machines with a valid token: status = %d, want 200, body = %s", rec.Code, rec.Body.String())
+	}
+
+	// The Edit UI's PUT save action — GET (view/edit fragment) stays public,
+	// PUT (the actual write) requires the same token every other write here
+	// does.
+	if rec := doAuthedRequest("GET", "/machines/1", ""); rec.Code != http.StatusOK {
+		t.Errorf("GET /machines/1 without a token: status = %d, want 200", rec.Code)
+	}
+	if rec := doAuthedRequest("GET", "/machines/1/edit", ""); rec.Code != http.StatusOK {
+		t.Errorf("GET /machines/1/edit without a token: status = %d, want 200", rec.Code)
+	}
+	if rec := doAuthedRequest("PUT", "/machines/1", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("PUT /machines/1 without a token: status = %d, want 401", rec.Code)
+	}
+	if rec := doAuthedRequest("PUT", "/machines/1", testToken); rec.Code != http.StatusOK {
+		t.Errorf("PUT /machines/1 with a valid token: status = %d, want 200, body = %s", rec.Code, rec.Body.String())
 	}
 
 	defaultPath := "/machines/" + strconv.FormatInt(second.ID, 10) + "/default"

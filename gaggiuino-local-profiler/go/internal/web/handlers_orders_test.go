@@ -72,6 +72,19 @@ func doFormPost(t *testing.T, mux *http.ServeMux, path string, form url.Values) 
 	return rec
 }
 
+// doFormPut is doFormPost's PUT counterpart — the Edit UI's save action
+// (handlers_library.go's updateBeanAction et al., handlers_machines.go's
+// updateAction) uses hx-put, not hx-post, since it's a partial update of an
+// existing entity rather than a create.
+func doFormPut(t *testing.T, mux *http.ServeMux, path string, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPut, path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
 // ── Barista queue ──────────────────────────────────────────────────────
 
 func TestOrdersPage_RendersQueue(t *testing.T) {

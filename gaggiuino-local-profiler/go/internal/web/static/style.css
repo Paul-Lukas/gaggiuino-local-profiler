@@ -564,6 +564,14 @@ button, input, select, textarea { font-family: inherit; }
 
 .item-row.disabled { opacity: 0.55; }
 
+/* Edit UI (#901, Library/Machines full Create/Edit follow-up pass): a row
+ * swapped into its inline edit form (BeanEditFragment et al.) drops
+ * .item-row's flex-row/space-between layout for a plain block one — the
+ * .order-form it wraps (same class the New-entity forms above already use)
+ * needs to stack its labeled fields vertically, not sit centered beside a
+ * second flex child that no longer exists once the row is one <form>. */
+.item-row-edit { display: block; }
+
 .item-info { display: flex; flex-direction: column; gap: 2px; }
 
 .item-name { font-weight: 600; display: flex; align-items: center; gap: var(--sp-2); }

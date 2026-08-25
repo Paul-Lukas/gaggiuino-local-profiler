@@ -53,12 +53,15 @@ type BeanRow struct {
 	ID         int64
 	Name       string
 	Roaster    string
+	Category   string // raw "normal"/"speciality" — Edit form's <select> value
 	Speciality bool
 	Decaf      bool
 	Enabled    bool
 	RoastDate  string
-	StockG     string // "250 g" or "" when untracked
-	Remaining  string // "180 g remaining" or "" when untracked/unknown
+	Notes      string
+	StockG     string  // "250 g" or "" when untracked
+	StockGRaw  float64 // raw grams — Edit form's number input value
+	Remaining  string  // "180 g remaining" or "" when untracked/unknown
 	StockPct   float64 // 0-100, only meaningful when Remaining != ""
 	StockLow   bool    // remaining < 100g — mirrors public-src's lib-inv-remaining.low
 	BagCount   int
@@ -163,6 +166,15 @@ templ beanRow(row BeanRow) {
 			<button
 				type="button"
 				class="btn"
+				hx-get={ fmt.Sprintf("beans/%d/edit", row.ID) }
+				hx-target={ fmt.Sprintf("#bean-row-%d", row.ID) }
+				hx-swap="outerHTML"
+			>
+				Edit
+			</button>
+			<button
+				type="button"
+				class="btn"
 				hx-post={ fmt.Sprintf("beans/%d/toggle-active", row.ID) }
 				hx-target={ fmt.Sprintf("#bean-row-%d", row.ID) }
 				hx-swap="outerHTML"
@@ -177,6 +189,45 @@ templ beanRow(row BeanRow) {
 	</div>
 }
 
+// BeanEditFragment renders bean id's inline edit form — the htmx response
+// beanEditAction (handlers_library.go) answers `GET /beans/{id}/edit` with,
+// swapped over the row via hx-swap="outerHTML". Saving (hx-put="beans/{id}")
+// or cancelling (hx-get="beans/{id}") both swap the same #bean-row-{id}
+// element back to a plain @beanRow.
+templ BeanEditFragment(row BeanRow, formError string) {
+	<div class="item-row item-row-edit" id={ fmt.Sprintf("bean-row-%d", row.ID) }>
+		<form class="order-form" hx-put={ fmt.Sprintf("beans/%d", row.ID) } hx-target={ fmt.Sprintf("#bean-row-%d", row.ID) } hx-swap="outerHTML">
+			if formError != "" {
+				<div class="badge badge-err">{ formError }</div>
+			}
+			<label class="item-meta" for={ fmt.Sprintf("bean-edit-name-%d", row.ID) }>Name</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("bean-edit-name-%d", row.ID) } name="name" required maxlength="200" value={ row.Name }/>
+			<label class="item-meta" for={ fmt.Sprintf("bean-edit-roaster-%d", row.ID) }>Roaster</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("bean-edit-roaster-%d", row.ID) } name="roaster" maxlength="200" value={ row.Roaster }/>
+			<label class="item-meta" for={ fmt.Sprintf("bean-edit-category-%d", row.ID) }>Category</label>
+			<select class="filter-input" id={ fmt.Sprintf("bean-edit-category-%d", row.ID) } name="category">
+				<option value="normal" selected?={ row.Category != "speciality" }>Normal</option>
+				<option value="speciality" selected?={ row.Category == "speciality" }>Speciality</option>
+			</select>
+			<label class="item-meta" for={ fmt.Sprintf("bean-edit-roastdate-%d", row.ID) }>Roast date</label>
+			<input class="filter-input" type="date" id={ fmt.Sprintf("bean-edit-roastdate-%d", row.ID) } name="roastDate" value={ row.RoastDate }/>
+			<label class="item-meta" for={ fmt.Sprintf("bean-edit-stockg-%d", row.ID) }>Stock (g)</label>
+			<input class="filter-input" type="number" id={ fmt.Sprintf("bean-edit-stockg-%d", row.ID) } name="stock_g" min="0" step="0.1" value={ fmt.Sprintf("%g", row.StockGRaw) }/>
+			<label class="item-meta">
+				<input type="hidden" name="decaf_present" value="1"/>
+				<input type="checkbox" name="decaf" value="true" checked?={ row.Decaf }/>
+				Decaf
+			</label>
+			<label class="item-meta" for={ fmt.Sprintf("bean-edit-notes-%d", row.ID) }>Notes</label>
+			<textarea class="filter-input" id={ fmt.Sprintf("bean-edit-notes-%d", row.ID) } name="notes" maxlength="1000">{ row.Notes }</textarea>
+			<div class="item-actions">
+				<button type="submit" class="btn">Save</button>
+				<button type="button" class="btn" hx-get={ fmt.Sprintf("beans/%d", row.ID) } hx-target={ fmt.Sprintf("#bean-row-%d", row.ID) } hx-swap="outerHTML">Cancel</button>
+			</div>
+		</form>
+	</div>
+}
+
 // ── Grinders ───────────────────────────────────────────────────────────
 
 // GrinderRow is the display-ready projection of a library.Entity grinder,
@@ -187,6 +238,7 @@ type GrinderRow struct {
 	Name            string
 	BurrType        string
 	PurchaseDate    string
+	Notes           string
 	ShotsSinceBurrs int
 	GramsSinceBurrs string // pre-formatted, e.g. "1.2 kg" or "340 g"
 }
@@ -235,8 +287,15 @@ templ grindersContent(rows []GrinderRow, formError string) {
 	}
 }
 
+// GrinderFragment renders a single grinder row on its own — the htmx
+// response GET /grinders/{id} (a plain view-mode re-render, used by the Edit
+// form's Cancel button) answers with.
+templ GrinderFragment(row GrinderRow) {
+	@grinderRow(row)
+}
+
 templ grinderRow(row GrinderRow) {
-	<div class="item-row">
+	<div class="item-row" id={ fmt.Sprintf("grinder-row-%d", row.ID) }>
 		<div class="item-info">
 			<div class="item-name">{ row.Name }</div>
 			<div class="item-meta">
@@ -249,6 +308,41 @@ templ grinderRow(row GrinderRow) {
 				{ fmt.Sprintf(" · %d shots / %s since burr swap", row.ShotsSinceBurrs, row.GramsSinceBurrs) }
 			</div>
 		</div>
+		<div class="item-actions">
+			<button
+				type="button"
+				class="btn"
+				hx-get={ fmt.Sprintf("grinders/%d/edit", row.ID) }
+				hx-target={ fmt.Sprintf("#grinder-row-%d", row.ID) }
+				hx-swap="outerHTML"
+			>
+				Edit
+			</button>
+		</div>
+	</div>
+}
+
+// GrinderEditFragment renders grinder id's inline edit form — see
+// BeanEditFragment's own doc comment for the swap pattern this mirrors.
+templ GrinderEditFragment(row GrinderRow, formError string) {
+	<div class="item-row item-row-edit" id={ fmt.Sprintf("grinder-row-%d", row.ID) }>
+		<form class="order-form" hx-put={ fmt.Sprintf("grinders/%d", row.ID) } hx-target={ fmt.Sprintf("#grinder-row-%d", row.ID) } hx-swap="outerHTML">
+			if formError != "" {
+				<div class="badge badge-err">{ formError }</div>
+			}
+			<label class="item-meta" for={ fmt.Sprintf("grinder-edit-name-%d", row.ID) }>Name</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("grinder-edit-name-%d", row.ID) } name="name" required maxlength="200" value={ row.Name }/>
+			<label class="item-meta" for={ fmt.Sprintf("grinder-edit-burrtype-%d", row.ID) }>Burr type</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("grinder-edit-burrtype-%d", row.ID) } name="burrType" maxlength="200" value={ row.BurrType }/>
+			<label class="item-meta" for={ fmt.Sprintf("grinder-edit-purchasedate-%d", row.ID) }>Purchase date</label>
+			<input class="filter-input" type="date" id={ fmt.Sprintf("grinder-edit-purchasedate-%d", row.ID) } name="purchaseDate" value={ row.PurchaseDate }/>
+			<label class="item-meta" for={ fmt.Sprintf("grinder-edit-notes-%d", row.ID) }>Notes</label>
+			<textarea class="filter-input" id={ fmt.Sprintf("grinder-edit-notes-%d", row.ID) } name="notes" maxlength="1000">{ row.Notes }</textarea>
+			<div class="item-actions">
+				<button type="submit" class="btn">Save</button>
+				<button type="button" class="btn" hx-get={ fmt.Sprintf("grinders/%d", row.ID) } hx-target={ fmt.Sprintf("#grinder-row-%d", row.ID) } hx-swap="outerHTML">Cancel</button>
+			</div>
+		</form>
 	</div>
 }
 
@@ -266,6 +360,7 @@ type BasketRow struct {
 	Shape        string
 	DoseCapacity string
 	HoleCount    string
+	Notes        string
 }
 
 templ BasketsPage(rows []BasketRow, formError string) {
@@ -318,28 +413,91 @@ templ basketsContent(rows []BasketRow, formError string) {
 	} else {
 		<div class="item-list">
 			for _, row := range rows {
-				<div class="item-row">
-					<div class="item-info">
-						<div class="item-name">{ row.Name }</div>
-						<div class="item-meta">
-							if row.WallType != "" {
-								{ row.WallType }
-							}
-							if row.Shape != "" {
-								{ " · " + row.Shape }
-							}
-							if row.DoseCapacity != "" {
-								{ " · " + row.DoseCapacity }
-							}
-							if row.HoleCount != "" {
-								{ " · " + row.HoleCount + " holes" }
-							}
-						</div>
-					</div>
-				</div>
+				@basketRow(row)
 			}
 		</div>
 	}
+}
+
+// BasketFragment renders a single basket row on its own — the htmx response
+// GET /baskets/{id} (a plain view-mode re-render, used by the Edit form's
+// Cancel button) answers with.
+templ BasketFragment(row BasketRow) {
+	@basketRow(row)
+}
+
+templ basketRow(row BasketRow) {
+	<div class="item-row" id={ fmt.Sprintf("basket-row-%d", row.ID) }>
+		<div class="item-info">
+			<div class="item-name">{ row.Name }</div>
+			<div class="item-meta">
+				if row.WallType != "" {
+					{ row.WallType }
+				}
+				if row.Shape != "" {
+					{ " · " + row.Shape }
+				}
+				if row.DoseCapacity != "" {
+					{ " · " + row.DoseCapacity }
+				}
+				if row.HoleCount != "" {
+					{ " · " + row.HoleCount + " holes" }
+				}
+			</div>
+		</div>
+		<div class="item-actions">
+			<button
+				type="button"
+				class="btn"
+				hx-get={ fmt.Sprintf("baskets/%d/edit", row.ID) }
+				hx-target={ fmt.Sprintf("#basket-row-%d", row.ID) }
+				hx-swap="outerHTML"
+			>
+				Edit
+			</button>
+		</div>
+	</div>
+}
+
+// BasketEditFragment renders basket id's inline edit form — see
+// BeanEditFragment's own doc comment for the swap pattern this mirrors.
+// wallType/shape <select> options mirror basketsContent's own — see that
+// templ's doc comment for why they're duplicated rather than shared with
+// internal/library's own enum maps.
+templ BasketEditFragment(row BasketRow, formError string) {
+	<div class="item-row item-row-edit" id={ fmt.Sprintf("basket-row-%d", row.ID) }>
+		<form class="order-form" hx-put={ fmt.Sprintf("baskets/%d", row.ID) } hx-target={ fmt.Sprintf("#basket-row-%d", row.ID) } hx-swap="outerHTML">
+			if formError != "" {
+				<div class="badge badge-err">{ formError }</div>
+			}
+			<label class="item-meta" for={ fmt.Sprintf("basket-edit-name-%d", row.ID) }>Name</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("basket-edit-name-%d", row.ID) } name="name" required maxlength="200" value={ row.Name }/>
+			<label class="item-meta" for={ fmt.Sprintf("basket-edit-walltype-%d", row.ID) }>Wall type</label>
+			<select class="filter-input" id={ fmt.Sprintf("basket-edit-walltype-%d", row.ID) } name="wallType">
+				<option value="" selected?={ row.WallType == "" }>—</option>
+				<option value="pressurized" selected?={ row.WallType == "pressurized" }>Pressurized</option>
+				<option value="single-wall" selected?={ row.WallType == "single-wall" }>Single-wall</option>
+				<option value="precision-machined" selected?={ row.WallType == "precision-machined" }>Precision-machined</option>
+				<option value="high-flow" selected?={ row.WallType == "high-flow" }>High-flow</option>
+			</select>
+			<label class="item-meta" for={ fmt.Sprintf("basket-edit-shape-%d", row.ID) }>Shape</label>
+			<select class="filter-input" id={ fmt.Sprintf("basket-edit-shape-%d", row.ID) } name="shape">
+				<option value="" selected?={ row.Shape == "" }>—</option>
+				<option value="straight" selected?={ row.Shape == "straight" }>Straight</option>
+				<option value="tapered" selected?={ row.Shape == "tapered" }>Tapered</option>
+			</select>
+			<label class="item-meta" for={ fmt.Sprintf("basket-edit-dosecapacity-%d", row.ID) }>Dose capacity</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("basket-edit-dosecapacity-%d", row.ID) } name="doseCapacity" maxlength="50" value={ row.DoseCapacity }/>
+			<label class="item-meta" for={ fmt.Sprintf("basket-edit-holecount-%d", row.ID) }>Hole count</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("basket-edit-holecount-%d", row.ID) } name="holeCount" maxlength="50" value={ row.HoleCount }/>
+			<label class="item-meta" for={ fmt.Sprintf("basket-edit-notes-%d", row.ID) }>Notes</label>
+			<textarea class="filter-input" id={ fmt.Sprintf("basket-edit-notes-%d", row.ID) } name="notes" maxlength="1000">{ row.Notes }</textarea>
+			<div class="item-actions">
+				<button type="submit" class="btn">Save</button>
+				<button type="button" class="btn" hx-get={ fmt.Sprintf("baskets/%d", row.ID) } hx-target={ fmt.Sprintf("#basket-row-%d", row.ID) } hx-swap="outerHTML">Cancel</button>
+			</div>
+		</form>
+	</div>
 }
 
 // ── Puck screens ───────────────────────────────────────────────────────
@@ -351,6 +509,7 @@ type PuckScreenRow struct {
 	Name      string
 	Thickness string
 	Material  string
+	Notes     string
 }
 
 templ PuckScreensPage(rows []PuckScreenRow, formError string) {
@@ -397,22 +556,74 @@ templ puckScreensContent(rows []PuckScreenRow, formError string) {
 	} else {
 		<div class="item-list">
 			for _, row := range rows {
-				<div class="item-row">
-					<div class="item-info">
-						<div class="item-name">{ row.Name }</div>
-						<div class="item-meta">
-							if row.Thickness != "" {
-								{ row.Thickness }
-							}
-							if row.Material != "" {
-								{ " · " + row.Material }
-							}
-						</div>
-					</div>
-				</div>
+				@puckScreenRow(row)
 			}
 		</div>
 	}
+}
+
+// PuckScreenFragment renders a single puck screen row on its own — the htmx
+// response GET /puckscreens/{id} (a plain view-mode re-render, used by the
+// Edit form's Cancel button) answers with.
+templ PuckScreenFragment(row PuckScreenRow) {
+	@puckScreenRow(row)
+}
+
+templ puckScreenRow(row PuckScreenRow) {
+	<div class="item-row" id={ fmt.Sprintf("puckscreen-row-%d", row.ID) }>
+		<div class="item-info">
+			<div class="item-name">{ row.Name }</div>
+			<div class="item-meta">
+				if row.Thickness != "" {
+					{ row.Thickness }
+				}
+				if row.Material != "" {
+					{ " · " + row.Material }
+				}
+			</div>
+		</div>
+		<div class="item-actions">
+			<button
+				type="button"
+				class="btn"
+				hx-get={ fmt.Sprintf("puckscreens/%d/edit", row.ID) }
+				hx-target={ fmt.Sprintf("#puckscreen-row-%d", row.ID) }
+				hx-swap="outerHTML"
+			>
+				Edit
+			</button>
+		</div>
+	</div>
+}
+
+// PuckScreenEditFragment renders puck screen id's inline edit form — see
+// BeanEditFragment's own doc comment for the swap pattern this mirrors.
+templ PuckScreenEditFragment(row PuckScreenRow, formError string) {
+	<div class="item-row item-row-edit" id={ fmt.Sprintf("puckscreen-row-%d", row.ID) }>
+		<form class="order-form" hx-put={ fmt.Sprintf("puckscreens/%d", row.ID) } hx-target={ fmt.Sprintf("#puckscreen-row-%d", row.ID) } hx-swap="outerHTML">
+			if formError != "" {
+				<div class="badge badge-err">{ formError }</div>
+			}
+			<label class="item-meta" for={ fmt.Sprintf("puckscreen-edit-name-%d", row.ID) }>Name</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("puckscreen-edit-name-%d", row.ID) } name="name" required maxlength="200" value={ row.Name }/>
+			<label class="item-meta" for={ fmt.Sprintf("puckscreen-edit-thickness-%d", row.ID) }>Thickness</label>
+			<select class="filter-input" id={ fmt.Sprintf("puckscreen-edit-thickness-%d", row.ID) } name="thickness">
+				<option value="" selected?={ row.Thickness == "" }>—</option>
+				<option value="very-thin" selected?={ row.Thickness == "very-thin" }>Very thin</option>
+				<option value="thin" selected?={ row.Thickness == "thin" }>Thin</option>
+				<option value="medium" selected?={ row.Thickness == "medium" }>Medium</option>
+				<option value="thick" selected?={ row.Thickness == "thick" }>Thick</option>
+			</select>
+			<label class="item-meta" for={ fmt.Sprintf("puckscreen-edit-material-%d", row.ID) }>Material</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("puckscreen-edit-material-%d", row.ID) } name="material" maxlength="200" value={ row.Material }/>
+			<label class="item-meta" for={ fmt.Sprintf("puckscreen-edit-notes-%d", row.ID) }>Notes</label>
+			<textarea class="filter-input" id={ fmt.Sprintf("puckscreen-edit-notes-%d", row.ID) } name="notes" maxlength="1000">{ row.Notes }</textarea>
+			<div class="item-actions">
+				<button type="submit" class="btn">Save</button>
+				<button type="button" class="btn" hx-get={ fmt.Sprintf("puckscreens/%d", row.ID) } hx-target={ fmt.Sprintf("#puckscreen-row-%d", row.ID) } hx-swap="outerHTML">Cancel</button>
+			</div>
+		</form>
+	</div>
 }
 
 // ── Milks ──────────────────────────────────────────────────────────────
@@ -423,6 +634,7 @@ type MilkRow struct {
 	Name       string
 	Emoji      string
 	StockMl    string  // pre-formatted, e.g. "500 ml"
+	StockMlRaw float64 // raw ml — Edit form's number input value
 	StockPct   float64 // 0-100, 2000ml == a full bar — see milkStockPct
 	StockClass string  // "ok" | "low" | "empty" — see milkStockClass
 }
@@ -461,20 +673,64 @@ templ milksContent(rows []MilkRow, formError string) {
 	} else {
 		<div class="item-list">
 			for _, row := range rows {
-				<div class="item-row">
-					<div class="item-info">
-						<div class="item-name">{ row.Emoji } { row.Name }</div>
-						if row.StockMl != "" {
-							<div class="item-meta">{ row.StockMl }</div>
-							<div class="milk-stock-bar-wrap">
-								<div class={ "milk-stock-bar-fill", row.StockClass } style={ stockBarWidth(row.StockPct) }></div>
-							</div>
-						}
-					</div>
-				</div>
+				@milkRow(row)
 			}
 		</div>
 	}
+}
+
+// MilkFragment renders a single milk row on its own — the htmx response
+// GET /milks/{id} (a plain view-mode re-render, used by the Edit form's
+// Cancel button) answers with.
+templ MilkFragment(row MilkRow) {
+	@milkRow(row)
+}
+
+templ milkRow(row MilkRow) {
+	<div class="item-row" id={ fmt.Sprintf("milk-row-%d", row.ID) }>
+		<div class="item-info">
+			<div class="item-name">{ row.Emoji } { row.Name }</div>
+			if row.StockMl != "" {
+				<div class="item-meta">{ row.StockMl }</div>
+				<div class="milk-stock-bar-wrap">
+					<div class={ "milk-stock-bar-fill", row.StockClass } style={ stockBarWidth(row.StockPct) }></div>
+				</div>
+			}
+		</div>
+		<div class="item-actions">
+			<button
+				type="button"
+				class="btn"
+				hx-get={ fmt.Sprintf("milks/%d/edit", row.ID) }
+				hx-target={ fmt.Sprintf("#milk-row-%d", row.ID) }
+				hx-swap="outerHTML"
+			>
+				Edit
+			</button>
+		</div>
+	</div>
+}
+
+// MilkEditFragment renders milk id's inline edit form — see
+// BeanEditFragment's own doc comment for the swap pattern this mirrors.
+templ MilkEditFragment(row MilkRow, formError string) {
+	<div class="item-row item-row-edit" id={ fmt.Sprintf("milk-row-%d", row.ID) }>
+		<form class="order-form" hx-put={ fmt.Sprintf("milks/%d", row.ID) } hx-target={ fmt.Sprintf("#milk-row-%d", row.ID) } hx-swap="outerHTML">
+			if formError != "" {
+				<div class="badge badge-err">{ formError }</div>
+			}
+			<label class="item-meta" for={ fmt.Sprintf("milk-edit-name-%d", row.ID) }>Name</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("milk-edit-name-%d", row.ID) } name="name" required maxlength="100" value={ row.Name }/>
+			<label class="item-meta" for={ fmt.Sprintf("milk-edit-emoji-%d", row.ID) }>Emoji</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("milk-edit-emoji-%d", row.ID) } name="emoji" maxlength="8" value={ row.Emoji }/>
+			<label class="item-meta" for={ fmt.Sprintf("milk-edit-stockml-%d", row.ID) }>Stock (ml)</label>
+			<input class="filter-input" type="number" id={ fmt.Sprintf("milk-edit-stockml-%d", row.ID) } name="stockMl" min="0" step="1" value={ fmt.Sprintf("%g", row.StockMlRaw) }/>
+			<div class="item-actions">
+				<button type="submit" class="btn">Save</button>
+				<button type="button" class="btn" hx-get={ fmt.Sprintf("milks/%d", row.ID) } hx-target={ fmt.Sprintf("#milk-row-%d", row.ID) } hx-swap="outerHTML">Cancel</button>
+			</div>
+		</form>
+	</div>
 }
 
 // ── Recipes ────────────────────────────────────────────────────────────
@@ -485,6 +741,7 @@ type RecipeRow struct {
 	Name       string
 	BrewMethod string
 	DrinkType  string
+	Notes      string
 }
 
 templ RecipesPage(rows []RecipeRow, formError string) {
@@ -536,18 +793,72 @@ templ recipesContent(rows []RecipeRow, formError string) {
 	} else {
 		<div class="item-list">
 			for _, row := range rows {
-				<div class="item-row">
-					<div class="item-info">
-						<div class="item-name">{ row.Name }</div>
-						<div class="item-meta">
-							{ row.BrewMethod }
-							if row.DrinkType != "" {
-								{ " · " + row.DrinkType }
-							}
-						</div>
-					</div>
-				</div>
+				@recipeRow(row)
 			}
 		</div>
 	}
+}
+
+// RecipeFragment renders a single recipe row on its own — the htmx response
+// GET /recipes/{id} (a plain view-mode re-render, used by the Edit form's
+// Cancel button) answers with.
+templ RecipeFragment(row RecipeRow) {
+	@recipeRow(row)
+}
+
+templ recipeRow(row RecipeRow) {
+	<div class="item-row" id={ fmt.Sprintf("recipe-row-%d", row.ID) }>
+		<div class="item-info">
+			<div class="item-name">{ row.Name }</div>
+			<div class="item-meta">
+				{ row.BrewMethod }
+				if row.DrinkType != "" {
+					{ " · " + row.DrinkType }
+				}
+			</div>
+		</div>
+		<div class="item-actions">
+			<button
+				type="button"
+				class="btn"
+				hx-get={ fmt.Sprintf("recipes/%d/edit", row.ID) }
+				hx-target={ fmt.Sprintf("#recipe-row-%d", row.ID) }
+				hx-swap="outerHTML"
+			>
+				Edit
+			</button>
+		</div>
+	</div>
+}
+
+// RecipeEditFragment renders recipe id's inline edit form — see
+// BeanEditFragment's own doc comment for the swap pattern this mirrors.
+templ RecipeEditFragment(row RecipeRow, formError string) {
+	<div class="item-row item-row-edit" id={ fmt.Sprintf("recipe-row-%d", row.ID) }>
+		<form class="order-form" hx-put={ fmt.Sprintf("recipes/%d", row.ID) } hx-target={ fmt.Sprintf("#recipe-row-%d", row.ID) } hx-swap="outerHTML">
+			if formError != "" {
+				<div class="badge badge-err">{ formError }</div>
+			}
+			<label class="item-meta" for={ fmt.Sprintf("recipe-edit-name-%d", row.ID) }>Name</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("recipe-edit-name-%d", row.ID) } name="name" required maxlength="200" value={ row.Name }/>
+			<label class="item-meta" for={ fmt.Sprintf("recipe-edit-brewmethod-%d", row.ID) }>Brew method</label>
+			<select class="filter-input" id={ fmt.Sprintf("recipe-edit-brewmethod-%d", row.ID) } name="brewMethod">
+				<option value="espresso" selected?={ row.BrewMethod == "espresso" }>Espresso</option>
+				<option value="aeropress" selected?={ row.BrewMethod == "aeropress" }>Aeropress</option>
+				<option value="v60" selected?={ row.BrewMethod == "v60" }>V60</option>
+				<option value="french_press" selected?={ row.BrewMethod == "french_press" }>French press</option>
+				<option value="moka" selected?={ row.BrewMethod == "moka" }>Moka</option>
+				<option value="cold_brew" selected?={ row.BrewMethod == "cold_brew" }>Cold brew</option>
+				<option value="other" selected?={ row.BrewMethod == "other" }>Other</option>
+			</select>
+			<label class="item-meta" for={ fmt.Sprintf("recipe-edit-drinktype-%d", row.ID) }>Drink type</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("recipe-edit-drinktype-%d", row.ID) } name="drinkType" maxlength="50" value={ row.DrinkType }/>
+			<label class="item-meta" for={ fmt.Sprintf("recipe-edit-notes-%d", row.ID) }>Notes</label>
+			<textarea class="filter-input" id={ fmt.Sprintf("recipe-edit-notes-%d", row.ID) } name="notes" maxlength="1000">{ row.Notes }</textarea>
+			<div class="item-actions">
+				<button type="submit" class="btn">Save</button>
+				<button type="button" class="btn" hx-get={ fmt.Sprintf("recipes/%d", row.ID) } hx-target={ fmt.Sprintf("#recipe-row-%d", row.ID) } hx-swap="outerHTML">Cancel</button>
+			</div>
+		</form>
+	</div>
 }

@@ -68,17 +68,39 @@ func (h *LibraryHandlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /beans", h.beansPage)
 	mux.HandleFunc("POST /beans", h.createBeanAction)
 	mux.HandleFunc("POST /beans/{id}/toggle-active", h.toggleBeanActiveAction)
+	mux.HandleFunc("GET /beans/{id}", h.beanViewAction)
+	mux.HandleFunc("GET /beans/{id}/edit", h.beanEditAction)
+	mux.HandleFunc("PUT /beans/{id}", h.updateBeanAction)
 
 	mux.HandleFunc("GET /grinders", h.grindersPage)
 	mux.HandleFunc("POST /grinders", h.createGrinderAction)
+	mux.HandleFunc("GET /grinders/{id}", h.grinderViewAction)
+	mux.HandleFunc("GET /grinders/{id}/edit", h.grinderEditAction)
+	mux.HandleFunc("PUT /grinders/{id}", h.updateGrinderAction)
+
 	mux.HandleFunc("GET /baskets", h.basketsPage)
 	mux.HandleFunc("POST /baskets", h.createBasketAction)
+	mux.HandleFunc("GET /baskets/{id}", h.basketViewAction)
+	mux.HandleFunc("GET /baskets/{id}/edit", h.basketEditAction)
+	mux.HandleFunc("PUT /baskets/{id}", h.updateBasketAction)
+
 	mux.HandleFunc("GET /puckscreens", h.puckScreensPage)
 	mux.HandleFunc("POST /puckscreens", h.createPuckScreenAction)
+	mux.HandleFunc("GET /puckscreens/{id}", h.puckScreenViewAction)
+	mux.HandleFunc("GET /puckscreens/{id}/edit", h.puckScreenEditAction)
+	mux.HandleFunc("PUT /puckscreens/{id}", h.updatePuckScreenAction)
+
 	mux.HandleFunc("GET /milks", h.milksPage)
 	mux.HandleFunc("POST /milks", h.createMilkAction)
+	mux.HandleFunc("GET /milks/{id}", h.milkViewAction)
+	mux.HandleFunc("GET /milks/{id}/edit", h.milkEditAction)
+	mux.HandleFunc("PUT /milks/{id}", h.updateMilkAction)
+
 	mux.HandleFunc("GET /recipes", h.recipesPage)
 	mux.HandleFunc("POST /recipes", h.createRecipeAction)
+	mux.HandleFunc("GET /recipes/{id}", h.recipeViewAction)
+	mux.HandleFunc("GET /recipes/{id}/edit", h.recipeEditAction)
+	mux.HandleFunc("PUT /recipes/{id}", h.updateRecipeAction)
 }
 
 // allowCreate rate-limits a "New ..." form submission, matching
@@ -241,6 +263,153 @@ func (h *LibraryHandlers) toggleBeanActiveAction(w http.ResponseWriter, r *http.
 	}
 }
 
+// beanRowByID re-reads the library and returns the one row matching id — the
+// shared lookup beanViewAction/beanEditAction/updateBeanAction all need to
+// render a single bean row rather than the whole list.
+func (h *LibraryHandlers) beanRowByID(id int64) (templates.BeanRow, bool, error) {
+	rows, err := h.beanRows()
+	if err != nil {
+		return templates.BeanRow{}, false, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, true, nil
+		}
+	}
+	return templates.BeanRow{}, false, nil
+}
+
+// beanViewAction ports the htmx `hx-get="beans/{id}"` interaction: the Edit
+// form's Cancel button swaps back to this plain view-mode row.
+func (h *LibraryHandlers) beanViewAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid bean ID")
+		return
+	}
+	row, found, err := h.beanRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Bean not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.BeanFragment(row).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /beans/%d: %v", id, err)
+	}
+}
+
+// beanEditAction ports the htmx `hx-get="beans/{id}/edit"` interaction:
+// swaps the row for BeanEditFragment, its inline edit form.
+func (h *LibraryHandlers) beanEditAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid bean ID")
+		return
+	}
+	row, found, err := h.beanRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Bean not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.BeanEditFragment(row, "").Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /beans/%d/edit: %v", id, err)
+	}
+}
+
+// updateBeanAction ports the htmx `hx-put="beans/{id}"` interaction: builds
+// a partial-update library.Entity from the submitted edit-form fields and
+// calls library.UpdateBean (update.go) — the exact same field-patch logic
+// PUT /api/library/bean/:id's own REST handler now also calls. The decaf
+// checkbox needs its own "was the field present at all" hidden companion
+// input (decaf_present) since an unchecked HTML checkbox simply omits its
+// name from the submitted form — without it, unchecking Decaf and saving
+// would silently leave the old value in place instead of clearing it.
+// Answers with the re-rendered view-mode row on success, or the edit form
+// again with formError set on a validation failure (same "success and
+// failure share one fragment" convention as the New forms, since htmx 2.0's
+// default responseHandling never swaps a non-2xx response into the DOM —
+// see beansContent's own doc comment).
+func (h *LibraryHandlers) updateBeanAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid bean ID")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderBeanEditError(w, r, id, "Invalid form submission")
+		return
+	}
+	body := library.Entity{
+		"name":      r.FormValue("name"),
+		"roaster":   r.FormValue("roaster"),
+		"category":  r.FormValue("category"),
+		"roastDate": r.FormValue("roastDate"),
+		"stock_g":   r.FormValue("stock_g"),
+		"notes":     r.FormValue("notes"),
+	}
+	if r.FormValue("decaf_present") != "" {
+		body["decaf"] = r.FormValue("decaf") == "true"
+	}
+	_, lib, found, err := library.UpdateBean(h.repo, id, body)
+	if err != nil {
+		var verr *library.ValidationError
+		if errors.As(err, &verr) {
+			h.renderBeanEditError(w, r, id, verr.Message)
+			return
+		}
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Bean not found")
+		return
+	}
+	rows, err := h.beanRowsFromLib(lib)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := templates.BeanFragment(row).Render(r.Context(), w); err != nil {
+				log.Printf("web: rendering PUT /beans/%d: %v", id, err)
+			}
+			return
+		}
+	}
+	writeFragmentError(w, http.StatusNotFound, "Bean not found")
+}
+
+// renderBeanEditError re-renders BeanEditFragment with formError set — used
+// when a submitted edit fails validation, so the user's in-progress edits
+// aren't lost the way a full-page bounce back to the view row would lose
+// them.
+func (h *LibraryHandlers) renderBeanEditError(w http.ResponseWriter, r *http.Request, id int64, formError string) {
+	row, found, err := h.beanRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Bean not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.BeanEditFragment(row, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering PUT /beans/%d error fragment: %v", id, err)
+	}
+}
+
 // ── Grinders ───────────────────────────────────────────────────────────
 
 // grinderRows projects every grinder in the library, including its
@@ -336,6 +505,123 @@ func (h *LibraryHandlers) renderGrindersFragmentFromLib(w http.ResponseWriter, r
 	}
 }
 
+// grinderRowByID re-reads the library and returns the one row matching id —
+// see beanRowByID's own doc comment.
+func (h *LibraryHandlers) grinderRowByID(id int64) (templates.GrinderRow, bool, error) {
+	rows, err := h.grinderRows()
+	if err != nil {
+		return templates.GrinderRow{}, false, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, true, nil
+		}
+	}
+	return templates.GrinderRow{}, false, nil
+}
+
+func (h *LibraryHandlers) grinderViewAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid grinder ID")
+		return
+	}
+	row, found, err := h.grinderRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Grinder not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.GrinderFragment(row).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /grinders/%d: %v", id, err)
+	}
+}
+
+func (h *LibraryHandlers) grinderEditAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid grinder ID")
+		return
+	}
+	row, found, err := h.grinderRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Grinder not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.GrinderEditFragment(row, "").Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /grinders/%d/edit: %v", id, err)
+	}
+}
+
+// updateGrinderAction ports the htmx `hx-put="grinders/{id}"` interaction —
+// same shape as updateBeanAction, built on library.UpdateGrinder.
+func (h *LibraryHandlers) updateGrinderAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid grinder ID")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderGrinderEditError(w, r, id, "Invalid form submission")
+		return
+	}
+	body := library.Entity{
+		"name":         r.FormValue("name"),
+		"burrType":     r.FormValue("burrType"),
+		"purchaseDate": r.FormValue("purchaseDate"),
+		"notes":        r.FormValue("notes"),
+	}
+	_, lib, found, err := library.UpdateGrinder(h.repo, id, body)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Grinder not found")
+		return
+	}
+	rows, err := h.grinderRowsFromLib(lib)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := templates.GrinderFragment(row).Render(r.Context(), w); err != nil {
+				log.Printf("web: rendering PUT /grinders/%d: %v", id, err)
+			}
+			return
+		}
+	}
+	writeFragmentError(w, http.StatusNotFound, "Grinder not found")
+}
+
+func (h *LibraryHandlers) renderGrinderEditError(w http.ResponseWriter, r *http.Request, id int64, formError string) {
+	row, found, err := h.grinderRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Grinder not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.GrinderEditFragment(row, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering PUT /grinders/%d error fragment: %v", id, err)
+	}
+}
+
 // ── Baskets, Puck Screens, Milks, Recipes ─────────────────────────────
 //
 // All four have no cross-domain computation (unlike Beans' consumption
@@ -416,6 +702,127 @@ func (h *LibraryHandlers) renderBasketsFragment(w http.ResponseWriter, r *http.R
 	}
 }
 
+// basketRowByID re-reads the library and returns the one row matching id —
+// see beanRowByID's own doc comment.
+func (h *LibraryHandlers) basketRowByID(id int64) (templates.BasketRow, bool, error) {
+	rows, err := h.basketRows()
+	if err != nil {
+		return templates.BasketRow{}, false, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, true, nil
+		}
+	}
+	return templates.BasketRow{}, false, nil
+}
+
+func (h *LibraryHandlers) basketViewAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid basket ID")
+		return
+	}
+	row, found, err := h.basketRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Basket not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.BasketFragment(row).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /baskets/%d: %v", id, err)
+	}
+}
+
+func (h *LibraryHandlers) basketEditAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid basket ID")
+		return
+	}
+	row, found, err := h.basketRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Basket not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.BasketEditFragment(row, "").Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /baskets/%d/edit: %v", id, err)
+	}
+}
+
+// updateBasketAction ports the htmx `hx-put="baskets/{id}"` interaction —
+// same shape as updateBeanAction, built on library.UpdateBasket (which
+// carries its own wallType/shape enum validation, surfaced here as
+// formError the same way createBasketAction surfaces it).
+func (h *LibraryHandlers) updateBasketAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid basket ID")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderBasketEditError(w, r, id, "Invalid form submission")
+		return
+	}
+	body := library.Entity{
+		"name":         r.FormValue("name"),
+		"wallType":     r.FormValue("wallType"),
+		"shape":        r.FormValue("shape"),
+		"doseCapacity": r.FormValue("doseCapacity"),
+		"holeCount":    r.FormValue("holeCount"),
+		"notes":        r.FormValue("notes"),
+	}
+	_, lib, found, err := library.UpdateBasket(h.repo, id, body)
+	if err != nil {
+		var verr *library.ValidationError
+		if errors.As(err, &verr) {
+			h.renderBasketEditError(w, r, id, verr.Message)
+			return
+		}
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Basket not found")
+		return
+	}
+	for _, row := range h.basketRowsFromLib(lib) {
+		if row.ID == id {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := templates.BasketFragment(row).Render(r.Context(), w); err != nil {
+				log.Printf("web: rendering PUT /baskets/%d: %v", id, err)
+			}
+			return
+		}
+	}
+	writeFragmentError(w, http.StatusNotFound, "Basket not found")
+}
+
+func (h *LibraryHandlers) renderBasketEditError(w http.ResponseWriter, r *http.Request, id int64, formError string) {
+	row, found, err := h.basketRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Basket not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.BasketEditFragment(row, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering PUT /baskets/%d error fragment: %v", id, err)
+	}
+}
+
 func (h *LibraryHandlers) puckScreenRows() ([]templates.PuckScreenRow, error) {
 	lib, err := h.repo.GetLibrary()
 	if err != nil {
@@ -486,6 +893,125 @@ func (h *LibraryHandlers) renderPuckScreensFragment(w http.ResponseWriter, r *ht
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := templates.PuckScreensContentFragment(rows, formError).Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering POST /puckscreens fragment: %v", err)
+	}
+}
+
+// puckScreenRowByID re-reads the library and returns the one row matching
+// id — see beanRowByID's own doc comment.
+func (h *LibraryHandlers) puckScreenRowByID(id int64) (templates.PuckScreenRow, bool, error) {
+	rows, err := h.puckScreenRows()
+	if err != nil {
+		return templates.PuckScreenRow{}, false, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, true, nil
+		}
+	}
+	return templates.PuckScreenRow{}, false, nil
+}
+
+func (h *LibraryHandlers) puckScreenViewAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid puck screen ID")
+		return
+	}
+	row, found, err := h.puckScreenRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Puck screen not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.PuckScreenFragment(row).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /puckscreens/%d: %v", id, err)
+	}
+}
+
+func (h *LibraryHandlers) puckScreenEditAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid puck screen ID")
+		return
+	}
+	row, found, err := h.puckScreenRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Puck screen not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.PuckScreenEditFragment(row, "").Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /puckscreens/%d/edit: %v", id, err)
+	}
+}
+
+// updatePuckScreenAction ports the htmx `hx-put="puckscreens/{id}"`
+// interaction — same shape as updateBasketAction, built on
+// library.UpdatePuckScreen (which carries its own thickness enum
+// validation).
+func (h *LibraryHandlers) updatePuckScreenAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid puck screen ID")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderPuckScreenEditError(w, r, id, "Invalid form submission")
+		return
+	}
+	body := library.Entity{
+		"name":      r.FormValue("name"),
+		"thickness": r.FormValue("thickness"),
+		"material":  r.FormValue("material"),
+		"notes":     r.FormValue("notes"),
+	}
+	_, lib, found, err := library.UpdatePuckScreen(h.repo, id, body)
+	if err != nil {
+		var verr *library.ValidationError
+		if errors.As(err, &verr) {
+			h.renderPuckScreenEditError(w, r, id, verr.Message)
+			return
+		}
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Puck screen not found")
+		return
+	}
+	for _, row := range h.puckScreenRowsFromLib(lib) {
+		if row.ID == id {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := templates.PuckScreenFragment(row).Render(r.Context(), w); err != nil {
+				log.Printf("web: rendering PUT /puckscreens/%d: %v", id, err)
+			}
+			return
+		}
+	}
+	writeFragmentError(w, http.StatusNotFound, "Puck screen not found")
+}
+
+func (h *LibraryHandlers) renderPuckScreenEditError(w http.ResponseWriter, r *http.Request, id int64, formError string) {
+	row, found, err := h.puckScreenRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Puck screen not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.PuckScreenEditFragment(row, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering PUT /puckscreens/%d error fragment: %v", id, err)
 	}
 }
 
@@ -570,6 +1096,117 @@ func (h *LibraryHandlers) renderMilksFragment(w http.ResponseWriter, r *http.Req
 	}
 }
 
+// milkRowByID re-reads the library and returns the one row matching id —
+// see beanRowByID's own doc comment.
+func (h *LibraryHandlers) milkRowByID(id int64) (templates.MilkRow, bool, error) {
+	rows, err := h.milkRows()
+	if err != nil {
+		return templates.MilkRow{}, false, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, true, nil
+		}
+	}
+	return templates.MilkRow{}, false, nil
+}
+
+func (h *LibraryHandlers) milkViewAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid milk ID")
+		return
+	}
+	row, found, err := h.milkRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Milk not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.MilkFragment(row).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /milks/%d: %v", id, err)
+	}
+}
+
+func (h *LibraryHandlers) milkEditAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid milk ID")
+		return
+	}
+	row, found, err := h.milkRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Milk not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.MilkEditFragment(row, "").Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /milks/%d/edit: %v", id, err)
+	}
+}
+
+// updateMilkAction ports the htmx `hx-put="milks/{id}"` interaction — same
+// shape as updateBeanAction, built on library.UpdateMilk.
+func (h *LibraryHandlers) updateMilkAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid milk ID")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderMilkEditError(w, r, id, "Invalid form submission")
+		return
+	}
+	body := library.Entity{
+		"name":    r.FormValue("name"),
+		"emoji":   r.FormValue("emoji"),
+		"stockMl": r.FormValue("stockMl"),
+	}
+	_, lib, found, err := library.UpdateMilk(h.repo, id, body)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Milk not found")
+		return
+	}
+	for _, row := range h.milkRowsFromLib(lib) {
+		if row.ID == id {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := templates.MilkFragment(row).Render(r.Context(), w); err != nil {
+				log.Printf("web: rendering PUT /milks/%d: %v", id, err)
+			}
+			return
+		}
+	}
+	writeFragmentError(w, http.StatusNotFound, "Milk not found")
+}
+
+func (h *LibraryHandlers) renderMilkEditError(w http.ResponseWriter, r *http.Request, id int64, formError string) {
+	row, found, err := h.milkRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Milk not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.MilkEditFragment(row, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering PUT /milks/%d error fragment: %v", id, err)
+	}
+}
+
 func (h *LibraryHandlers) recipeRows() ([]templates.RecipeRow, error) {
 	lib, err := h.repo.GetLibrary()
 	if err != nil {
@@ -640,6 +1277,118 @@ func (h *LibraryHandlers) renderRecipesFragment(w http.ResponseWriter, r *http.R
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := templates.RecipesContentFragment(rows, formError).Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering POST /recipes fragment: %v", err)
+	}
+}
+
+// recipeRowByID re-reads the library and returns the one row matching id —
+// see beanRowByID's own doc comment.
+func (h *LibraryHandlers) recipeRowByID(id int64) (templates.RecipeRow, bool, error) {
+	rows, err := h.recipeRows()
+	if err != nil {
+		return templates.RecipeRow{}, false, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, true, nil
+		}
+	}
+	return templates.RecipeRow{}, false, nil
+}
+
+func (h *LibraryHandlers) recipeViewAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid recipe ID")
+		return
+	}
+	row, found, err := h.recipeRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Recipe not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.RecipeFragment(row).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /recipes/%d: %v", id, err)
+	}
+}
+
+func (h *LibraryHandlers) recipeEditAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid recipe ID")
+		return
+	}
+	row, found, err := h.recipeRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Recipe not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.RecipeEditFragment(row, "").Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /recipes/%d/edit: %v", id, err)
+	}
+}
+
+// updateRecipeAction ports the htmx `hx-put="recipes/{id}"` interaction —
+// same shape as updateBeanAction, built on library.UpdateRecipe.
+func (h *LibraryHandlers) updateRecipeAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid recipe ID")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderRecipeEditError(w, r, id, "Invalid form submission")
+		return
+	}
+	body := library.Entity{
+		"name":       r.FormValue("name"),
+		"brewMethod": r.FormValue("brewMethod"),
+		"drinkType":  r.FormValue("drinkType"),
+		"notes":      r.FormValue("notes"),
+	}
+	_, lib, found, err := library.UpdateRecipe(h.repo, id, body)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Recipe not found")
+		return
+	}
+	for _, row := range h.recipeRowsFromLib(lib) {
+		if row.ID == id {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := templates.RecipeFragment(row).Render(r.Context(), w); err != nil {
+				log.Printf("web: rendering PUT /recipes/%d: %v", id, err)
+			}
+			return
+		}
+	}
+	writeFragmentError(w, http.StatusNotFound, "Recipe not found")
+}
+
+func (h *LibraryHandlers) renderRecipeEditError(w http.ResponseWriter, r *http.Request, id int64, formError string) {
+	row, found, err := h.recipeRowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Recipe not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.RecipeEditFragment(row, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering PUT /recipes/%d error fragment: %v", id, err)
 	}
 }
 

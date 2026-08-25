@@ -64,6 +64,9 @@ func (h *MachinesHandlers) allowCreate(r *http.Request) bool {
 func (h *MachinesHandlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /machines", h.machinesPage)
 	mux.HandleFunc("POST /machines", h.createMachineAction)
+	mux.HandleFunc("GET /machines/{id}", h.viewAction)
+	mux.HandleFunc("GET /machines/{id}/edit", h.editAction)
+	mux.HandleFunc("PUT /machines/{id}", h.updateAction)
 	mux.HandleFunc("POST /machines/{id}/default", h.setDefaultAction)
 	mux.HandleFunc("POST /machines/{id}/delete", h.deleteAction)
 
@@ -160,6 +163,136 @@ func (h *MachinesHandlers) renderMachinesFragment(w http.ResponseWriter, r *http
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := templates.MachinesContentFragment(rows, formError).Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering POST /machines fragment: %v", err)
+	}
+}
+
+// rowByID re-reads the registry and returns the one row matching id — the
+// shared lookup viewAction/editAction/updateAction all need to render a
+// single machine row rather than the whole list, mirroring
+// handlers_library.go's beanRowByID et al.
+func (h *MachinesHandlers) rowByID(id int64) (templates.MachineRow, bool, error) {
+	rows, err := h.rows()
+	if err != nil {
+		return templates.MachineRow{}, false, err
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			return row, true, nil
+		}
+	}
+	return templates.MachineRow{}, false, nil
+}
+
+// viewAction ports the htmx `hx-get="machines/{id}"` interaction: the Edit
+// form's Cancel button swaps back to this plain view-mode row.
+func (h *MachinesHandlers) viewAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid machine ID")
+		return
+	}
+	row, found, err := h.rowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Machine not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.MachineFragment(row).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /machines/%d: %v", id, err)
+	}
+}
+
+// editAction ports the htmx `hx-get="machines/{id}/edit"` interaction:
+// swaps the row for MachineEditFragment, its inline edit form.
+func (h *MachinesHandlers) editAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid machine ID")
+		return
+	}
+	row, found, err := h.rowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Machine not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.MachineEditFragment(row, "").Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering /machines/%d/edit: %v", id, err)
+	}
+}
+
+// updateAction ports the htmx `hx-put="machines/{id}"` interaction: builds a
+// machines.MachineInput from the submitted edit-form fields and calls
+// machines.UpdateMachineChecked (update.go) — the exact same
+// validate -> SSRF-check -> Registry.UpdateMachine sequence PUT
+// /api/machines/:id's own REST handler now also calls. onHostChanged is
+// passed nil, the same no-op choice deleteAction's own doc comment already
+// explains for this package's lack of a live WS-session client reference.
+func (h *MachinesHandlers) updateAction(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseLibraryID(r.PathValue("id"))
+	if !ok {
+		writeFragmentError(w, http.StatusBadRequest, "Invalid machine ID")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		h.renderEditError(w, r, id, "Invalid form submission")
+		return
+	}
+	name := r.FormValue("name")
+	typ := r.FormValue("type")
+	host := r.FormValue("host")
+	in := machines.MachineInput{Name: &name, Type: &typ, Host: &host}
+	if _, found, err := machines.UpdateMachineChecked(r.Context(), h.registry, id, in, nil); err != nil {
+		var verr *machines.ValidationError
+		if errors.As(err, &verr) {
+			h.renderEditError(w, r, id, verr.Message)
+			return
+		}
+		httputil.InternalError(w, "web", err)
+		return
+	} else if !found {
+		writeFragmentError(w, http.StatusNotFound, "Machine not found")
+		return
+	}
+	row, found, err := h.rowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Machine not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.MachineFragment(row).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering PUT /machines/%d: %v", id, err)
+	}
+}
+
+// renderEditError re-renders MachineEditFragment with formError set — see
+// handlers_library.go's renderBeanEditError for the same "don't lose the
+// user's in-progress edit on a validation failure" rationale.
+func (h *MachinesHandlers) renderEditError(w http.ResponseWriter, r *http.Request, id int64, formError string) {
+	row, found, err := h.rowByID(id)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	if !found {
+		writeFragmentError(w, http.StatusNotFound, "Machine not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.MachineEditFragment(row, formError).Render(r.Context(), w); err != nil {
+		log.Printf("web: rendering PUT /machines/%d error fragment: %v", id, err)
 	}
 }
 

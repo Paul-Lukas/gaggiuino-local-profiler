@@ -193,8 +193,17 @@ templ machineRow(row MachineRow) {
 				}
 			</div>
 		</div>
-		if !row.IsDefault {
-			<div class="item-actions" x-data="{ confirming: false }">
+		<div class="item-actions" x-data="{ confirming: false }">
+			<button
+				type="button"
+				class="btn"
+				hx-get={ fmt.Sprintf("machines/%d/edit", row.ID) }
+				hx-target={ fmt.Sprintf("#machine-row-%d", row.ID) }
+				hx-swap="outerHTML"
+			>
+				Edit
+			</button>
+			if !row.IsDefault {
 				<button
 					type="button"
 					class="btn"
@@ -220,7 +229,43 @@ templ machineRow(row MachineRow) {
 					</button>
 					<button type="button" class="btn" @click="confirming = false">No</button>
 				</span>
+			}
+		</div>
+	</div>
+}
+
+// MachineFragment renders a single machine row on its own — the htmx
+// response GET /machines/{id} (a plain view-mode re-render, used by the Edit
+// form's Cancel button) answers with.
+templ MachineFragment(row MachineRow) {
+	@machineRow(row)
+}
+
+// MachineEditFragment renders machine id's inline edit form — see
+// library.templ's BeanEditFragment doc comment for the swap pattern this
+// mirrors. type/host mirror newMachineForm's own fields exactly — editing a
+// machine's name/type/host goes through the same
+// machines.UpdateMachineChecked validate -> SSRF-check -> UpdateMachine
+// sequence CreateMachineChecked establishes for creation (update.go).
+templ MachineEditFragment(row MachineRow, formError string) {
+	<div class="item-row item-row-edit" id={ fmt.Sprintf("machine-row-%d", row.ID) }>
+		<form class="order-form" hx-put={ fmt.Sprintf("machines/%d", row.ID) } hx-target={ fmt.Sprintf("#machine-row-%d", row.ID) } hx-swap="outerHTML">
+			if formError != "" {
+				<div class="badge badge-err">{ formError }</div>
+			}
+			<label class="item-meta" for={ fmt.Sprintf("machine-edit-name-%d", row.ID) }>Name</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("machine-edit-name-%d", row.ID) } name="name" required maxlength="100" value={ row.Name }/>
+			<label class="item-meta" for={ fmt.Sprintf("machine-edit-type-%d", row.ID) }>Type</label>
+			<select class="filter-input" id={ fmt.Sprintf("machine-edit-type-%d", row.ID) } name="type">
+				<option value="gaggiuino" selected?={ row.Type == "gaggiuino" }>Gaggiuino</option>
+				<option value="gaggimate" selected?={ row.Type == "gaggimate" }>GaggiMate</option>
+			</select>
+			<label class="item-meta" for={ fmt.Sprintf("machine-edit-host-%d", row.ID) }>Host</label>
+			<input class="filter-input" type="text" id={ fmt.Sprintf("machine-edit-host-%d", row.ID) } name="host" maxlength="255" value={ row.Host }/>
+			<div class="item-actions">
+				<button type="submit" class="btn">Save</button>
+				<button type="button" class="btn" hx-get={ fmt.Sprintf("machines/%d", row.ID) } hx-target={ fmt.Sprintf("#machine-row-%d", row.ID) } hx-swap="outerHTML">Cancel</button>
 			</div>
-		}
+		</form>
 	</div>
 }
