@@ -130,7 +130,11 @@ func main() {
 	// internal/web/handlers_orders.go's own doc comment for why a second
 	// instance, not ordersHandlers' internal one). Same
 	// registration-outside-/api/ auth model as every other web.*Handlers.
-	webOrdersHandlers := web.NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
+	// hub (the same one wired into sseHandler above) lets that second
+	// Service instance's OnQueueChanged callback push a live orders-update
+	// SSE event to every open /orders tab (#901, a later pass — see
+	// templates/orders.templ's own doc comment).
+	webOrdersHandlers := web.NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient, hub)
 	webOrdersHandlers.RegisterRoutes(mux)
 
 	// Phase 1g (#901): the background polling loop that backs

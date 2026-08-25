@@ -69,7 +69,11 @@ func doRequest(t *testing.T, mux *http.ServeMux, method, path string) *httptest.
 // breaking CSS/JS/nav/htmx the moment a page is opened through Ingress
 // instead of a bare port — the #901 bug this regexp guards against
 // regressing on any current or future page.
-var rootAbsolutePathAttr = regexp.MustCompile(`(?:href|src|hx-get|hx-post|hx-put|hx-delete|hx-patch)="/[^/][^"]*"`)
+// sse-connect (#901, orders.templ's live-update EventSource URL) is
+// checked here too — the exact same Ingress-prefix-skipping failure mode a
+// root-absolute href/src/hx-* would hit applies to it equally, since it's
+// also just a URL EventSource resolves against the page's own origin.
+var rootAbsolutePathAttr = regexp.MustCompile(`(?:href|src|hx-get|hx-post|hx-put|hx-delete|hx-patch|sse-connect)="/[^/][^"]*"`)
 
 // assertNoRootAbsolutePaths fails t if body (a rendered page's HTML)
 // contains any root-absolute href/src/hx-* attribute value. Call this from

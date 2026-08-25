@@ -9,31 +9,47 @@ import "fmt"
 // doc comment for the full wiring). See menu.templ for this phase's other
 // page, the customer-facing ordering form.
 //
-// Live updates: htmx polling (`hx-trigger="every 10s"`), not the htmx SSE
-// extension — mirrors public-src/views/orders.js's own
-// `setInterval(loadOrdersView, 10000)` cadence exactly. SSE was evaluated
-// first, per the dispatch brief's architecture note, and found to need more
-// than this package's own scope to land correctly: the vendored
-// static/vendor/htmx-sse-ext-2.0.10.js's `hx-trigger="sse:*"` handling never
-// actually calls `source.addEventListener` for the trigger it parses (see
-// that file's registerSSE function — the sse-swap branch wires a real
-// listener, the hx-trigger branch builds one and drops it, dead code in this
-// vendored version), and the working `sse-swap` mechanism needs the SSE
-// payload to be raw HTML, not JSON — but internal/sse.Handler's send()
-// always `json.Marshal`s Event.Data for every event on the shared
-// /api/events stream (live.js's own JSON consumers depend on that), so
-// switching this one event type to raw HTML would need a Handler-level
-// change out of scope for this phase. Polling is the pragmatic first step
-// the brief pre-approved for exactly this situation; a real SSE upgrade is
-// a documented follow-up (go/README.md's Status section), not a silently
-// abandoned plan.
+// Live updates: the htmx SSE extension's `sse-swap` (#901, a later pass) —
+// `#orders-queue` itself owns the `sse-connect="api/events"` EventSource
+// (the same shared stream live.js's own vanilla-JS consumer opens
+// independently, and one of internal/auth.RequireToken's three
+// unconditional exemptions, since EventSource can't send custom headers)
+// and swaps in `EventOrdersUpdate` ("orders-update") events verbatim. An
+// earlier pass shipped htmx polling instead (`hx-trigger="every 10s"`,
+// mirroring public-src/views/orders.js's own
+// `setInterval(loadOrdersView, 10000)`), after finding SSE needed two real
+// fixes first, not a half-wired attempt: the vendored
+// static/vendor/htmx-sse-ext-2.0.10.js's `hx-trigger="sse:*"` handling
+// parses the trigger but never calls `source.addEventListener` for it
+// (dead code in this vendored version — only its `sse-swap` mechanism was
+// ever fully wired, which this pass uses instead of patching that dead
+// branch), and `sse-swap` needs an event's raw data to already BE the HTML
+// it swaps in, while `internal/sse.Handler`'s `send()` used to
+// unconditionally `json.Marshal` every event's Data (live.js's own JSON
+// consumers still need that encoding, so this couldn't just flip
+// globally). Both are fixed now: `sse.HTML` (internal/sse/sse.go) marks an
+// Event's Data as pre-rendered HTML to send through unmarshaled, and
+// `internal/orders.Service`'s new `OnQueueChanged` callback — wired in
+// `handlers_orders.go`'s `NewOrdersHandlers`, the same "callback field, not
+// a direct import" seam `internal/library`'s `SetOnGrinderDeleted` already
+// uses to avoid a package cycle — renders this exact `ordersQueueBody`
+// fragment and publishes it as `EventOrdersUpdate` after every
+// PlaceOrder/AcceptOrder/CompleteOrder/DeclineOrder, from ANY caller (the
+// REST API included, not just this page's own htmx actions), so every open
+// `/orders` tab updates live regardless of which surface changed the
+// queue. The write actions below still also directly re-render
+// `#orders-queue` via their own POST response (belt-and-braces: correct
+// even if a tab's SSE connection has dropped), so a client applies
+// whichever of the two arrives — its own POST response or the SSE
+// broadcast — without any special de-duplication, since both always
+// render the identical current queue state.
 templ OrdersPage(enabled bool, pending []OrderRow, accepted []OrderRow) {
 	@Layout("Orders") {
 		<h1 class="page-title">Orders</h1>
 		if !enabled {
 			<div class="empty-state">Orders feature disabled.</div>
 		} else {
-			<div id="orders-queue" hx-trigger="every 10s" hx-get="orders/queue-fragment" hx-target="#orders-queue" hx-swap="innerHTML">
+			<div id="orders-queue" sse-connect="api/events" sse-swap="orders-update" hx-swap="innerHTML">
 				@ordersQueueBody(pending, accepted)
 			</div>
 		}

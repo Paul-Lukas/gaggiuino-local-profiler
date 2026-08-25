@@ -1,6 +1,8 @@
 package web
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -14,6 +16,7 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/orders"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ratelimit"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/web/templates"
 )
 
@@ -45,25 +48,62 @@ type OrdersHandlers struct {
 	libRepo   *library.Repository
 	shotsRepo *shots.Repository
 	rl        *ratelimit.KeyedLimiter
+	hub       *sse.Hub
 }
 
 // NewOrdersHandlers builds OrdersHandlers around the same *orders.Repository/
 // *shots.Repository/*library.Repository/*machines.Registry/*ha.Client
 // cmd/server already constructs once and shares with internal/orders' own
-// REST handlers. rl is this page's own rate limiter for POST /menu/order —
-// separate from internal/orders.Handlers' own "orders:"+ip-keyed one
-// (internal/orders/handlers.go's placeOrder), since this page bypasses that
-// REST handler entirely and calls Service.PlaceOrder directly; without its
-// own limiter this form would have no rate protection at all, unlike every
-// other path to placing an order.
-func NewOrdersHandlers(repo *orders.Repository, shotsRepo *shots.Repository, libRepo *library.Repository, registry *machines.Registry, haClient *ha.Client) *OrdersHandlers {
-	return &OrdersHandlers{
+// REST handlers, plus the same *sse.Hub cmd/server wires into
+// internal/sse.Handler for GET /api/events. rl is this page's own rate
+// limiter for POST /menu/order — separate from internal/orders.Handlers'
+// own "orders:"+ip-keyed one (internal/orders/handlers.go's placeOrder),
+// since this page bypasses that REST handler entirely and calls
+// Service.PlaceOrder directly; without its own limiter this form would have
+// no rate protection at all, unlike every other path to placing an order.
+// Wires h.publishQueueUpdate onto the Service's OnQueueChanged callback
+// (#901) — see templates/orders.templ's own doc comment for the live-update
+// mechanism this closes.
+func NewOrdersHandlers(repo *orders.Repository, shotsRepo *shots.Repository, libRepo *library.Repository, registry *machines.Registry, haClient *ha.Client, hub *sse.Hub) *OrdersHandlers {
+	h := &OrdersHandlers{
 		repo:      repo,
 		service:   orders.NewService(repo, shotsRepo, libRepo, registry, haClient),
 		libRepo:   libRepo,
 		shotsRepo: shotsRepo,
 		rl:        ratelimit.NewKeyed(),
+		hub:       hub,
 	}
+	h.service.OnQueueChanged = h.publishQueueUpdate
+	return h
+}
+
+// publishQueueUpdate renders the current barista queue and publishes it as
+// an sse.EventOrdersUpdate event — orders.Service's OnQueueChanged callback,
+// fired after every successful PlaceOrder/AcceptOrder/CompleteOrder/
+// DeclineOrder regardless of caller (this page's own htmx actions or the
+// REST API). hub == nil (a caller that never wired one, e.g. a focused test
+// building *OrdersHandlers some other way) is a silent no-op, not a panic —
+// matches every other nil-safe optional dependency in this package
+// (MachinesHandlers.poller's own doc comment gives the same reasoning). A
+// render failure here is logged, not returned — this runs from inside
+// Service's own call stack (AcceptOrder et al.), which has no HTTP response
+// to fail; the order's own state change already succeeded by the time this
+// callback fires, so a fragment-rendering error here must not undo it.
+func (h *OrdersHandlers) publishQueueUpdate() {
+	if h.hub == nil {
+		return
+	}
+	pending, accepted, err := h.queueRows()
+	if err != nil {
+		log.Printf("web: building orders-update SSE fragment: %v", err)
+		return
+	}
+	var buf bytes.Buffer
+	if err := templates.OrdersQueueFragment(pending, accepted).Render(context.Background(), &buf); err != nil {
+		log.Printf("web: rendering orders-update SSE fragment: %v", err)
+		return
+	}
+	h.hub.Publish(sse.Event{Type: sse.EventOrdersUpdate, Data: sse.HTML(buf.String())})
 }
 
 // RegisterRoutes registers this file's page and htmx-action routes onto

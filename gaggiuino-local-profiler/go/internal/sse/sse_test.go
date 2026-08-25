@@ -186,6 +186,51 @@ func TestHandler_ConnectPrimeAndPublish(t *testing.T) {
 	}
 }
 
+// TestHandler_PublishHTMLEvent pins HTML's own contract (#901, orders.templ's
+// live-update mechanism): an Event whose Data is an HTML value is sent
+// through unmarshaled — one "data: " line per line of the HTML, not a
+// json.Marshal'd JSON string — so a multi-line fragment survives the SSE
+// wire format's "one data: line per line of payload" requirement, and the
+// htmx SSE extension's sse-swap sees the raw markup it expects, not a
+// quoted JSON string of it.
+func TestHandler_PublishHTMLEvent(t *testing.T) {
+	hub := NewHub()
+	handler := &Handler{Hub: hub}
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/events")
+	if err != nil {
+		t.Fatalf("GET %s: %v", srv.URL, err)
+	}
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
+
+	// Padding + blank line before this connection is ready to receive a
+	// publish, same ordering TestHandler_ConnectPrimeAndPublish already
+	// relies on.
+	readLines(t, reader, 2, 2*time.Second)
+	time.Sleep(50 * time.Millisecond)
+
+	html := "<div>line one</div>\n<div>line two</div>"
+	hub.Publish(Event{Type: EventOrdersUpdate, Data: HTML(html)})
+
+	// event: line, one data: line per line of html (2), trailing blank line.
+	lines := readLines(t, reader, 4, 2*time.Second)
+	if lines[0] != "event: "+EventOrdersUpdate+"\n" {
+		t.Errorf("event line = %q, want \"event: %s\\n\"", lines[0], EventOrdersUpdate)
+	}
+	if lines[1] != "data: <div>line one</div>\n" {
+		t.Errorf("first data line = %q, want the raw HTML line unmarshaled", lines[1])
+	}
+	if lines[2] != "data: <div>line two</div>\n" {
+		t.Errorf("second data line = %q, want the raw HTML line unmarshaled", lines[2])
+	}
+	if lines[3] != "\n" {
+		t.Errorf("expected trailing blank line after the HTML data, got %q", lines[3])
+	}
+}
+
 func TestHandler_Ping(t *testing.T) {
 	hub := NewHub()
 	handler := &Handler{Hub: hub, PingInterval: 30 * time.Millisecond}

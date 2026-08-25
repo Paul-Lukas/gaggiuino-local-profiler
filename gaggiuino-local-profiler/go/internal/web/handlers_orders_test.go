@@ -18,6 +18,7 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/orders"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
 )
 
 // newTestOrdersServer opens a throwaway on-disk SQLite DB (same pattern as
@@ -42,7 +43,7 @@ func newTestOrdersServer(t *testing.T) (*http.ServeMux, *orders.Repository, *lib
 	registry := machines.NewRegistry(sqlDB)
 	haClient := ha.NewClientFromEnv() // no SUPERVISOR_TOKEN/GLP_HA_URL in test env -> disabled, no real HTTP calls
 
-	h := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
+	h := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient, nil)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	return mux, ordersRepo, libRepo
@@ -104,7 +105,7 @@ func TestOrdersPage_RendersQueue(t *testing.T) {
 		"Espresso", "Alice", `hx-post="orders/ord_1/accept"`, `hx-post="orders/ord_1/decline"`,
 		"Latte Macchiato", "Bob", `hx-post="orders/ord_2/complete"`, `hx-post="orders/ord_2/decline"`,
 		"ready in ~7 min",
-		`hx-trigger="every 10s"`, `hx-get="orders/queue-fragment"`,
+		`sse-connect="api/events"`, `sse-swap="orders-update"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("GET /orders body missing %q\nbody:\n%s", want, body)
@@ -194,6 +195,58 @@ func TestOrderActions_RoundTrip(t *testing.T) {
 	}
 	if status, _ := declined["status"].(string); status != "declined" {
 		t.Errorf("ord_2 status = %q, want declined", status)
+	}
+}
+
+// TestOrderActions_PublishSSEUpdate pins the live-update wiring
+// templates/orders.templ's own doc comment describes: every queue-changing
+// action (here, accept) must publish an sse.EventOrdersUpdate event onto
+// the shared *sse.Hub carrying the freshly-rendered queue fragment as raw
+// HTML (sse.HTML, not JSON) — the actual fix for the two blockers
+// go/README.md's Status section used to document against using SSE here.
+func TestOrderActions_PublishSSEUpdate(t *testing.T) {
+	t.Setenv("GLP_ENABLE_ORDERS", "true")
+	dbPath := filepath.Join(t.TempDir(), "glp.db")
+	sqlDB, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { sqlDB.Close() })
+
+	ordersRepo := orders.NewRepository(sqlDB)
+	shotsRepo := shots.NewRepository(sqlDB)
+	libRepo := library.NewRepository(sqlDB)
+	registry := machines.NewRegistry(sqlDB)
+	haClient := ha.NewClientFromEnv()
+	seedOrder(t, ordersRepo, "ord_1", "Espresso", "Alice", "pending", 1_700_000_000_000)
+
+	hub := sse.NewHub()
+	h := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient, hub)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	sub, unsubscribe := hub.Subscribe()
+	defer unsubscribe()
+
+	rec := doRequest(t, mux, "POST", "/orders/ord_1/accept")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /orders/ord_1/accept: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case ev := <-sub:
+		if ev.Type != sse.EventOrdersUpdate {
+			t.Errorf("event type = %q, want %q", ev.Type, sse.EventOrdersUpdate)
+		}
+		html, ok := ev.Data.(sse.HTML)
+		if !ok {
+			t.Fatalf("event Data type = %T, want sse.HTML", ev.Data)
+		}
+		if !strings.Contains(string(html), `hx-post="orders/ord_1/complete"`) {
+			t.Errorf("published fragment doesn't reflect ord_1 as accepted:\n%s", html)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no orders-update event published within 1s of accepting an order")
 	}
 }
 
@@ -297,7 +350,7 @@ func TestOrderActions_SendSameCustomerNotificationAsRESTAPI(t *testing.T) {
 	restMux := http.NewServeMux()
 	restHandlers.RegisterRoutes(restMux)
 
-	webHandlers := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
+	webHandlers := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient, nil)
 	webMux := http.NewServeMux()
 	webHandlers.RegisterRoutes(webMux)
 
@@ -560,7 +613,7 @@ func TestOrdersMenuPagesRequireAuthBehindRequireToken(t *testing.T) {
 	haClient := ha.NewClientFromEnv()
 	seedOrder(t, ordersRepo, "ord_1", "Espresso", "Alice", "pending", 1_700_000_000_000)
 
-	h := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
+	h := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient, nil)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	handler := auth.RequireToken(testToken)(mux)

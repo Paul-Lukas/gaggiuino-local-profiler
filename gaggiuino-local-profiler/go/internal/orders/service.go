@@ -42,6 +42,27 @@ type Service struct {
 	libRepo   *library.Repository
 	registry  *machines.Registry
 	ha        *ha.Client
+
+	// OnQueueChanged, if set, is called after PlaceOrder/AcceptOrder/
+	// CompleteOrder/DeclineOrder successfully change which orders are
+	// active or what state one is in — internal/web's OrdersHandlers wires
+	// this (#901) to re-render and SSE-publish the barista queue fragment,
+	// the same "callback field, not a direct import" seam
+	// internal/library's SetOnGrinderDeleted and internal/system's
+	// PreheatInfoFunc already establish for the identical reason: this
+	// package can't import internal/web (which already imports this one)
+	// without a cycle. nil is a valid, common case (no live-update
+	// consumer wired, e.g. every test in this package) — every call site
+	// below is nil-checked.
+	OnQueueChanged func()
+}
+
+// fireQueueChanged calls OnQueueChanged if set — shared by every lifecycle
+// method's success path below.
+func (s *Service) fireQueueChanged() {
+	if s.OnQueueChanged != nil {
+		s.OnQueueChanged()
+	}
 }
 
 // NewService wires repo against the cross-domain repositories every
@@ -349,6 +370,7 @@ func (s *Service) PlaceOrder(in PlaceOrderInput) (Order, error) {
 	if err := s.repo.SaveAll(active); err != nil {
 		return nil, err
 	}
+	s.fireQueueChanged()
 	return order, nil
 }
 
@@ -410,6 +432,7 @@ func (s *Service) AcceptOrder(id string, rawEta any) (Order, error) {
 	}
 	item, _ := order["item"].(string)
 	s.notifyOrderStatus(order, "☕ "+item+" wird zubereitet", "Fertig in ~"+strconv.FormatInt(eta, 10)+" Min!")
+	s.fireQueueChanged()
 	return order, nil
 }
 
@@ -465,6 +488,7 @@ func (s *Service) CompleteOrder(id string) (Order, error) {
 	}
 	item, _ := order["item"].(string)
 	s.notifyOrderStatus(order, "✓ "+item+" ist fertig!", "Hol dir deinen "+item+" ab — guten Genuss!")
+	s.fireQueueChanged()
 	return order, nil
 }
 
@@ -494,6 +518,7 @@ func (s *Service) DeclineOrder(id string, rawReason string) (Order, error) {
 		msg = "Grund: " + declineReason
 	}
 	s.notifyOrderStatus(order, "✕ "+item+" abgelehnt", msg)
+	s.fireQueueChanged()
 	return order, nil
 }
 
