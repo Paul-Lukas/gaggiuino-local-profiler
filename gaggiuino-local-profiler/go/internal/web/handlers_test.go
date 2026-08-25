@@ -570,6 +570,128 @@ func TestDetailFragment_InvalidID(t *testing.T) {
 	}
 }
 
+// TestDetailFragment_ScoreDeltaAndGhostOverlay pins design pass 4's
+// follow-up (#901): a same-profile earlier shot on the same machine makes
+// GET /shots/{id} show a score-delta chip against it and feed its id to
+// the chart canvas as data-ghost-shot-id, for static/shot-chart.js's
+// dashed-overlay branch.
+func TestDetailFragment_ScoreDeltaAndGhostOverlay(t *testing.T) {
+	mux, repo := newTestServer(t)
+	upsertDetailTestShot(t, repo, 10) // earlier, same profile/machine
+	shot20 := shots.Shot{
+		"id": int64(20), "timestamp": int64(1_700_001_000), "duration": int64(280),
+		"profileName": "Espresso Classic", "machineId": int64(1),
+		"datapoints": map[string]any{
+			"timeInShot": []any{float64(0), float64(10), float64(50), float64(100), float64(150), float64(200), float64(250), float64(280)},
+			"pressure":   []any{float64(0), float64(20), float64(85), float64(90), float64(92), float64(90), float64(88), float64(85)},
+			"shotWeight": []any{float64(0), float64(0), float64(20), float64(80), float64(150), float64(230), float64(300), float64(360)},
+		},
+		"annotation": map[string]any{"coffee": "Ethiopia Yirgacheffe", "dose": 18.0},
+	}
+	if err := repo.Upsert(shot20); err != nil {
+		t.Fatalf("Upsert(20): %v", err)
+	}
+
+	rec := doRequest(t, mux, "GET", "/shots/20")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /shots/20: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "verdict-delta") {
+		t.Errorf("GET /shots/20 body missing the score-delta chip\nbody:\n%s", body)
+	}
+	if !strings.Contains(body, `data-ghost-shot-id="10"`) {
+		t.Errorf("GET /shots/20 body missing data-ghost-shot-id=\"10\"\nbody:\n%s", body)
+	}
+	assertNoRootAbsolutePaths(t, body)
+}
+
+// TestDetailFragment_ComparativeGrindAdvice pins the comparative
+// grind-advice panel (#901, internal/shots/comparative.go): comparable
+// same-bean/grinder/profile shots at a different grind setting must
+// surface as a panel below the single-shot verdict.
+func TestDetailFragment_ComparativeGrindAdvice(t *testing.T) {
+	mux, repo := newTestServer(t)
+	makeShot := func(id int64, grindSetting string) shots.Shot {
+		return shots.Shot{
+			"id": id, "timestamp": int64(1_700_000_000) + id, "duration": int64(280),
+			"profileName": "Espresso Classic", "machineId": int64(1),
+			"datapoints": map[string]any{
+				"timeInShot": []any{float64(0), float64(10), float64(50), float64(100), float64(150), float64(200), float64(250), float64(280)},
+				"pressure":   []any{float64(0), float64(20), float64(85), float64(90), float64(92), float64(90), float64(88), float64(85)},
+				"shotWeight": []any{float64(0), float64(0), float64(20), float64(80), float64(150), float64(230), float64(300), float64(360)},
+			},
+			"annotation": map[string]any{
+				"coffee": "Ethiopia Yirgacheffe", "grinder": "Niche Zero",
+				"grindSetting": grindSetting, "dose": 18.0,
+			},
+		}
+	}
+	current := makeShot(1, "5.0")
+	if err := repo.Upsert(current); err != nil {
+		t.Fatalf("Upsert(1): %v", err)
+	}
+	if err := repo.Upsert(makeShot(2, "3.0")); err != nil {
+		t.Fatalf("Upsert(2): %v", err)
+	}
+	if err := repo.Upsert(makeShot(3, "3.0")); err != nil {
+		t.Fatalf("Upsert(3): %v", err)
+	}
+
+	rec := doRequest(t, mux, "GET", "/shots/1")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /shots/1: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "comparative-advice") {
+		t.Errorf("GET /shots/1 body missing the comparative grind-advice panel\nbody:\n%s", rec.Body.String())
+	}
+}
+
+// TestDetailFragment_CompareMode drives A/B compare mode end to end:
+// GET /shots/{idA}?compare={idB} renders ShotCompareFragment (both shots'
+// verdict/metrics side by side) with the chart canvas carrying both ids —
+// data-shot-id for A, data-compare-shot-id for B, per static/shot-chart.js's
+// own compare-mode branch.
+func TestDetailFragment_CompareMode(t *testing.T) {
+	mux, repo := newTestServer(t)
+	upsertDetailTestShot(t, repo, 10)
+	upsertDetailTestShot(t, repo, 20)
+
+	rec := doRequest(t, mux, "GET", "/shots/10?compare=20")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /shots/10?compare=20: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"shot-compare",
+		`data-shot-id="10"`, `data-compare-shot-id="20"`,
+		"Compare: Shot 10 vs. Shot 20",
+		`hx-get="shots/10"`, // the Exit compare link
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("GET /shots/10?compare=20 body missing %q\nbody:\n%s", want, body)
+		}
+	}
+	assertNoRootAbsolutePaths(t, body)
+}
+
+// TestDetailFragment_CompareMode_UnknownIDFallsBackToSingle verifies an
+// invalid/unknown ?compare= value is ignored rather than erroring the
+// whole request — see detailFragment's own doc comment for why single-shot
+// mode is always a safe fallback.
+func TestDetailFragment_CompareMode_UnknownIDFallsBackToSingle(t *testing.T) {
+	mux, repo := newTestServer(t)
+	upsertDetailTestShot(t, repo, 10)
+
+	rec := doRequest(t, mux, "GET", "/shots/10?compare=999")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /shots/10?compare=999: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "shot-compare") {
+		t.Errorf("GET /shots/10?compare=999 rendered compare mode for an unknown shot id\nbody:\n%s", rec.Body.String())
+	}
+}
+
 // TestGlpTokenJS_WaitsForTokenBeforeIssuingHtmxRequests pins the #901
 // code-review fix for the click-before-fetch-resolves race: a Trash/
 // Restore click landing before fetchToken()'s GET /api/token settled used
@@ -681,10 +803,36 @@ func TestStaticAssets_Served(t *testing.T) {
 		"/web/static/vendor/htmx-2.0.10.min.js",
 		"/web/static/vendor/alpine-csp-3.16.2.min.js",
 		"/web/static/glp-token.js",
+		"/web/static/shot-chart.js",
 	} {
 		rec := doRequest(t, mux, "GET", path)
 		if rec.Code != http.StatusOK {
 			t.Errorf("GET %s: status = %d, want 200", path, rec.Code)
+		}
+	}
+}
+
+// TestShotChartJS_ServesGhostAndCompareBranches pins that the embedded
+// static/shot-chart.js actually contains the ghost-overlay/compare-mode
+// branches (#901, design pass 4 follow-up) — a build-time embed.FS wiring
+// bug (or an edit that silently dropped a branch) would still 200 the
+// request but miss this content, same "prove the served source" rationale
+// TestLiveJS_Served (handlers_machines_test.go) already uses for the
+// sibling vanilla-JS module.
+func TestShotChartJS_ServesGhostAndCompareBranches(t *testing.T) {
+	mux, _ := newTestServer(t)
+	rec := doRequest(t, mux, "GET", "/web/static/shot-chart.js")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /web/static/shot-chart.js: status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"data-ghost-shot-id",
+		"data-compare-shot-id",
+		"buildDatasets",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("shot-chart.js body missing %q\nbody:\n%s", want, body)
 		}
 	}
 }

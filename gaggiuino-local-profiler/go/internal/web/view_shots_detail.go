@@ -126,3 +126,98 @@ func toShotDetail(shot shots.Shot, score *int) templates.ShotDetail {
 
 	return detail
 }
+
+// scoreDeltaText/scoreDeltaClass port public-src/utils.js's formatDelta plus
+// index.js's own scoreDelta color-class pick — "+5"/"−3"/"±0" (a real
+// minus sign, U+2212, not a hyphen, matching Node's own choice) mapped onto
+// this rewrite's existing score-great/score-ok/score-bad classes.
+func scoreDeltaText(delta int) string {
+	switch {
+	case delta > 0:
+		return fmt.Sprintf("+%d", delta)
+	case delta < 0:
+		return fmt.Sprintf("−%d", -delta)
+	default:
+		return "±0"
+	}
+}
+
+func scoreDeltaClass(delta int) string {
+	switch {
+	case delta > 0:
+		return "score-great"
+	case delta < 0:
+		return "score-bad"
+	default:
+		return "score-ok"
+	}
+}
+
+// comparativeAdviceClass maps shots.ComparativeGrindAdvice.Type onto this
+// rewrite's existing score-great/score-ok classes — "ok" (comparable shots
+// confirm the current setting) reads as good news, "finer"/"coarser" (a
+// suggested change) as a milder heads-up, mirroring
+// view_shots_detail.go's own scoreDeltaClass 3-tier reuse of the same
+// classes.
+func comparativeAdviceClass(adviceType string) string {
+	if adviceType == "ok" {
+		return "score-great"
+	}
+	return "score-ok"
+}
+
+// enrichWithComparison fills in ShotDetail's same-profile-history fields —
+// the score-delta chip, ghost-curve overlay id, and comparative grind-
+// advice panel — all of which need the full shot history a single
+// toShotDetail call doesn't have access to (see that struct's own doc
+// comment). Only ever called for single-shot mode (never on either side of
+// an A/B compare), mirroring index.js's own `!shotB` gate on computing any
+// of the three. previousShot/previousScore may be nil/nil (no earlier
+// same-profile shot yet) independently of compAdvice being nil (no
+// comparable shots by bean/grinder/profile/dose) — the two data sources
+// are unrelated, so each field is gated on its own inputs, not on the
+// others' presence.
+func enrichWithComparison(detail *templates.ShotDetail, score *int, previousShot shots.Shot, previousScore *int, compAdvice *shots.ComparativeGrindAdvice) {
+	if previousShot != nil && score != nil && previousScore != nil {
+		prevID, _ := previousShot["id"].(int64)
+		delta := *score - *previousScore
+		detail.HasScoreDelta = true
+		detail.ScoreDeltaText = scoreDeltaText(delta) + fmt.Sprintf(" vs Shot %d", prevID)
+		detail.ScoreDeltaClass = scoreDeltaClass(delta)
+	}
+	if previousShot != nil {
+		if prevID, ok := previousShot["id"].(int64); ok {
+			detail.HasGhost = true
+			detail.GhostShotID = prevID
+		}
+	}
+	if compAdvice != nil {
+		detail.HasComparativeAdvice = true
+		detail.ComparativeAdviceIcon = compAdvice.Icon
+		detail.ComparativeAdviceText = compAdvice.Text
+		detail.ComparativeAdviceClass = comparativeAdviceClass(compAdvice.Type)
+	}
+}
+
+// compareOptions builds the "Compare with…" <select> options from the same
+// []templates.ShotRow the list column already has — newest first (rows is
+// already reversed to that order by handlers.go's listPage before this is
+// called), excluding the shot currently being viewed. No extra query: the
+// rows list is data this page loads anyway for its left-hand column.
+func compareOptions(rows []templates.ShotRow, excludeID int64) []templates.ShotCompareOption {
+	opts := make([]templates.ShotCompareOption, 0, len(rows))
+	for _, row := range rows {
+		if row.ID == excludeID {
+			continue
+		}
+		name := row.Coffee
+		if name == "" {
+			name = row.ProfileName
+		}
+		opts = append(opts, templates.ShotCompareOption{
+			ID:    row.ID,
+			Label: fmt.Sprintf("Shot %d · %s · %s", row.ID, name, row.Time),
+		})
+	}
+	return opts
+}

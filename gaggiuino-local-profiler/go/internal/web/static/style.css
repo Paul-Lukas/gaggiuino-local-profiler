@@ -869,6 +869,47 @@ button, input, select, textarea { font-family: inherit; }
   padding: var(--sp-3);
 }
 
+/* Score-delta chip + comparative grind-advice panel (#901, design pass 4
+ * follow-up) — .verdict-delta reuses .score-great/.score-ok/.score-bad
+ * for its colour (view_shots_detail.go's scoreDeltaClass), same "two
+ * classes, one for weight/size, one for colour" composition
+ * .verdict-score-num already uses. */
+.verdict-delta { font-weight: 600; font-size: var(--fs-3); }
+
+.comparative-advice {
+  font-size: var(--fs-2);
+  margin-bottom: var(--sp-4);
+}
+
+.compare-select {
+  margin-top: var(--sp-3);
+  max-width: 320px;
+}
+
+/* A/B compare mode (#901) — two shot-compare-side columns beside each
+ * other (stacked on narrow viewports, same breakpoint .shots-layout
+ * already uses), one shared chart below. */
+.shot-compare-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.shot-compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+@media (max-width: 900px) {
+  .shot-compare-grid { grid-template-columns: 1fr; }
+}
+
+.shot-compare-side .verdict-line { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-1); }
+
 /* Orders/Menu pages: the customer order form (templates/menu.templ) and
  * the Library/Machines create forms all share this layout, reusing
  * .filter-input for text/select/date fields and .item-meta for labels

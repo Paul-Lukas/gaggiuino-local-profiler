@@ -104,7 +104,11 @@ func (h *Handlers) listPage(w http.ResponseWriter, r *http.Request) {
 
 	var detail *templates.ShotDetail
 	if len(live) > 0 {
-		d := toShotDetail(live[0], h.shots.ComputeScore(live[0]))
+		d, err := h.buildDetail(live[0], rows)
+		if err != nil {
+			httputil.InternalError(w, "web", err)
+			return
+		}
 		detail = &d
 	}
 
@@ -141,6 +145,14 @@ func reverseShots(list []shots.Shot) {
 // GetByID doesn't filter by trash status — trashAction's own confirm step
 // is the only place trashing removes a shot from view), which is harmless:
 // nothing currently links a click at a trashed row to this route.
+//
+// A/B compare mode (#901, design pass 4 follow-up): an optional
+// "?compare={id2}" query param (sent by ShotDetailFragment's own "Compare
+// with…" <select>, hx-trigger="change") switches this same route to
+// ShotCompareFragment instead — an invalid/unknown compare id is ignored
+// (single-shot mode renders as if the param were absent) rather than
+// erroring the whole request over what a stale/hand-edited query string
+// got wrong, since single-shot mode is always a safe, valid fallback here.
 func (h *Handlers) detailFragment(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseShotID(r.PathValue("id"))
 	if !ok {
@@ -157,11 +169,77 @@ func (h *Handlers) detailFragment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	detail := toShotDetail(shot, h.shots.ComputeScore(shot))
+	if compareParam := r.URL.Query().Get("compare"); compareParam != "" {
+		if compareID, ok := parseShotID(compareParam); ok && compareID != id {
+			compareShot, err := h.shots.GetByID(compareID)
+			if err != nil {
+				httputil.InternalError(w, "web", err)
+				return
+			}
+			if compareShot != nil {
+				cd := templates.ShotCompareDetail{
+					A: toShotDetail(shot, h.shots.ComputeScore(shot)),
+					B: toShotDetail(compareShot, h.shots.ComputeScore(compareShot)),
+				}
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				if err := templates.ShotCompareFragment(cd).Render(r.Context(), w); err != nil {
+					log.Printf("web: rendering /shots/%d?compare=%d fragment: %v", id, compareID, err)
+				}
+				return
+			}
+		}
+	}
+
+	live, err := h.shots.GetAll()
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
+	reverseShots(live)
+	rows := make([]templates.ShotRow, len(live))
+	for i, s := range live {
+		rows[i] = toShotRow(s, h.shots.ComputeScore(s))
+	}
+	detail, err := h.buildDetail(shot, rows)
+	if err != nil {
+		httputil.InternalError(w, "web", err)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := templates.ShotDetailFragment(detail).Render(r.Context(), w); err != nil {
 		log.Printf("web: rendering /shots/%d fragment: %v", id, err)
 	}
+}
+
+// buildDetail is toShotDetail plus every same-profile-history field
+// enrichWithComparison (view_shots_detail.go) adds — shared by listPage's
+// initial pre-selected shot and detailFragment's single-shot (non-compare)
+// path so the two can never drift apart, the same reasoning
+// ShotDetailFragment's own doc comment already gives for the template
+// itself. rows is the already-built, already-reversed (newest-first)
+// []templates.ShotRow list both callers have anyway — reused here only for
+// compareOptions' dropdown, no extra query.
+func (h *Handlers) buildDetail(shot shots.Shot, rows []templates.ShotRow) (templates.ShotDetail, error) {
+	score := h.shots.ComputeScore(shot)
+	detail := toShotDetail(shot, score)
+
+	previousShot, err := h.shots.GetPreviousByProfile(shot)
+	if err != nil {
+		return templates.ShotDetail{}, err
+	}
+	var previousScore *int
+	if previousShot != nil {
+		previousScore = h.shots.ComputeScore(previousShot)
+	}
+	compAdvice, err := h.shots.GetComparativeGrindAdvice(shot)
+	if err != nil {
+		return templates.ShotDetail{}, err
+	}
+	enrichWithComparison(&detail, score, previousShot, previousScore, compAdvice)
+
+	id, _ := shot["id"].(int64)
+	detail.CompareOptions = compareOptions(rows, id)
+	return detail, nil
 }
 
 // trashAction ports the htmx `hx-post="/shots/{id}/trash"` interaction:
