@@ -174,6 +174,20 @@ func TestValidateBoilerSettings(t *testing.T) {
 	if err := ValidateBoilerSettings(json.RawMessage(`{"brewDeltaState":true}`)); err == nil {
 		t.Fatal("expected a real JSON boolean (not the bool-as-string quirk's string form) to be rejected")
 	}
+	// #901 code review (CONFIRMED finding #1): json.Unmarshal into a plain
+	// (non-pointer) float64 no-ops on a JSON `null`, leaving it at 0 —
+	// which silently passed every numeric field's bounds check whose lower
+	// bound is <= 0, letting a present-but-null field reach
+	// adapter.UpdateSettings verbatim. Every boilerNumberFields entry must
+	// reject null explicitly, not just the ones with a positive-only
+	// lower bound (mainDivider/brewDivider only rejected it by
+	// coincidence).
+	for _, field := range []string{"steamSetPoint", "offsetTemp", "hpwr", "mainDivider", "brewDivider", "startupHeatDelta"} {
+		payload := json.RawMessage(`{"` + field + `":null}`)
+		if err := ValidateBoilerSettings(payload); err == nil {
+			t.Errorf("expected null %s to be rejected, got no error", field)
+		}
+	}
 	if err := ValidateBoilerSettings(json.RawMessage(`not json`)); err == nil {
 		t.Fatal("expected invalid JSON to be rejected")
 	}

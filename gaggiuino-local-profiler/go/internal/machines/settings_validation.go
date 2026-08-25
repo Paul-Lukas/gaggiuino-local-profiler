@@ -1,6 +1,7 @@
 package machines
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -81,6 +82,18 @@ func ValidateBoilerSettings(raw json.RawMessage) error {
 		if !present {
 			continue
 		}
+		// #901 code review (CONFIRMED finding #1): json.Unmarshal into a
+		// non-pointer float64 target is a documented no-op on a JSON
+		// `null` (leaves n at its zero value with a nil error) — a
+		// present-but-null field would otherwise silently pass whichever
+		// bound happens to include 0 (steamSetPoint/offsetTemp/
+		// startupHeatDelta/hpwr all do) and then reach adapter.
+		// UpdateSettings verbatim, `null` and all, exactly the class of
+		// unvalidated write this file exists to stop. A present field must
+		// be an actual JSON number, never null.
+		if isJSONNull(v) {
+			return fmt.Errorf("%s must not be null", field)
+		}
 		var n float64
 		if err := json.Unmarshal(v, &n); err != nil {
 			return fmt.Errorf("%s must be a number", field)
@@ -94,12 +107,27 @@ func ValidateBoilerSettings(raw json.RawMessage) error {
 		if !present {
 			continue
 		}
+		// A present-but-null value here is already correctly rejected
+		// without an explicit isJSONNull check, unlike the numeric loop
+		// above: json.Unmarshal into a non-pointer string target also
+		// no-ops on `null` (same documented encoding/json behavior), but
+		// leaves s at its zero value "" — which then fails the
+		// true/false check below on its own, no bounds-with-a-0-floor
+		// coincidence to rely on.
 		var s string
 		if err := json.Unmarshal(v, &s); err != nil || (s != "true" && s != "false") {
 			return fmt.Errorf(`%s must be the string "true" or "false"`, field)
 		}
 	}
 	return nil
+}
+
+// isJSONNull reports whether raw is exactly the JSON literal null —
+// json.RawMessage is unparsed bytes, so this is a plain byte comparison
+// (after trimming the insignificant whitespace json.Unmarshal itself
+// tolerates), not a decode.
+func isJSONNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
 
 // ValidateSystemSettings additionally checks releaseChannel, the one
