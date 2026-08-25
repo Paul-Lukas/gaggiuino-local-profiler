@@ -56,6 +56,25 @@ func (s *Service) GetPreviousByProfile(shot Shot) (Shot, error) {
 	return s.repo.FindPreviousByProfile(shot.id(), profileName, shot.machineID())
 }
 
+// GetComparativeGrindAdvice ports ShotService.js's own history-aware call
+// path for calcComparativeGrindAdvice (#901, design pass 4 follow-up — see
+// comparative.go's own doc comment for why this needed the full shot
+// history and so wasn't ported alongside ComputeGrindAdvice): loads every
+// other shot on shot's own machine, then runs the pure comparison. Returns
+// nil, nil (not an error) whenever ComputeComparativeGrindAdvice itself
+// would — no comparable shots, no coffee/grinder set — same "nil is a
+// legitimate, common answer" contract ComputeGrindAdvice already has.
+func (s *Service) GetComparativeGrindAdvice(shot Shot) (*ComparativeGrindAdvice, error) {
+	if shot == nil {
+		return nil, nil
+	}
+	all, err := s.repo.FindAllExcludingTrashByMachine(shot.machineID())
+	if err != nil {
+		return nil, err
+	}
+	return ComputeComparativeGrindAdvice(shot, all), nil
+}
+
 // SaveAnnotation ports ShotService.js's saveAnnotation. The Node version
 // also re-reads and returns the saved annotation, but every caller
 // (routes/shots.js's POST /annotate) discards that return value, so this
