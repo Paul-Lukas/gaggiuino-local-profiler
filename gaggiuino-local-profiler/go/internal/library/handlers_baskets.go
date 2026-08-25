@@ -53,61 +53,27 @@ func (h *Handlers) createBasket(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, basket)
 }
 
-// updateBasket ports PUT /api/library/basket/:id.
+// updateBasket ports PUT /api/library/basket/:id — a thin wrapper around
+// UpdateBasket (update.go), the same logic internal/web's Edit basket form
+// also calls.
 func (h *Handlers) updateBasket(w http.ResponseWriter, r *http.Request) {
-	id, noMatch := parseIDParam(r.PathValue("id"))
+	id, _ := parseIDParam(r.PathValue("id"))
 	body, ok := decodeJSONBody(w, r)
 	if !ok {
 		return
 	}
-	lib, err := h.repo.GetLibrary()
+	basket, _, found, err := UpdateBasket(h.repo, id, body)
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	idx := -1
-	if !noMatch {
-		idx = findBasketIndex(lib, id)
-	}
-	if idx == -1 {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	wallType, wallTypePresent, wallTypeOK := enumStringField(body, "wallType", basketWallTypes)
-	if !wallTypeOK {
-		writeError(w, http.StatusBadRequest, "invalid wallType")
-		return
-	}
-	shape, shapePresent, shapeOK := enumStringField(body, "shape", basketShapes)
-	if !shapeOK {
-		writeError(w, http.StatusBadRequest, "invalid shape")
-		return
-	}
-	basket := lib.Baskets[idx]
-	if v, present := trimMaxOrUndefined(body, "name", 200); present {
-		if v != "" {
-			basket["name"] = v
+		var verr *ValidationError
+		if errors.As(err, &verr) {
+			writeError(w, http.StatusBadRequest, verr.Message)
+			return
 		}
-	}
-	if v, present := trimMaxOrUndefined(body, "doseCapacity", 50); present {
-		basket["doseCapacity"] = v
-	}
-	if wallTypePresent {
-		basket["wallType"] = wallType
-	}
-	if shapePresent {
-		basket["shape"] = shape
-	}
-	if v, present := trimMaxOrUndefined(body, "holeCount", 50); present {
-		basket["holeCount"] = v
-	}
-	if v, present := trimMaxOrUndefined(body, "notes", 1000); present {
-		basket["notes"] = v
-	}
-	basket["updatedAt"] = newID()
-	lib.Baskets[idx] = basket
-	if err := h.repo.SaveLibrary(lib); err != nil {
 		internalError(w, err)
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, basket)

@@ -75,77 +75,22 @@ func (h *Handlers) createRecipe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, recipe)
 }
 
-// updateRecipe ports PUT /api/library/recipe/:id.
+// updateRecipe ports PUT /api/library/recipe/:id — a thin wrapper around
+// UpdateRecipe (update.go), the same logic internal/web's Edit recipe form
+// also calls.
 func (h *Handlers) updateRecipe(w http.ResponseWriter, r *http.Request) {
-	id, noMatch := parseIDParam(r.PathValue("id"))
+	id, _ := parseIDParam(r.PathValue("id"))
 	body, ok := decodeJSONBody(w, r)
 	if !ok {
 		return
 	}
-	lib, err := h.repo.GetLibrary()
+	recipe, _, found, err := UpdateRecipe(h.repo, id, body)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	idx := -1
-	if !noMatch {
-		idx = findRecipeIndex(lib, id)
-	}
-	if idx == -1 {
+	if !found {
 		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	recipe := lib.Recipes[idx]
-	if v, present := trimMaxOrUndefined(body, "name", 200); present {
-		if v != "" {
-			recipe["name"] = v
-		}
-	}
-	if _, present := body["brewMethod"]; present {
-		recipe["brewMethod"] = brewMethodOrOther(body["brewMethod"])
-	}
-	if v, present := trimMaxOrUndefined(body, "drinkType", 50); present {
-		recipe["drinkType"] = v
-	}
-	if _, present := body["targetDose_g"]; present {
-		recipe["targetDose_g"] = floatOrNilFalsy(body["targetDose_g"])
-	}
-	if _, present := body["targetYield_g"]; present {
-		recipe["targetYield_g"] = floatOrNilFalsy(body["targetYield_g"])
-	}
-	if _, present := body["targetTime_s"]; present {
-		recipe["targetTime_s"] = floatOrNilFalsy(body["targetTime_s"])
-	}
-	if _, present := body["waterTemp_c"]; present {
-		recipe["waterTemp_c"] = floatOrNilFalsy(body["waterTemp_c"])
-	}
-	if _, present := body["water_g"]; present {
-		recipe["water_g"] = floatOrNilFalsy(body["water_g"])
-	}
-	if _, present := body["ice_g"]; present {
-		recipe["ice_g"] = floatOrNilFalsy(body["ice_g"])
-	}
-	if v, present := trimMaxOrUndefined(body, "grindSize", 200); present {
-		recipe["grindSize"] = v
-	}
-	if _, present := body["sourceUrl"]; present {
-		recipe["sourceUrl"] = safeURL(body["sourceUrl"])
-	}
-	if _, present := body["steps"]; present {
-		recipe["steps"] = parseSteps(body["steps"])
-	}
-	if v, present := trimMaxOrUndefined(body, "notes", 1000); present {
-		recipe["notes"] = v
-	}
-	if v, present := trimMaxOrUndefined(body, "profileName", 200); present {
-		recipe["profileName"] = v
-	}
-	if v, present := trimMaxOrUndefined(body, "beanName", 200); present {
-		recipe["beanName"] = v
-	}
-	lib.Recipes[idx] = recipe
-	if err := h.repo.SaveLibrary(lib); err != nil {
-		internalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, recipe)

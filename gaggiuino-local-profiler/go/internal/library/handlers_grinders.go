@@ -41,47 +41,22 @@ func (h *Handlers) createGrinder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, grinder)
 }
 
-// updateGrinder ports PUT /api/library/grinder/:id.
+// updateGrinder ports PUT /api/library/grinder/:id — a thin wrapper around
+// UpdateGrinder (update.go), the same logic internal/web's Edit grinder form
+// also calls.
 func (h *Handlers) updateGrinder(w http.ResponseWriter, r *http.Request) {
-	id, noMatch := parseIDParam(r.PathValue("id"))
+	id, _ := parseIDParam(r.PathValue("id"))
 	body, ok := decodeJSONBody(w, r)
 	if !ok {
 		return
 	}
-	lib, err := h.repo.GetLibrary()
+	grinder, _, found, err := UpdateGrinder(h.repo, id, body)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	idx := -1
-	if !noMatch {
-		idx = findGrinderIndex(lib, id)
-	}
-	if idx == -1 {
+	if !found {
 		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	grinder := lib.Grinders[idx]
-	if v, present := trimMaxOrUndefined(body, "name", 200); present {
-		if v != "" {
-			grinder["name"] = v
-		}
-	}
-	if v, present := trimMaxOrUndefined(body, "notes", 1000); present {
-		grinder["notes"] = v
-	}
-	if v, present := trimMaxOrUndefined(body, "burrType", 200); present {
-		grinder["burrType"] = v
-	}
-	if v, present := trimMaxOrUndefined(body, "purchaseDate", 10); present {
-		grinder["purchaseDate"] = v
-	}
-	if v, present := trimMaxOrUndefined(body, "burrsResetAt", 10); present {
-		grinder["burrsResetAt"] = v
-	}
-	lib.Grinders[idx] = grinder
-	if err := h.repo.SaveLibrary(lib); err != nil {
-		internalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, grinder)

@@ -95,32 +95,17 @@ func (h *Handlers) updateMachine(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSONBody(w, r, &in) {
 		return
 	}
-	if err := in.validate(false); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid machine: "+err.Error())
-		return
-	}
-	if in.Host != nil && *in.Host != "" {
-		hostname, err := hostnameOf(*in.Host)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if err := assertMachineHost(r.Context(), hostname); err != nil {
-			if isSSRFBlocked(err) {
-				writeError(w, http.StatusBadRequest, "host not allowed")
-			} else {
-				writeError(w, http.StatusBadRequest, err.Error())
-			}
-			return
-		}
-	}
-
-	machine, err := h.registry.UpdateMachine(id, in, h.liveClient.DisconnectForHost)
+	machine, found, err := UpdateMachineChecked(r.Context(), h.registry, id, in, h.liveClient.DisconnectForHost)
 	if err != nil {
+		var verr *ValidationError
+		if errors.As(err, &verr) {
+			writeError(w, http.StatusBadRequest, verr.Message)
+			return
+		}
 		internalError(w, err)
 		return
 	}
-	if machine == nil {
+	if !found {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}

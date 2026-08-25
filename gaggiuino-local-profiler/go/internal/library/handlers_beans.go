@@ -43,157 +43,23 @@ func (h *Handlers) createBean(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, bean)
 }
 
-// updateBean ports PUT /api/library/bean/:id — partial update, omitted
-// fields keep their current value.
+// updateBean ports PUT /api/library/bean/:id — a thin wrapper around
+// UpdateBean (update.go), the same partial-update logic internal/web's Edit
+// bean form also calls. Partial update: omitted fields keep their current
+// value.
 func (h *Handlers) updateBean(w http.ResponseWriter, r *http.Request) {
-	id, noMatch := parseIDParam(r.PathValue("id"))
+	id, _ := parseIDParam(r.PathValue("id"))
 	body, ok := decodeJSONBody(w, r)
 	if !ok {
 		return
 	}
-	lib, err := h.repo.GetLibrary()
+	bean, _, found, err := UpdateBean(h.repo, id, body)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	idx := -1
-	if !noMatch {
-		idx = findBeanIndex(lib, id)
-	}
-	if idx == -1 {
+	if !found {
 		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	bean := lib.Beans[idx]
-
-	if v, present := trimMaxOrUndefined(body, "name", 200); present {
-		if v != "" {
-			bean["name"] = v
-		}
-	}
-	if v, present := trimMaxOrUndefined(body, "roaster", 200); present {
-		bean["roaster"] = v
-	}
-	if v, present := trimMaxOrUndefined(body, "roastDate", 10); present {
-		bean["roastDate"] = v
-	}
-	if v, present := trimMaxOrUndefined(body, "notes", 1000); present {
-		bean["notes"] = v
-	}
-	if _, present := body["origins"]; present {
-		origins := sanitizeOrigins(body["origins"])
-		bean["origins"] = origins
-		origin := ""
-		if len(origins) > 0 {
-			if m, ok := origins[0].(Entity); ok {
-				origin, _ = m["code"].(string)
-			}
-		}
-		bean["origin"] = origin
-	} else if _, present := body["origin"]; present {
-		code := sanitizeOrigin(body["origin"])
-		if code != "" {
-			bean["origins"] = []any{Entity{"code": code}}
-		} else {
-			bean["origins"] = []any{}
-		}
-		bean["origin"] = code
-	}
-	if v, present := body["variety"]; present {
-		s := trimMax(v, 200)
-		bean["variety"] = s
-	}
-	if _, present := body["species"]; present {
-		bean["species"] = sanitizeSpecies(body["species"])
-	}
-	if _, present := body["category"]; present {
-		bean["category"] = sanitizeCategory(body["category"])
-	}
-	if _, present := body["process"]; present {
-		s := trimMax(body["process"], 200)
-		bean["process"] = s
-	}
-	if _, present := body["flavors"]; present {
-		bean["flavors"] = sanitizeFlavors(body["flavors"])
-	}
-	if _, present := body["roastType"]; present {
-		bean["roastType"] = sanitizeRoastType(body["roastType"])
-	}
-	if _, present := body["altitude_m"]; present {
-		bean["altitude_m"] = sanitizeAltitude(body["altitude_m"])
-	}
-	if _, present := body["importer"]; present {
-		bean["importer"] = trimMax(body["importer"], 200)
-	}
-	if _, present := body["harvest"]; present {
-		bean["harvest"] = trimMax(body["harvest"], 50)
-	}
-	if _, present := body["price_eur"]; present {
-		bean["price_eur"] = sanitizePrice(body["price_eur"])
-	}
-	if _, present := body["producer"]; present {
-		bean["producer"] = trimMax(body["producer"], 200)
-	}
-	if _, present := body["certification"]; present {
-		bean["certification"] = trimMax(body["certification"], 200)
-	}
-	if _, present := body["brewTempC"]; present {
-		bean["brewTempC"] = sanitizeBrewTemp(body["brewTempC"])
-	}
-	if _, present := body["brewRatio"]; present {
-		bean["brewRatio"] = trimMax(body["brewRatio"], 20)
-	}
-	if _, present := body["brewTimeS"]; present {
-		bean["brewTimeS"] = sanitizeBrewTime(body["brewTimeS"])
-	}
-	if _, present := body["brewNotes"]; present {
-		bean["brewNotes"] = trimMax(body["brewNotes"], 300)
-	}
-	// geocodeBean (region -> map coordinates) is deliberately NOT ported in
-	// this phase — see doc.go. A region change still clears the stale
-	// `location`, matching the Node original; it just never gets
-	// recomputed here.
-	if _, present := body["region"]; present {
-		newRegion := trimMax(body["region"], 200)
-		oldRegion, _ := bean["region"].(string)
-		bean["region"] = newRegion
-		if newRegion != oldRegion {
-			bean["location"] = nil
-		}
-	}
-	if _, present := body["stock_g"]; present {
-		bean["stock_g"] = floatOrNilFalsy(body["stock_g"])
-	}
-	if _, present := body["decaf"]; present {
-		bean["decaf"] = boolOf(body["decaf"])
-	}
-	if _, present := body["enabled"]; present {
-		bean["enabled"] = sanitizeEnabled(body["enabled"])
-	}
-
-	_, roastDatePresent := body["roastDate"]
-	_, stockPresent := body["stock_g"]
-	_, batchPresent := body["batchNumber"]
-	if roastDatePresent || stockPresent || batchPresent {
-		if bags := bagsOf(bean); len(bags) > 0 {
-			last, _ := bags[len(bags)-1].(Entity)
-			if last != nil {
-				if roastDatePresent {
-					last["roastDate"] = trimMax(body["roastDate"], 10)
-				}
-				if stockPresent {
-					last["stock_g"] = floatOrNilFalsy(body["stock_g"])
-				}
-				if batchPresent {
-					last["batchNumber"] = trimMax(body["batchNumber"], 50)
-				}
-			}
-		}
-	}
-
-	lib.Beans[idx] = bean
-	if err := h.repo.SaveLibrary(lib); err != nil {
-		internalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, bean)

@@ -52,50 +52,27 @@ func (h *Handlers) createPuckScreen(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, puckScreen)
 }
 
-// updatePuckScreen ports PUT /api/library/puckscreen/:id.
+// updatePuckScreen ports PUT /api/library/puckscreen/:id — a thin wrapper
+// around UpdatePuckScreen (update.go), the same logic internal/web's Edit
+// puck screen form also calls.
 func (h *Handlers) updatePuckScreen(w http.ResponseWriter, r *http.Request) {
-	id, noMatch := parseIDParam(r.PathValue("id"))
+	id, _ := parseIDParam(r.PathValue("id"))
 	body, ok := decodeJSONBody(w, r)
 	if !ok {
 		return
 	}
-	lib, err := h.repo.GetLibrary()
+	puckScreen, _, found, err := UpdatePuckScreen(h.repo, id, body)
 	if err != nil {
-		internalError(w, err)
-		return
-	}
-	idx := -1
-	if !noMatch {
-		idx = findPuckScreenIndex(lib, id)
-	}
-	if idx == -1 {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	thickness, thicknessPresent, thicknessOK := enumStringField(body, "thickness", puckScreenThicknesses)
-	if !thicknessOK {
-		writeError(w, http.StatusBadRequest, "invalid thickness")
-		return
-	}
-	puckScreen := lib.PuckScreens[idx]
-	if v, present := trimMaxOrUndefined(body, "name", 200); present {
-		if v != "" {
-			puckScreen["name"] = v
+		var verr *ValidationError
+		if errors.As(err, &verr) {
+			writeError(w, http.StatusBadRequest, verr.Message)
+			return
 		}
-	}
-	if thicknessPresent {
-		puckScreen["thickness"] = thickness
-	}
-	if v, present := trimMaxOrUndefined(body, "material", 200); present {
-		puckScreen["material"] = v
-	}
-	if v, present := trimMaxOrUndefined(body, "notes", 1000); present {
-		puckScreen["notes"] = v
-	}
-	puckScreen["updatedAt"] = newID()
-	lib.PuckScreens[idx] = puckScreen
-	if err := h.repo.SaveLibrary(lib); err != nil {
 		internalError(w, err)
+		return
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, puckScreen)
