@@ -61,9 +61,16 @@ type OrdersHandlers struct {
 // since this page bypasses that REST handler entirely and calls
 // Service.PlaceOrder directly; without its own limiter this form would have
 // no rate protection at all, unlike every other path to placing an order.
-// Wires h.publishQueueUpdate onto the Service's OnQueueChanged callback
+// Wires h.PublishQueueUpdate onto this instance's own Service.OnQueueChanged
 // (#901) — see templates/orders.templ's own doc comment for the live-update
-// mechanism this closes.
+// mechanism this closes. PublishQueueUpdate is exported (#901 code review,
+// CONFIRMED finding #2) so cmd/server's main.go can ALSO wire it onto
+// internal/orders.Handlers' own separate *Service instance (that package's
+// REST API) — otherwise an order mutated through the REST API alone never
+// published a live update, despite go/README.md documenting "regardless of
+// caller — the REST API included". See orders.Handlers.Service's own doc
+// comment for why this stays two Service instances wired to the same
+// publish function, not one shared instance.
 func NewOrdersHandlers(repo *orders.Repository, shotsRepo *shots.Repository, libRepo *library.Repository, registry *machines.Registry, haClient *ha.Client, hub *sse.Hub) *OrdersHandlers {
 	h := &OrdersHandlers{
 		repo:      repo,
@@ -73,23 +80,26 @@ func NewOrdersHandlers(repo *orders.Repository, shotsRepo *shots.Repository, lib
 		rl:        ratelimit.NewKeyed(),
 		hub:       hub,
 	}
-	h.service.OnQueueChanged = h.publishQueueUpdate
+	h.service.OnQueueChanged = h.PublishQueueUpdate
 	return h
 }
 
-// publishQueueUpdate renders the current barista queue and publishes it as
+// PublishQueueUpdate renders the current barista queue and publishes it as
 // an sse.EventOrdersUpdate event — orders.Service's OnQueueChanged callback,
 // fired after every successful PlaceOrder/AcceptOrder/CompleteOrder/
-// DeclineOrder regardless of caller (this page's own htmx actions or the
-// REST API). hub == nil (a caller that never wired one, e.g. a focused test
-// building *OrdersHandlers some other way) is a silent no-op, not a panic —
-// matches every other nil-safe optional dependency in this package
-// (MachinesHandlers.poller's own doc comment gives the same reasoning). A
-// render failure here is logged, not returned — this runs from inside
-// Service's own call stack (AcceptOrder et al.), which has no HTTP response
-// to fail; the order's own state change already succeeded by the time this
-// callback fires, so a fragment-rendering error here must not undo it.
-func (h *OrdersHandlers) publishQueueUpdate() {
+// DeclineOrder on WHICHEVER *orders.Service instance it's wired to (this
+// page's own, or — since main.go wires it onto both, see NewOrdersHandlers'
+// own doc comment — internal/orders.Handlers' REST-API instance too).
+// Exported so main.go can reach it for that second wiring. hub == nil (a
+// caller that never wired one, e.g. a focused test building *OrdersHandlers
+// some other way) is a silent no-op, not a panic — matches every other
+// nil-safe optional dependency in this package (MachinesHandlers.poller's
+// own doc comment gives the same reasoning). A render failure here is
+// logged, not returned — this runs from inside Service's own call stack
+// (AcceptOrder et al.), which has no HTTP response to fail; the order's own
+// state change already succeeded by the time this callback fires, so a
+// fragment-rendering error here must not undo it.
+func (h *OrdersHandlers) PublishQueueUpdate() {
 	if h.hub == nil {
 		return
 	}

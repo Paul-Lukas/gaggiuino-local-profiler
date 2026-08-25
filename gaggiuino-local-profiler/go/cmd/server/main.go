@@ -137,6 +137,18 @@ func main() {
 	webOrdersHandlers := web.NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient, hub)
 	webOrdersHandlers.RegisterRoutes(mux)
 
+	// #901 code review (CONFIRMED finding #2): ordersHandlers (REST, above)
+	// and webOrdersHandlers each own an independent *orders.Service — only
+	// the web one had OnQueueChanged wired, so an order mutated through the
+	// REST API alone (glp-integration, or any other external client) never
+	// published a live orders-update event. Wire the same publish function
+	// onto the REST instance's Service too, closing that gap without
+	// collapsing the two Service instances into one — see
+	// orders.Handlers.Service's and web.OrdersHandlers.PublishQueueUpdate's
+	// own doc comments for why two instances sharing one publish function is
+	// the chosen fix, not a shared-instance refactor.
+	ordersHandlers.Service().OnQueueChanged = webOrdersHandlers.PublishQueueUpdate
+
 	// Phase 1g (#901): the background polling loop that backs
 	// GET /api/machine/status, GET /api/live/data, GET/POST /api/preheat*,
 	// and the live-snapshot/preheat-update SSE events — see

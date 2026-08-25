@@ -250,6 +250,61 @@ func TestOrderActions_PublishSSEUpdate(t *testing.T) {
 	}
 }
 
+// TestRESTAPIOrderAction_AlsoPublishesSSEUpdate pins the #901 code review
+// fix (CONFIRMED finding #2): internal/orders.Handlers (the REST API) and
+// web.OrdersHandlers each own an independent *orders.Service — before this
+// fix, only the web instance's OnQueueChanged was wired to the SSE hub, so
+// mutating an order through the REST API alone (glp-integration, or any
+// other external client) never published a live orders-update event
+// despite go/README.md documenting "regardless of caller — the REST API
+// included". This wires both Service instances onto the same hub the exact
+// way cmd/server/main.go now does (orders.Handlers.Service().OnQueueChanged
+// = webOrdersHandlers.PublishQueueUpdate) and drives the mutation through
+// the REST mux, not the web one, to prove that path publishes too.
+func TestRESTAPIOrderAction_AlsoPublishesSSEUpdate(t *testing.T) {
+	t.Setenv("GLP_ENABLE_ORDERS", "true")
+	dbPath := filepath.Join(t.TempDir(), "glp.db")
+	sqlDB, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { sqlDB.Close() })
+
+	ordersRepo := orders.NewRepository(sqlDB)
+	shotsRepo := shots.NewRepository(sqlDB)
+	libRepo := library.NewRepository(sqlDB)
+	registry := machines.NewRegistry(sqlDB)
+	haClient := ha.NewClientFromEnv()
+	seedOrder(t, ordersRepo, "ord_1", "Espresso", "Alice", "pending", 1_700_000_000_000)
+
+	restHandlers := orders.NewHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient)
+	restMux := http.NewServeMux()
+	restHandlers.RegisterRoutes(restMux)
+
+	hub := sse.NewHub()
+	webHandlers := NewOrdersHandlers(ordersRepo, shotsRepo, libRepo, registry, haClient, hub)
+	// The same wiring cmd/server/main.go does after constructing both
+	// handlers — see this file's own doc comment.
+	restHandlers.Service().OnQueueChanged = webHandlers.PublishQueueUpdate
+
+	sub, unsubscribe := hub.Subscribe()
+	defer unsubscribe()
+
+	rec := doRequest(t, restMux, "POST", "/api/orders/ord_1/accept")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/orders/ord_1/accept: status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case ev := <-sub:
+		if ev.Type != sse.EventOrdersUpdate {
+			t.Errorf("event type = %q, want %q", ev.Type, sse.EventOrdersUpdate)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no orders-update event published within 1s of accepting an order through the REST API")
+	}
+}
+
 func TestAcceptAction_NotFound(t *testing.T) {
 	mux, _, _ := newTestOrdersServer(t)
 	rec := doRequest(t, mux, "POST", "/orders/nope/accept")
