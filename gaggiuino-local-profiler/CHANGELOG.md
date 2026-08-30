@@ -1,4 +1,6 @@
 ## [Unreleased]
+
+## [2.36.1] – 2026-08-30
 ### Fixed
 - **Correcting a coffee bean's stock now actually sets the remaining weight**, instead of overwriting the bag's original size. Closes #930
 - **Milk "Restock" now adds to the existing stock instead of replacing it.** Closes #931
