@@ -131,7 +131,12 @@ function startLivePolling(runtime = defaultRuntime) {
     if (runtime.livePollTimer) return;
     if (!runtime.switchOnAt || !isStillWarm(runtime)) { runtime.switchOnAt = Date.now(); savePreheatState(runtime); }
     runtime.tempHistory = [];
-    log('Live polling started via /api/system/status');
+    const _startMachine = registry.getDefaultMachine();
+    if (_startMachine?.type === 'gaggimate') {
+        log('GaggiMate live transport: WebSocket');
+    } else {
+        log('Live polling started via /api/system/status');
+    }
     runtime.livePollTimer = setInterval(() => pollLive(runtime), 1000);
     // #708: bridge the transport's own push-on-arrival events into an
     // immediate LIVE_SNAPSHOT -- see the bridge functions' own comments above.
@@ -200,6 +205,13 @@ async function pollLive(runtime = defaultRuntime) {
 }
 
 async function pollViaGaggiuinoStatus(runtime = defaultRuntime) {
+    // GaggiMate uses its own WebSocket live client (ws-client.js) and does
+    // not expose /api/system/status at all. Polling it would crash the device.
+    const defaultMachine = registry.getDefaultMachine();
+    if (defaultMachine?.type === 'gaggimate') {
+        debugLog('Skipping Gaggiuino HTTP live polling for GaggiMate');
+        return;
+    }
     const opts = loadOptions();
     const startedAt = Date.now();
     try {

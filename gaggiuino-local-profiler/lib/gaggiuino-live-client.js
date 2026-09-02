@@ -112,6 +112,10 @@ function disconnect(baseUrl) {
     if (session.reconnectTimer) clearTimeout(session.reconnectTimer);
     if (session.ws) {
         session.ws.removeAllListeners();
+        // Absorb the async 'error' event that ws emits when terminate() is
+        // called on a socket still in CONNECTING state — without a listener
+        // Node.js would throw it as an unhandled exception and crash the process.
+        session.ws.on('error', () => {});
         try { session.ws.terminate(); } catch { /* already closed */ }
     }
     sessions.delete(baseUrl);
