@@ -91,49 +91,101 @@ func InstallCodeFor(uuid string) string {
 
 // ── rasterisation ──────────────────────────────────────────────────────
 
-// The resvg wasm module (~2 MB, decompressed and instantiated by
-// resvg.NewContext) is kept warm for the process lifetime and reused: a
-// fresh Context per request cost ~1-2 s each, all of it wasm
-// instantiation. resvgMu serialises access — one wasm module instance is
-// not safe for concurrent calls, and a share-card download is rare enough
-// that serialising it costs nothing in practice. A fresh Renderer (cheap)
-// is still made per call so each render starts with an empty fontdb.
-var (
-	resvgMu  sync.Mutex
-	resvgCtx *resvg.Context
-)
+// A resvg.Context is a wazero runtime with one instantiated wasm module
+// and one linear memory; every render does malloc→write→call→read→free
+// against that shared memory, so a single Context can only serve one
+// render at a time. The first cut kept one Context behind a global mutex
+// and rebuilt the Renderer (and re-parsed both Go font faces) on every
+// call — GET /api/shots/{id}/card p50 was 1127 ms at c=10, fully
+// serialised (#951).
+//
+// Instead this is a small pool of independent Contexts, each with its own
+// wazero runtime/memory (so N renders really do run in parallel) and a
+// long-lived Renderer whose fontdb + font-family are loaded once at slot
+// warm-up rather than per request. The fonts and family are constant for
+// every card this package renders, so a warm Renderer is fully reusable.
+// Slots are built lazily on first use — the first resvgPoolSize card
+// requests each pay the ~1-2 s wasm instantiation, everything after is
+// warm. A render that returns a wasm-level error drops its slot so the
+// next user rebuilds it rather than inheriting a wedged module.
+const resvgPoolSize = 3
 
-func rasterise(svg []byte, w, h uint32) ([]byte, error) {
-	resvgMu.Lock()
-	defer resvgMu.Unlock()
+type resvgSlot struct {
+	ctx *resvg.Context
+	r   *resvg.Renderer
+}
 
-	if resvgCtx == nil {
-		ctx, err := resvg.NewContext(context.Background())
-		if err != nil {
-			return nil, fmt.Errorf("resvg context: %w", err)
-		}
-		resvgCtx = ctx
-	}
-
-	r, err := resvgCtx.NewRenderer()
+func (s *resvgSlot) warm() error {
+	ctx, err := resvg.NewContext(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("resvg renderer: %w", err)
+		return fmt.Errorf("resvg context: %w", err)
 	}
-	defer r.Close()
+	r, err := ctx.NewRenderer()
+	if err != nil {
+		ctx.Close()
+		return fmt.Errorf("resvg renderer: %w", err)
+	}
 	if err := r.LoadFontData(goregular.TTF); err != nil {
-		return nil, fmt.Errorf("resvg load regular font: %w", err)
+		r.Close()
+		ctx.Close()
+		return fmt.Errorf("resvg load regular font: %w", err)
 	}
 	if err := r.LoadFontData(gobold.TTF); err != nil {
-		return nil, fmt.Errorf("resvg load bold font: %w", err)
+		r.Close()
+		ctx.Close()
+		return fmt.Errorf("resvg load bold font: %w", err)
 	}
 	if err := r.SetFontFamily(cardFontFamily); err != nil {
-		return nil, fmt.Errorf("resvg font family: %w", err)
+		r.Close()
+		ctx.Close()
+		return fmt.Errorf("resvg font family: %w", err)
 	}
-	png, err := r.RenderWithSize(svg, w, h)
+	s.ctx, s.r = ctx, r
+	return nil
+}
+
+func (s *resvgSlot) drop() {
+	if s.r != nil {
+		s.r.Close()
+	}
+	if s.ctx != nil {
+		s.ctx.Close()
+	}
+	s.ctx, s.r = nil, nil
+}
+
+type resvgPool struct{ free chan *resvgSlot }
+
+func newResvgPool(n int) *resvgPool {
+	p := &resvgPool{free: make(chan *resvgSlot, n)}
+	for i := 0; i < n; i++ {
+		p.free <- &resvgSlot{}
+	}
+	return p
+}
+
+func (p *resvgPool) render(svg []byte, w, h uint32) ([]byte, error) {
+	slot := <-p.free
+	defer func() { p.free <- slot }()
+
+	if slot.r == nil {
+		if err := slot.warm(); err != nil {
+			slot.drop()
+			return nil, err
+		}
+	}
+	png, err := slot.r.RenderWithSize(svg, w, h)
 	if err != nil {
+		slot.drop()
 		return nil, fmt.Errorf("resvg render: %w", err)
 	}
 	return png, nil
+}
+
+var cardPool = newResvgPool(resvgPoolSize)
+
+func rasterise(svg []byte, w, h uint32) ([]byte, error) {
+	return cardPool.render(svg, w, h)
 }
 
 // renderShareCard is the package entry point routes/shots.js's getCard
