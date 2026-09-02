@@ -184,50 +184,6 @@ func TestListPage_Empty(t *testing.T) {
 	}
 }
 
-// TestRootRedirect verifies #901's Ingress-base-URL fix: GET / (what HA
-// Ingress always proxies a freshly-opened add-on panel to, per
-// go/internal/auth.HAIngressPrefix's doc comment) redirects to "shots" via
-// a genuinely RELATIVE Location header, not "/shots" — the same bug class
-// go/internal/web/static/glp-token.js's own doc comment already fixed once
-// for its token fetch (a root-absolute Location skips the browser's
-// Ingress-prefix and 404s against HA Core's origin root instead of this
-// add-on). Checked both with and without an X-Ingress-Path header set,
-// since rootRedirect itself doesn't (and per this package's doc comment,
-// shouldn't) special-case Ingress requests differently — see
-// internal/auth.RequireToken's GET/HEAD bypass, which already lets this
-// route through unauthenticated either way.
-func TestRootRedirect(t *testing.T) {
-	mux, _ := newTestServer(t)
-
-	for _, tc := range []struct {
-		name         string
-		ingressPath  string
-		supervisorIP string
-	}{
-		{name: "direct, no ingress headers"},
-		{name: "ingress-style request", ingressPath: "/api/hassio_ingress/faketoken", supervisorIP: "172.30.32.1:12345"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			if tc.ingressPath != "" {
-				req.Header.Set("X-Ingress-Path", tc.ingressPath)
-			}
-			if tc.supervisorIP != "" {
-				req.RemoteAddr = tc.supervisorIP
-			}
-			rec := httptest.NewRecorder()
-			mux.ServeHTTP(rec, req)
-
-			if rec.Code != http.StatusFound {
-				t.Fatalf("GET /: status = %d, want %d", rec.Code, http.StatusFound)
-			}
-			if loc := rec.Header().Get("Location"); loc != "shots" {
-				t.Errorf("GET / Location = %q, want relative %q (a leading slash would skip the Ingress prefix and 404 on HA Core's origin root)", loc, "shots")
-			}
-		})
-	}
-}
-
 // failingResponseWriter simulates a client connection that breaks partway
 // through the response: its Write only ever accepts half of what it's
 // given before returning an error, mimicking templ's bufio-buffered

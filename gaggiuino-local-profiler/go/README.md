@@ -391,10 +391,11 @@ go/
     backup/                routes/backup.js + lib/backup-crypto.js (implemented, Phase 1f)
     ha/                    lib/ha.js — SendNotify/GetNotifyServices/GetPersons/GetSwitchState/CallHaService/GetHaLanguage (implemented, Phase 1f, extended Phase 1g)
     system/                routes/system.js's token/status/live/preheat/version/demo endpoints + lib/poll.js + lib/preheat.js (implemented, Phase 1g; token/status added Phase 3b)
-    web/                   templ+htmx+Alpine frontend: GET /shots (Phase 2a) + the Library domain's pages (Phase 2b) + Machines/Live (Phase 2c) + Orders/Menu (Phase 2d) + Maintenance/Settings/Backup (Phase 2e)
+    web/                   templ+htmx+Alpine pages, now the frozen no-JS fallback view mounted under /ui/ (Phase 1 parity round, #901): GET /ui/shots (Phase 2a) + Library (2b) + Machines/Live (2c) + Orders/Menu (2d) + Maintenance/Settings/Backup (2e)
       templates/             .templ sources (own package — see internal/web/doc.go)
       static/                vendored htmx/Alpine/Chart.js + style.css + live.js, embedded via embed.FS
-  Makefile                 `make generate`/`build`/`vet`/`test`/`fmt-check` — templ codegen first, every target (Phase 2a)
+    webapp/                 the production frontend: the existing Vite SPA bundle (gaggiuino-local-profiler/public-src) embedded via //go:embed and served at / (Phase 1 parity round, #901 — see internal/webapp/doc.go)
+  Makefile                 `make generate`/`build`/`vet`/`test`/`fmt-check` — templ codegen first, every target (Phase 2a); `make frontend` stages the Vite build into internal/webapp/dist (Phase 1 parity round)
   Dockerfile               build-only multi-arch image, native Go cross-compile (implemented, Phase 4, see "Docker")
   docker-entrypoint.sh     chown /data + drop to unprivileged `glp` user, mirrors the repo-root Node entrypoint (Phase 4)
   scripts/
@@ -437,8 +438,26 @@ the Docker image (build or runtime); the only external browser runtime is
 htmx (~50 KB) plus Alpine (~54 KB) plus, on the one page that needs it,
 Chart.js (~200 KB), all vendored locally, never loaded from a CDN.
 
+**Phase 1 parity round (#901, in progress):** the templ pages above are
+NOT the shipping UI. Re-implementing the full Vite SPA (`public-src/`) in
+templ — shot charts, ECharts analytics, dial-in convergence, six-language
+i18n, the annotator, achievements — is ~15-20k lines chasing a target that
+keeps moving as `dev` ships, and the SPA already builds to relative-path,
+REST+SSE-only assets that run behind HA Ingress unmodified. So
+`internal/webapp` embeds that build output (`//go:embed all:dist`, staged
+by `make frontend` or the Dockerfile's `frontend` stage) and serves it at
+`/`, byte-for-byte the UI the Node app serves today, reaching frontend
+parity in one step. The eleven templ pages are frozen, not deleted:
+`cmd/server` mounts them under a `/ui/` prefix (via `http.StripPrefix` onto
+a dedicated sub-mux) as a no-JS fallback. Their relative-path convention is
+unchanged — every route simply moved one segment deeper, together. Only a
+committed `internal/webapp/dist/index.html` placeholder is tracked in git,
+so a bare `go build ./...` (CI's go-build.yaml test job) resolves the embed
+with no npm step; the Docker image and `make frontend` supply the real
+bundle.
+
 **Status (Phase 2a-2e, #901, complete):** the tooling foundation plus every
-frontend domain's pages. Phase 2a's `GET /shots` is a shot-history list built on
+frontend domain's pages. Phase 2a's `GET /ui/shots` is a shot-history list built on
 `internal/shots`' existing Phase 1c service layer (not its REST handlers —
 see `internal/web/doc.go`); it supports trashing a shot (with an Alpine
 confirm step before the destructive htmx POST) and restoring one from the
@@ -648,6 +667,10 @@ make generate   # templ codegen — required before build/vet/test, see "Fronten
                 # (needs the `templ` CLI on PATH; `make generate` auto-installs
                 # it via `go install github.com/a-h/templ/cmd/templ@latest`
                 # if missing — see "Frontend"'s "Codegen" section)
+make frontend   # OPTIONAL: `npm ci && npm run build` at the repo root, staged
+                # into internal/webapp/dist for the //go:embed. Skip it and the
+                # binary embeds the committed dist/index.html placeholder
+                # instead (fine for backend work; the real SPA won't be served).
 go build ./...
 ```
 
@@ -661,24 +684,27 @@ section above). The repo-root `Dockerfile`/`config.yaml`/`build.yaml`/
 `docker-entrypoint.sh` and `.github/workflows/{build,build-dev}.yaml` are
 the Node app's unchanged release pipeline and are untouched by any of this.
 
-**Image:** one build stage instead of the Node Dockerfile's three
-(builder + prod-deps + runtime) — there's no separate frontend build, no
-npm prod-dependency stage, and no `better-sqlite3` native module to rebuild
-per target arch, since `modernc.org/sqlite` is pure Go (no CGo) and every
-template/static asset is compiled into the binary via `embed.FS` (see
-`internal/web/assets.go`). Runtime is Alpine (`alpine:3.22`), not
+**Image:** two build stages instead of the Node Dockerfile's three — a
+`frontend` stage (`npm ci && npm run build`, host-platform only, output
+staged into `internal/webapp/dist` for the `//go:embed`; added in the
+Phase 1 parity round) and the Go builder. No npm prod-dependency stage and
+no `better-sqlite3` native module to rebuild per target arch, since
+`modernc.org/sqlite` is pure Go (no CGo) and every template/static/SPA
+asset is compiled into the binary via `embed.FS` (see
+`internal/web/assets.go`, `internal/webapp/assets.go`). The build context
+is `gaggiuino-local-profiler/` (not `go/`) so the frontend stage can reach
+`public-src/`. Runtime is Alpine (`alpine:3.22`), not
 scratch/distroless: those have no shell, so they can't keep the Node
 image's chown-`/data`-then-run-unprivileged entrypoint pattern
 (`docker-entrypoint.sh`, ported almost verbatim from the repo-root one,
 just for `su-exec`/the `glp` user instead of `gosu`/`node`) — see the
 Dockerfile's own top-of-file comment for the full reasoning, including why
 Alpine's tiny `apk add` is the one place a few seconds of QEMU emulation
-can still happen (see "Multi-arch" below). `HEALTHCHECK` hits
-`/web/static/style.css`, not `/` — the Go frontend has no route registered
-at `/` yet (its entry points are `/shots`, `/beans`, etc.), and that vendored
-static asset is always 200 without a token, matching the Node healthcheck's
-actual intent (proving the HTTP server answers) without depending on
-DB/auth state. `/data` is created and chowned to `glp` at build time too,
+can still happen (see "Multi-arch" below). `HEALTHCHECK` hits `/`, which
+serves `internal/webapp`'s SPA shell — always 200 without a token
+(`auth.RequireToken`'s GET/HEAD static bypass), matching the Node
+healthcheck's actual intent (proving the HTTP server answers) without
+depending on DB/auth state. `/data` is created and chowned to `glp` at build time too,
 so the image also runs standalone without an explicit `-v` (Supervisor
 always provides the real mount; `docker-entrypoint.sh`'s own `chown -R`
 still re-fixes ownership for that case, whose host-side UID isn't known at

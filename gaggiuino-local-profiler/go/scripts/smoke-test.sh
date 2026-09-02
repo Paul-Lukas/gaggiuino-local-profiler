@@ -192,6 +192,34 @@ step "auth"
 code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_A/shots.json")
 [[ "$code" == "401" ]] && ok "unauthenticated request rejected (401)" || bad "expected 401 for unauthenticated request, got $code"
 
+step "frontend: webapp SPA at / + templ pages moved under /ui/ (#901 Phase 1)"
+# GET / serves internal/webapp's index.html unauthenticated (auth.RequireToken
+# GET/HEAD static bypass), with server.js's no-cache headers. In a native run
+# this is the committed dist/index.html placeholder; in Docker mode it's the
+# real Vite build.
+root_headers=$(curl -s -D - -o "$SMOKE_DIR/root.html" "$BASE_A/")
+grep -qi '^HTTP/[0-9.]* 200' <<<"$root_headers" && ok "GET / -> 200 (SPA shell, no token)" || bad "GET /: $(head -1 <<<"$root_headers")"
+grep -q '<title>GLP</title>' "$SMOKE_DIR/root.html" && ok "GET / returns the GLP index.html shell" || bad "GET / body is not the GLP shell: $(head -c 200 "$SMOKE_DIR/root.html")"
+grep -qi '^Cache-Control: no-cache, no-store, must-revalidate' <<<"$root_headers" && ok "GET / carries the no-cache headers" || bad "GET / missing no-cache Cache-Control"
+# curl is not an Ingress request (no Supervisor source IP), so the PWA
+# manifest link must be injected.
+grep -q 'rel="manifest"' "$SMOKE_DIR/root.html" && ok "GET / injects the PWA manifest link for a non-Ingress request" || bad "GET / did not inject the manifest link"
+
+ui_code=$(curl -s -o "$SMOKE_DIR/ui-shots.html" -w '%{http_code}' "$BASE_A/ui/shots")
+[[ "$ui_code" == "200" ]] && ok "GET /ui/shots -> 200 (templ page still reachable)" || bad "GET /ui/shots: $ui_code"
+grep -q 'class="side-nav"' "$SMOKE_DIR/ui-shots.html" && ok "GET /ui/shots renders the templ shell" || bad "GET /ui/shots is not the templ page: $(head -c 200 "$SMOKE_DIR/ui-shots.html")"
+css_code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_A/ui/web/static/style.css")
+[[ "$css_code" == "200" ]] && ok "GET /ui/web/static/style.css -> 200 (vendored assets moved with the pages)" || bad "GET /ui/web/static/style.css: $css_code"
+ui_root=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$BASE_A/ui/")
+[[ "$ui_root" == 302* ]] && ok "GET /ui/ -> 302 (relative redirect to shots)" || bad "GET /ui/: $ui_root"
+
+if [[ -n "$DOCKER_IMAGE" ]]; then
+	for asset in manifest.json sw.js; do
+		a_code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_A/$asset")
+		[[ "$a_code" == "200" ]] && ok "GET /$asset -> 200 (real Vite bundle)" || bad "GET /$asset: $a_code"
+	done
+fi
+
 step "domain: system (demo seed) + shots"
 resp=$(curl_a -X POST "$BASE_A/api/demo/seed")
 if echo "$resp" | jq -e '.ok == true and .isDemo == true' >/dev/null 2>&1; then

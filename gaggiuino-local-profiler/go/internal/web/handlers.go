@@ -28,47 +28,26 @@ func NewHandlers(svc *shots.Service) *Handlers {
 // shots.Handlers.RegisterRoutes), these routes are NOT prefixed with
 // /api/ — see this package's doc comment for why that's the auth-relevant
 // choice, not an incidental one.
+//
+// Phase 1 (#901): cmd/server no longer registers these on the root mux. It
+// passes a dedicated sub-mux that it mounts under /ui/ via
+// http.StripPrefix, so "GET /shots" here is reached as GET /ui/shots and
+// "GET /web/static/style.css" as GET /ui/web/static/style.css. The
+// application root (GET /, GET /index.html, and every other static asset)
+// now belongs to internal/webapp, which serves the production Vite SPA;
+// these templ pages are the frozen no-JS fallback view. The
+// leading-slash-free relative-path convention (this package's doc comment,
+// "Ingress-safe relative paths") is unaffected: every page route is still
+// exactly one segment deep relative to its siblings — just one segment
+// deeper below /ui/, all together — so a relative link from /ui/shots to
+// "beans" resolves to /ui/beans and to "web/static/style.css" resolves to
+// /ui/web/static/style.css, prefix and all.
 func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /web/static/", staticHandler())
-	mux.HandleFunc("GET /{$}", h.rootRedirect)
 	mux.HandleFunc("GET /shots", h.listPage)
 	mux.HandleFunc("GET /shots/{id}", h.detailFragment)
 	mux.HandleFunc("POST /shots/{id}/trash", h.trashAction)
 	mux.HandleFunc("POST /shots/{id}/restore", h.restoreAction)
-}
-
-// rootRedirect ports the fix for #901's live-blocking bug: nothing in
-// internal/web (or any other domain package) ever registered a route for
-// GET / itself, only the individual subpages (/shots, /library, /machines,
-// ...). HA Ingress always proxies a freshly-opened add-on panel to GET / on
-// the container, so with no handler there the bare ingress base URL 404'd
-// before auth/middleware even ran — the very case the Dockerfile
-// HEALTHCHECK sidestepped by probing /web/static/style.css instead of /
-// (see go/Dockerfile's own comment), but whose actual user-facing
-// consequence was never fixed until now. "/{$}" (not "/") is deliberate:
-// "/" alone is ServeMux's catch-all for any unmatched path, which would
-// silently redirect genuine 404s (typos, probes) to /shots instead of
-// reporting them; "/{$}" matches only the exact root path.
-//
-// The redirect target is a relative Location header, set directly rather
-// than via http.Redirect: http.Redirect resolves a relative target against
-// r.URL.Path — the path this app itself sees, which is always "/" here
-// regardless of the browser's real address, because HA Ingress strips its
-// per-session prefix (/api/hassio_ingress/<token>) before forwarding to
-// the container (see internal/auth.HAIngressPrefix's doc comment) — so it
-// would turn "shots" into the root-absolute "/shots" (path.Split("/") ==
-// ("/", ""), then olddir+url == "/shots"; verified against
-// net/http/server.go's Redirect). A root-absolute Location resolves in the
-// BROWSER against its own visible URL, which still has the ingress
-// prefix — landing on the origin root instead of the add-on and 404ing
-// there, exactly the bug class go/internal/web/static/glp-token.js's own
-// doc comment already fixed once for its token fetch. Writing the header
-// directly keeps "shots" genuinely relative, so the browser resolves it
-// against its own address bar (".../<ingress-prefix>/"), landing on
-// ".../<ingress-prefix>/shots" — the add-on's own page.
-func (h *Handlers) rootRedirect(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Location", "shots")
-	w.WriteHeader(http.StatusFound)
 }
 
 // listPage ports GET /shots: Phase B's (#901) master-detail view — the

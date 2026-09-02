@@ -144,9 +144,18 @@
 // a fake dependency the app can't actually satisfy — plain relative paths
 // need no such signal at all.
 //
+// Phase 1 (#901): cmd/server now mounts every route below via
+// http.StripPrefix under a /ui/ prefix (internal/webapp owns the app root
+// with the production SPA). This does not change the scheme: the whole
+// single-segment route subtree moved one level deeper together, so a
+// relative path from /ui/shots to "beans" still resolves to /ui/beans and
+// to "web/static/style.css" still resolves to /ui/web/static/style.css.
+// "single segment deep from root" below now reads "single segment deep
+// below /ui/"; the relative-URL math is identical.
+//
 // The load-bearing consequence for every FUTURE page: do not introduce a
-// route nested more than one segment below root (e.g. GET
-// /library/beans/{id}) without re-deriving this whole scheme — a relative
+// route nested more than one segment below the prefix (e.g. GET
+// /ui/library/beans/{id}) without re-deriving this whole scheme — a relative
 // path written on that page would resolve one directory shallower than
 // intended. Keep new pages single-segment, and keep every href/src/hx-*
 // literal (or fmt.Sprintf/string-concat building one) leading-slash-free.
