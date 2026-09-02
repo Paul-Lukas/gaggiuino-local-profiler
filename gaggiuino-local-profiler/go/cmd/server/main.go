@@ -38,6 +38,7 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/backup"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ha"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/importer"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/maintenance"
@@ -147,6 +148,19 @@ func main() {
 	// internal/web/doc.go's "Auth model" section.
 	webLibraryHandlers := web.NewLibraryHandlers(libRepo, shotsRepo)
 	webLibraryHandlers.RegisterRoutes(uiMux)
+
+	// Phase 2c (#901): the bean-import domain — GET /api/import/url plus
+	// GET/POST /api/import/settings. beans is the loadLibrary().beans lookup
+	// routes/import.js's duplicate-warning check needs, passed as a callback
+	// (not a library import) the same way library.GeocodeHook is wired below.
+	importerHandlers := importer.NewHandlers(importer.NewRepository(sqlDB), func() []map[string]any {
+		lib, err := libRepo.GetLibrary()
+		if err != nil {
+			return nil
+		}
+		return lib.Beans
+	})
+	importerHandlers.RegisterRoutes(mux)
 
 	registry := machines.NewRegistry(sqlDB)
 	machinesHandlers := machines.NewHandlers(registry, hub)
