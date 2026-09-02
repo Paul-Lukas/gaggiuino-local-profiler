@@ -60,11 +60,14 @@ func TestDeriveMachineState_SensorSnapPreferredOverREST(t *testing.T) {
 		SensorSnap: &proto.SensorStateSnapshotDto{
 			Temperature: 93.2, Pressure: 8.8, Weight: 18.4, PumpFlow: 2.5,
 			WeightFlow: 1.1, WaterTemperature: 95, BoilerState: true, ValveState: true,
+			BrewActive: true,
 		},
 	})
-	// #615: brewing detection stays REST-sourced even with a live sample.
+	// #615/#902: brewing START stays REST-sourced; a live sample only ends
+	// it (brewActive=false). With brewActive still true here, IsBrewing
+	// tracks status.Brewing unchanged.
 	if !res.IsBrewing {
-		t.Fatal("expected IsBrewing=true (REST-sourced, unaffected by SensorSnap)")
+		t.Fatal("expected IsBrewing=true (REST-sourced start, SensorSnap.BrewActive still true)")
 	}
 	ms := res.MachineStatus
 	if ms.Temperature != 93.2 || ms.Pressure != 8.8 || ms.Weight != 18.4 {
@@ -76,6 +79,91 @@ func TestDeriveMachineState_SensorSnapPreferredOverREST(t *testing.T) {
 	}
 	if ms.BoilerState == nil || !*ms.BoilerState {
 		t.Errorf("MachineStatus.BoilerState should be true")
+	}
+}
+
+// #907: under BREW_AUTO the firmware auto-stops the brew while the physical
+// switch stays up — a live SensorSnap.BrewActive=false must end the live
+// brew immediately.
+func TestDeriveMachineState_BrewAutoStop_LiveBrewActiveFalseEndsIt(t *testing.T) {
+	res := deriveMachineState(DeriveInput{
+		Status:     RawStatus{Brewing: true, Temperature: 92},
+		Now:        1,
+		SensorSnap: &proto.SensorStateSnapshotDto{Temperature: 92, BrewActive: false},
+	})
+	if res.IsBrewing {
+		t.Fatal("expected IsBrewing=false: SensorSnap.BrewActive=false ends it even with brewSwitchState up")
+	}
+	if res.MachineStatus.BrewSwitchState {
+		t.Error("MachineStatus.BrewSwitchState should follow IsBrewing (false)")
+	}
+}
+
+func TestDeriveMachineState_BrewContinuesWhileBrewActiveTrue(t *testing.T) {
+	res := deriveMachineState(DeriveInput{
+		Status:     RawStatus{Brewing: true, Temperature: 92},
+		Now:        1,
+		SensorSnap: &proto.SensorStateSnapshotDto{Temperature: 92, BrewActive: true},
+	})
+	if !res.IsBrewing {
+		t.Fatal("expected IsBrewing=true while brewSwitchState up and BrewActive still true")
+	}
+}
+
+func TestDeriveMachineState_NoLiveTransport_BrewStaysRESTOnly(t *testing.T) {
+	res := deriveMachineState(DeriveInput{Status: RawStatus{Brewing: true}, Now: 1})
+	if !res.IsBrewing {
+		t.Fatal("no SensorSnap -> pre-#907 REST-only behavior (switch alone decides)")
+	}
+}
+
+// #908: steam/flush live-state derivation.
+func TestDeriveMachineState_SteamState(t *testing.T) {
+	// REST fallback: no live transport -> steamSwitchState decides.
+	rest := deriveMachineState(DeriveInput{Status: RawStatus{SteamSwitchState: true}, Now: 1})
+	if !rest.IsSteaming || !rest.MachineStatus.IsSteaming {
+		t.Error("expected IsSteaming=true from REST steamSwitchState with no live transport")
+	}
+	if rest.MachineStatus.OpMode != nil {
+		t.Errorf("OpMode should be nil with no SysState, got %q", *rest.MachineStatus.OpMode)
+	}
+
+	// Live transport preferred: SensorSnap.SteamActive wins over REST.
+	live := deriveMachineState(DeriveInput{
+		Status:     RawStatus{SteamSwitchState: true},
+		Now:        1,
+		SensorSnap: &proto.SensorStateSnapshotDto{SteamActive: false},
+	})
+	if live.IsSteaming || live.MachineStatus.IsSteaming {
+		t.Error("expected IsSteaming=false: live SensorSnap.SteamActive=false overrides REST switch")
+	}
+}
+
+func TestDeriveMachineState_FlushState(t *testing.T) {
+	for _, mode := range []proto.OperationMode{proto.ModeFlush, proto.ModeFlushAuto} {
+		res := deriveMachineState(DeriveInput{
+			Status:   RawStatus{},
+			Now:      1,
+			SysState: &proto.SystemStateDto{OperationMode: mode},
+		})
+		if !res.IsFlushing || !res.MachineStatus.IsFlushing {
+			t.Errorf("mode %d: expected IsFlushing=true", mode)
+		}
+		if res.MachineStatus.OpMode == nil {
+			t.Errorf("mode %d: expected OpMode to be set", mode)
+		}
+	}
+
+	notFlush := deriveMachineState(DeriveInput{
+		Status:   RawStatus{},
+		Now:      1,
+		SysState: &proto.SystemStateDto{OperationMode: proto.ModeBrewAuto},
+	})
+	if notFlush.IsFlushing {
+		t.Error("BREW_AUTO must not derive IsFlushing=true")
+	}
+	if notFlush.MachineStatus.OpMode == nil || *notFlush.MachineStatus.OpMode != "BREW_AUTO" {
+		t.Errorf("OpMode = %v, want BREW_AUTO", notFlush.MachineStatus.OpMode)
 	}
 }
 

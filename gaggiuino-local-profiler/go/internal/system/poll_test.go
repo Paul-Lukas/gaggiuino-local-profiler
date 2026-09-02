@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines/proto"
 )
 
 // TestPollViaGaggiuinoStatus_MachineReachable is the #655 regression test:
@@ -208,6 +210,120 @@ func TestBuildLiveDataResponse_NoDataRaceWithConcurrentPollTick(t *testing.T) {
 
 	close(stop)
 	wg.Wait()
+}
+
+// TestLiveData_IdleStatsAlwaysPresent is the #908 regression test: the
+// idle payload exposes current temperature/target, pressure and water
+// level even when nothing is brewing, sourced from the per-tick
+// machineStatus (no extra sensor calls).
+func TestLiveData_IdleStatsAlwaysPresent(t *testing.T) {
+	fake := &fakeAdapter{}
+	p, _ := newTestPoller(t, fake)
+
+	// Before any poll: idle stats are null (no machineStatus yet).
+	ld := p.LiveData()
+	if ld.Temperature != nil || ld.WaterLevel != nil {
+		t.Fatalf("expected nil idle stats before first poll, got temp=%v water=%v", ld.Temperature, ld.WaterLevel)
+	}
+
+	fake.setStatus(okStatus(t, `{"waterLevel":72}`, 93.5, 94, 6.2, 0, false, "Espresso", 1), nil)
+	p.pollViaGaggiuinoStatus(context.Background())
+	ld = p.LiveData()
+	if ld.IsLive {
+		t.Fatal("IsLive should be false while idle")
+	}
+	if ld.Temperature == nil || *ld.Temperature != 93.5 {
+		t.Errorf("Temperature = %v, want 93.5", ld.Temperature)
+	}
+	if ld.TargetTemperature == nil || *ld.TargetTemperature != 94 {
+		t.Errorf("TargetTemperature = %v, want 94", ld.TargetTemperature)
+	}
+	if ld.Pressure == nil || *ld.Pressure != 6.2 {
+		t.Errorf("Pressure = %v, want 6.2", ld.Pressure)
+	}
+	if ld.WaterLevel == nil || *ld.WaterLevel != 72 {
+		t.Errorf("WaterLevel = %v, want 72", ld.WaterLevel)
+	}
+}
+
+// TestSteamFlushLiveSessions is the #908 regression test for
+// state.steamAccum/flushAccum: a steam session starts/accumulates/stops
+// mirroring the brew accumulator, guarded by the brewing>steaming>flushing
+// priority.
+func TestSteamFlushLiveSessions(t *testing.T) {
+	fake := &fakeAdapter{}
+	p, _ := newTestPoller(t, fake)
+
+	// Steam on via live SensorSnap.SteamActive.
+	fake.setStatus(okStatus(t, `{}`, 130, 135, 1.5, 0, false, "Espresso", 1), nil)
+	fake.setLive(&proto.SensorStateSnapshotDto{Temperature: 130, SteamActive: true}, nil)
+	p.pollViaGaggiuinoStatus(context.Background())
+	ld := p.LiveData()
+	if !ld.IsSteaming {
+		t.Fatal("expected IsSteaming=true once SensorSnap.SteamActive flips true")
+	}
+	if ld.SteamDatapoints == nil || len(ld.SteamDatapoints.TimeInMode) != 1 {
+		t.Fatalf("expected one steam datapoint, got %+v", ld.SteamDatapoints)
+	}
+	if ld.IsLive || ld.IsFlushing {
+		t.Error("steam session must not set IsLive/IsFlushing")
+	}
+	steamSeqBefore := ld.SteamSeq
+
+	p.pollViaGaggiuinoStatus(context.Background())
+	if ld = p.LiveData(); len(ld.SteamDatapoints.TimeInMode) != 2 {
+		t.Fatalf("expected two steam datapoints after second poll, got %d", len(ld.SteamDatapoints.TimeInMode))
+	}
+
+	// Steam off.
+	fake.setLive(&proto.SensorStateSnapshotDto{Temperature: 120, SteamActive: false}, nil)
+	p.pollViaGaggiuinoStatus(context.Background())
+	ld = p.LiveData()
+	if ld.IsSteaming {
+		t.Fatal("expected IsSteaming=false once SteamActive flips false")
+	}
+	if ld.SteamSeq != steamSeqBefore+1 {
+		t.Errorf("SteamSeq = %d, want %d (incremented on steam finish)", ld.SteamSeq, steamSeqBefore+1)
+	}
+
+	// Flush via SysState.OperationMode == FLUSH.
+	fake.setLive(nil, &proto.SystemStateDto{OperationMode: proto.ModeFlush})
+	p.pollViaGaggiuinoStatus(context.Background())
+	ld = p.LiveData()
+	if !ld.IsFlushing || ld.FlushDatapoints == nil || len(ld.FlushDatapoints.TimeInMode) != 1 {
+		t.Fatalf("expected a flush session to start, got IsFlushing=%v dp=%+v", ld.IsFlushing, ld.FlushDatapoints)
+	}
+
+	// Brewing wins over a concurrently-true steam signal (priority guard).
+	fake.setStatus(okStatus(t, `{}`, 93, 94, 9, 2, true, "Espresso", 1), nil)
+	fake.setLive(&proto.SensorStateSnapshotDto{Temperature: 93, BrewActive: true, SteamActive: true}, nil)
+	p.pollViaGaggiuinoStatus(context.Background())
+	ld = p.LiveData()
+	if !ld.IsLive {
+		t.Fatal("expected IsLive=true (brew)")
+	}
+	if ld.IsSteaming {
+		t.Error("steam session must not start while brewing (brewing > steaming priority)")
+	}
+}
+
+// TestStopLivePolling_ClearsSteamFlushAccum ports stopLivePolling's #908
+// steam/flush accumulator reset.
+func TestStopLivePolling_ClearsSteamFlushAccum(t *testing.T) {
+	fake := &fakeAdapter{}
+	fake.setStatus(okStatus(t, `{}`, 130, 135, 1.5, 0, false, "Espresso", 1), nil)
+	fake.setLive(&proto.SensorStateSnapshotDto{Temperature: 130, SteamActive: true}, nil)
+	p, _ := newTestPoller(t, fake)
+
+	p.startLivePolling() // stopLivePolling only resets accumulators when a ticker is active (Node parity)
+	p.pollViaGaggiuinoStatus(context.Background())
+	if !p.LiveData().IsSteaming {
+		t.Fatal("precondition: expected a live steam session")
+	}
+	p.stopLivePolling()
+	if p.LiveData().IsSteaming {
+		t.Fatal("expected steam session cleared after stopLivePolling")
+	}
 }
 
 // TestStopLivePolling_ForcesUnreachableFalse ports stopLivePolling's #655

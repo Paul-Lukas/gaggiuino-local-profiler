@@ -66,6 +66,15 @@ func (f *fakeAdapter) setStatus(s machines.Status, err error) {
 	f.status, f.statusErr = s, err
 }
 
+// setLive sets what GetLiveSensorSnapshot/GetLiveSystemState return — the
+// cached-live-WS-sample half of a poll tick. Either may be nil (no live
+// transport for that half).
+func (f *fakeAdapter) setLive(snap *proto.SensorStateSnapshotDto, sys *proto.SystemStateDto) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sensorSnap, f.sysState = snap, sys
+}
+
 func (f *fakeAdapter) GetStatus(ctx context.Context, m *machines.Machine) (machines.Status, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

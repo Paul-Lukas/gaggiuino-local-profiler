@@ -548,6 +548,22 @@ components:
             description: Live brew datapoint
         seq: { type: integer, description: Sequence counter — increments on each update }
         machineReachable: { type: boolean, nullable: true, description: "#655: distinguishes a powered-off machine (false) from an idle-but-reachable one (isLive:false, machineReachable:true) — without it both looked identical" }
+        isSteaming: { type: boolean, description: "#902: a steam live-session is active (kept separate from isLive, which stays brew-only)" }
+        steamSeq: { type: integer, description: "#902: increments when a steam session ends" }
+        steamDatapoints:
+          type: object
+          nullable: true
+          description: "#902: timeInMode/pressure/temperature arrays while steaming, null otherwise"
+        isFlushing: { type: boolean, description: "#902: a flush live-session is active" }
+        flushSeq: { type: integer, description: "#902: increments when a flush session ends" }
+        flushDatapoints:
+          type: object
+          nullable: true
+          description: "#902: timeInMode/pressure/temperature arrays while flushing, null otherwise"
+        temperature: { type: number, nullable: true, description: "#902 idle stats: current temperature from the per-tick machineStatus, null before the first successful poll" }
+        targetTemperature: { type: number, nullable: true, description: "#902 idle stats: current target temperature" }
+        pressure: { type: number, nullable: true, description: "#902 idle stats: current pressure" }
+        waterLevel: { type: integer, nullable: true, description: "#902 idle stats: current water level" }
 
     # ── Backup ────────────────────────────────────────────────────────────
 

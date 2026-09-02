@@ -145,3 +145,43 @@ func (h *Handlers) deductMilk(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, milk)
 }
+
+// restockMilk ports POST /api/library/milk/:id/restock (#931): an additive
+// server-side top-up, mirroring deductMilk above. Replaces the frontend's
+// old absolute-overwrite PUT — the "Restock" button implies adding a fresh
+// carton to what's left, and a client-computed current+val PUT would let
+// two concurrent restocks race and drop one.
+func (h *Handlers) restockMilk(w http.ResponseWriter, r *http.Request) {
+	id, noMatch := parseIDParam(r.PathValue("id"))
+	body, ok := decodeJSONBody(w, r)
+	if !ok {
+		return
+	}
+	ml := floatOrZero(body["ml"])
+	if ml <= 0 {
+		writeError(w, http.StatusBadRequest, "ml must be positive")
+		return
+	}
+	lib, err := h.repo.GetLibrary()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	idx := -1
+	if !noMatch {
+		idx = findMilkIndex(lib, id)
+	}
+	if idx == -1 {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	milk := lib.Milks[idx]
+	milk["stockMl"] = floatOrZero(milk["stockMl"]) + ml
+	milk["updatedAt"] = newID()
+	lib.Milks[idx] = milk
+	if err := h.repo.SaveLibrary(lib); err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, milk)
+}

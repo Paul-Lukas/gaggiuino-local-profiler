@@ -44,6 +44,24 @@ type liveAccumState struct {
 	datapoints  liveDatapoints
 }
 
+// modeDatapoints is the simpler per-tick datapoint set #902's steam/flush
+// live sessions accumulate — timeInMode/pressure/temperature only, no
+// weight/flow (neither mode moves the scale). Field names match Node's
+// state.steamAccum/flushAccum.datapoints.
+type modeDatapoints struct {
+	TimeInMode  []int `json:"timeInMode"`
+	Pressure    []int `json:"pressure"`
+	Temperature []int `json:"temperature"`
+}
+
+// modeAccumState mirrors state.steamAccum/state.flushAccum — the same
+// start/accumulate/stop lifecycle as liveAccumState, minus the brew-only
+// profileName/prevWeight.
+type modeAccumState struct {
+	startTime  int64
+	datapoints modeDatapoints
+}
+
 // LiveData mirrors openapi.yaml's LiveData schema exactly — GET
 // /api/live/data's response and the live-snapshot SSE event's payload,
 // both built by buildLiveDataResponse() (#736: single source of truth for
@@ -55,6 +73,26 @@ type LiveData struct {
 	Datapoints       *liveDatapoints `json:"datapoints"`
 	Seq              int             `json:"seq"`
 	MachineReachable *bool           `json:"machineReachable"`
+
+	// #902: steam/flush live sessions — same shape as the brew fields
+	// above, kept separate from isLive/datapoints since isLive's meaning
+	// (brew-only) is relied on by the frontend's post-brew shot-list reload
+	// and must not fire on steam/flush end.
+	IsSteaming      bool            `json:"isSteaming"`
+	SteamSeq        int             `json:"steamSeq"`
+	SteamDatapoints *modeDatapoints `json:"steamDatapoints"`
+	IsFlushing      bool            `json:"isFlushing"`
+	FlushSeq        int             `json:"flushSeq"`
+	FlushDatapoints *modeDatapoints `json:"flushDatapoints"`
+
+	// #902: idle stats — always present (not gated behind isLive), so the
+	// Live tab can show current readings while nothing is running. Sourced
+	// from the already-populated per-tick machineStatus, no extra sensor
+	// calls. null (nil) until the first successful poll populates it.
+	Temperature       *float64 `json:"temperature"`
+	TargetTemperature *float64 `json:"targetTemperature"`
+	Pressure          *float64 `json:"pressure"`
+	WaterLevel        *int     `json:"waterLevel"`
 }
 
 // pollGlobalState ports the subset of lib/state.js's module-level fields
@@ -78,6 +116,12 @@ type pollGlobalState struct {
 	isPollRunning        bool
 	liveAccum            *liveAccumState
 	liveSeq              int
+	// #902: steam/flush live sessions, same hard-single-machine slot
+	// pattern as liveAccum/liveSeq above.
+	steamAccum *modeAccumState
+	steamSeq   int
+	flushAccum *modeAccumState
+	flushSeq   int
 	// wasReachable is #725's tri-state: nil = never polled (the very first
 	// successful poll after a host is configured is NOT a "recovery" —
 	// that path belongs to routes/machines.js's own save-triggered sync,
@@ -307,6 +351,9 @@ func (p *Poller) stopLivePolling() {
 		p.liveTicker = nil
 		p.state.mu.Lock()
 		p.state.liveAccum = nil
+		// #902: a powered-off machine can't be mid-steam/flush either.
+		p.state.steamAccum = nil
+		p.state.flushAccum = nil
 		p.state.mu.Unlock()
 		now := time.Now().UnixMilli()
 		p.runtime.SetSwitchOffAt(&now)
@@ -453,6 +500,49 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 		acc.datapoints.PumpFlow = append(acc.datapoints.PumpFlow, round10(derefFloat(ms.PumpFlow)))
 		acc.datapoints.TargetTemperature = append(acc.datapoints.TargetTemperature, round10(ms.TargetTemperature))
 	}
+
+	// #902: steam/flush live sessions -- same start/stop/accumulate shape
+	// as the brew block above, with a simpler datapoint set
+	// (timeInMode/pressure/temperature only). isBrewing/isSteaming/isFlushing
+	// are NOT strictly mutually exclusive at the signal level: sensorSnap
+	// .steamActive and sysState.operationMode are cached independently with
+	// their own staleness windows, so a mode transition can transiently read
+	// two of them true within the same tick. Guard with an explicit
+	// priority instead of trusting exclusivity: brewing > steaming > flushing.
+	effectiveSteaming := result.IsSteaming && !result.IsBrewing
+	effectiveFlushing := result.IsFlushing && !result.IsBrewing && !result.IsSteaming
+
+	if effectiveSteaming && p.state.steamAccum == nil {
+		p.state.steamAccum = &modeAccumState{startTime: now}
+		log.Printf("system: steam started")
+	}
+	if !effectiveSteaming && p.state.steamAccum != nil {
+		log.Printf("system: steam finished")
+		p.state.steamAccum = nil
+		p.state.steamSeq++
+	}
+	if effectiveSteaming && p.state.steamAccum != nil {
+		acc := p.state.steamAccum
+		acc.datapoints.TimeInMode = append(acc.datapoints.TimeInMode, elapsedTenths(now, acc.startTime))
+		acc.datapoints.Pressure = append(acc.datapoints.Pressure, round10(ms.Pressure))
+		acc.datapoints.Temperature = append(acc.datapoints.Temperature, round10(ms.Temperature))
+	}
+
+	if effectiveFlushing && p.state.flushAccum == nil {
+		p.state.flushAccum = &modeAccumState{startTime: now}
+		log.Printf("system: flush started")
+	}
+	if !effectiveFlushing && p.state.flushAccum != nil {
+		log.Printf("system: flush finished")
+		p.state.flushAccum = nil
+		p.state.flushSeq++
+	}
+	if effectiveFlushing && p.state.flushAccum != nil {
+		acc := p.state.flushAccum
+		acc.datapoints.TimeInMode = append(acc.datapoints.TimeInMode, elapsedTenths(now, acc.startTime))
+		acc.datapoints.Pressure = append(acc.datapoints.Pressure, round10(ms.Pressure))
+		acc.datapoints.Temperature = append(acc.datapoints.Temperature, round10(ms.Temperature))
+	}
 	p.state.mu.Unlock()
 
 	p.emitLiveSnapshot()
@@ -586,6 +676,20 @@ func redactURLs(msg string) string {
 // package's own RuntimeState.SetMachineStatus relies on the same
 // never-mutated-after-set invariant, see its doc comment).
 func (p *Poller) buildLiveDataResponse() LiveData {
+	// #902 idle stats: read the per-tick machineStatus (RuntimeState.mu
+	// first, then p.state.mu — the fixed lock ordering, see RuntimeState's
+	// doc comment). Get() releases before p.state.mu is taken below.
+	rt := p.runtime.Get()
+	var temp, targetTemp, pressure *float64
+	var waterLevel *int
+	if rt.MachineStatus != nil {
+		t := rt.MachineStatus.Temperature
+		tt := rt.MachineStatus.TargetTemperature
+		pr := rt.MachineStatus.Pressure
+		wl := rt.MachineStatus.WaterLevel
+		temp, targetTemp, pressure, waterLevel = &t, &tt, &pr, &wl
+	}
+
 	p.state.mu.Lock()
 	defer p.state.mu.Unlock()
 	var dp *liveDatapoints
@@ -595,12 +699,41 @@ func (p *Poller) buildLiveDataResponse() LiveData {
 		dp = copyDatapoints(&p.state.liveAccum.datapoints)
 		profileName = p.state.liveAccum.profileName
 	}
+	var steamDP, flushDP *modeDatapoints
+	if p.state.steamAccum != nil {
+		steamDP = copyModeDatapoints(&p.state.steamAccum.datapoints)
+	}
+	if p.state.flushAccum != nil {
+		flushDP = copyModeDatapoints(&p.state.flushAccum.datapoints)
+	}
 	return LiveData{
 		IsLive:           isLive,
 		ProfileName:      profileName,
 		Datapoints:       dp,
 		Seq:              p.state.liveSeq,
 		MachineReachable: p.state.machineReachable,
+
+		IsSteaming:      p.state.steamAccum != nil,
+		SteamSeq:        p.state.steamSeq,
+		SteamDatapoints: steamDP,
+		IsFlushing:      p.state.flushAccum != nil,
+		FlushSeq:        p.state.flushSeq,
+		FlushDatapoints: flushDP,
+
+		Temperature:       temp,
+		TargetTemperature: targetTemp,
+		Pressure:          pressure,
+		WaterLevel:        waterLevel,
+	}
+}
+
+// copyModeDatapoints deep-copies src's slices — same race reasoning as
+// copyDatapoints (see buildLiveDataResponse's doc comment).
+func copyModeDatapoints(src *modeDatapoints) *modeDatapoints {
+	return &modeDatapoints{
+		TimeInMode:  append([]int(nil), src.TimeInMode...),
+		Pressure:    append([]int(nil), src.Pressure...),
+		Temperature: append([]int(nil), src.Temperature...),
 	}
 }
 

@@ -46,6 +46,25 @@ func TestOperationModeUnmarshalJSON(t *testing.T) {
 	}
 }
 
+func TestNormalizeOperationMode(t *testing.T) {
+	cases := []struct {
+		in   OperationMode
+		want string
+	}{
+		{ModeBrewAuto, "BREW_AUTO"},
+		{ModeFlush, "FLUSH"},
+		{ModeFlushAuto, "FLUSH_AUTO"},
+		{ModeSteam, "STEAM"},
+		{ModeHome, "HOME"},
+		{OperationMode(99), ""}, // unrecognized -> "" (Node's null)
+	}
+	for _, c := range cases {
+		if got := NormalizeOperationMode(c.in); got != c.want {
+			t.Errorf("NormalizeOperationMode(%d) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestServiceTestPeripheralUnmarshalJSON(t *testing.T) {
 	var p ServiceTestPeripheral
 	if err := json.Unmarshal([]byte(`"LED"`), &p); err != nil {

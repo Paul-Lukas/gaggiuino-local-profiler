@@ -656,6 +656,43 @@ func TestMilk_CRUDAndDeduct(t *testing.T) {
 	}
 }
 
+// TestMilk_Restock is the #932/#931 regression test: POST .../restock must
+// additively top up stockMl (like /deduct in reverse), not overwrite it.
+func TestMilk_Restock(t *testing.T) {
+	h, _, _ := newTestHandlers(t)
+	mux := newMux(h)
+
+	rec := doJSON(t, mux, http.MethodPost, "/api/library/milk", mustMarshal(t, map[string]any{"name": "Oat", "stockMl": 100}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	id := int64(decodeBody(t, rec.Body.Bytes())["id"].(float64))
+
+	rec = doJSON(t, mux, http.MethodPost, "/api/library/milk/"+itoa(id)+"/restock", mustMarshal(t, map[string]any{"ml": 200}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("restock status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := decodeBody(t, rec.Body.Bytes())["stockMl"]; got != float64(300) {
+		t.Errorf("stockMl after restock = %v, want 300 (additive, not overwrite)", got)
+	}
+
+	// A second restock stacks on top.
+	rec = doJSON(t, mux, http.MethodPost, "/api/library/milk/"+itoa(id)+"/restock", mustMarshal(t, map[string]any{"ml": 50}))
+	if got := decodeBody(t, rec.Body.Bytes())["stockMl"]; got != float64(350) {
+		t.Errorf("stockMl after second restock = %v, want 350", got)
+	}
+
+	rec = doJSON(t, mux, http.MethodPost, "/api/library/milk/"+itoa(id)+"/restock", mustMarshal(t, map[string]any{"ml": 0}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for non-positive ml, got %d", rec.Code)
+	}
+
+	rec = doJSON(t, mux, http.MethodPost, "/api/library/milk/999/restock", mustMarshal(t, map[string]any{"ml": 100}))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown milk id, got %d", rec.Code)
+	}
+}
+
 // ── Recipes ─────────────────────────────────────────────────────────────
 
 func TestRecipe_CRUD(t *testing.T) {

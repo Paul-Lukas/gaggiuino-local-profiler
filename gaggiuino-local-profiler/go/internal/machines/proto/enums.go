@@ -119,6 +119,31 @@ func (m *OperationMode) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// operationModeCanonicalNames is operationModeNames reversed — the
+// value->name lookup NormalizeOperationMode needs.
+var operationModeCanonicalNames = func() map[OperationMode]string {
+	out := make(map[OperationMode]string, len(operationModeNames))
+	for name, v := range operationModeNames {
+		out[v] = name
+	}
+	return out
+}()
+
+// NormalizeOperationMode ports lib/gaggiuino-proto.js's
+// normalizeOperationMode(raw): SystemStateDto.operationMode arrives as a
+// numeric wire value from a WS d_sys_state push but as the enum's string
+// name (e.g. "BREW_AUTO") from an MQTT <prefix>/system payload. Both
+// transports decode into this typed OperationMode before reaching a caller
+// here (the WS decoder maps the varint directly; the MQTT port's JSON
+// decode goes through UnmarshalJSON above, which accepts either form), so
+// this only has to turn the reconciled value into its canonical wire-enum
+// name. Returns "" for an unrecognized value — the Go equivalent of Node
+// returning null, including the no-live-transport case where a caller has
+// no SystemStateDto to pass at all.
+func NormalizeOperationMode(m OperationMode) string {
+	return operationModeCanonicalNames[m]
+}
+
 // ServiceTestPeripheral ports ServiceTestPeripheralDto.
 type ServiceTestPeripheral int32
 

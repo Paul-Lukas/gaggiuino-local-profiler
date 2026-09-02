@@ -34,7 +34,16 @@ type MachineStatus struct {
 	ProfileName       *string `json:"profileName"`
 	BrewSwitchState   bool    `json:"brewSwitchState"`
 	SteamSwitchState  bool    `json:"steamSwitchState"`
-	UpdatedAt         int64   `json:"updatedAt"`
+	// #902: steam/flush live states. isSteaming mirrors brewSwitchState's
+	// own sensorSnap-preferred/REST-fallback pattern; isFlushing/opMode
+	// have no REST equivalent (the operation-mode enum is only ever pushed
+	// via WS/MQTT sysState) and stay false/nil whenever no live transport
+	// is connected. opMode is the canonical wire-enum name or nil, matching
+	// Node's `opMode` (string name or null), always present in the JSON.
+	IsSteaming bool    `json:"isSteaming"`
+	IsFlushing bool    `json:"isFlushing"`
+	OpMode     *string `json:"opMode"`
+	UpdatedAt  int64   `json:"updatedAt"`
 
 	PumpFlow              *float64 `json:"pumpFlow,omitempty"`
 	WeightFlow            *float64 `json:"weightFlow,omitempty"`
@@ -96,6 +105,8 @@ type DeriveInput struct {
 // duplicate.
 type DeriveResult struct {
 	IsBrewing     bool
+	IsSteaming    bool
+	IsFlushing    bool
 	ProfileName   string
 	MachineStatus MachineStatus
 }
@@ -106,7 +117,31 @@ type DeriveResult struct {
 // WS sample is available, and why targetTemperature never reads off the
 // live transport either.
 func deriveMachineState(in DeriveInput) DeriveResult {
+	// #902: brew-start detection stays anchored on the REST brewSwitchState,
+	// but once a live transport is connected, sensorSnap.brewActive flipping
+	// false (a BREW_AUTO firmware auto-stop, switch still physically up)
+	// ends the live brew immediately. sensorSnap.brewActive is mapped
+	// identically by both live transports, unlike .brewSwitchActive. No live
+	// transport (SensorSnap nil) reproduces the prior REST-only behavior.
 	isBrewing := in.Status.Brewing
+	if in.SensorSnap != nil && !in.SensorSnap.BrewActive {
+		isBrewing = false
+	}
+
+	// #902: steam mirrors isBrewing's sensorSnap-preferred/REST-fallback
+	// pattern. opMode/isFlushing have no REST equivalent and stay nil/false
+	// whenever no live transport is connected.
+	isSteaming := in.Status.SteamSwitchState
+	if in.SensorSnap != nil {
+		isSteaming = in.SensorSnap.SteamActive
+	}
+	var opMode *string
+	if in.SysState != nil {
+		if name := proto.NormalizeOperationMode(in.SysState.OperationMode); name != "" {
+			opMode = &name
+		}
+	}
+	isFlushing := opMode != nil && (*opMode == "FLUSH" || *opMode == "FLUSH_AUTO")
 
 	pressure := in.Status.Pressure
 	temperature := in.Status.Temperature
@@ -135,6 +170,9 @@ func deriveMachineState(in DeriveInput) DeriveResult {
 		ProfileName:       nonEmptyOrNil(in.Status.ProfileName),
 		BrewSwitchState:   isBrewing,
 		SteamSwitchState:  in.Status.SteamSwitchState,
+		IsSteaming:        isSteaming,
+		IsFlushing:        isFlushing,
+		OpMode:            opMode,
 		UpdatedAt:         in.Now,
 	}
 
@@ -163,6 +201,8 @@ func deriveMachineState(in DeriveInput) DeriveResult {
 
 	return DeriveResult{
 		IsBrewing:     isBrewing,
+		IsSteaming:    isSteaming,
+		IsFlushing:    isFlushing,
 		ProfileName:   profileName,
 		MachineStatus: ms,
 	}

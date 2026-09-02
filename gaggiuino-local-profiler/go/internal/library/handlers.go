@@ -105,6 +105,7 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/library/milk/{id}", h.updateMilk)
 	mux.HandleFunc("DELETE /api/library/milk/{id}", h.deleteMilk)
 	mux.HandleFunc("POST /api/library/milk/{id}/deduct", h.deductMilk)
+	mux.HandleFunc("POST /api/library/milk/{id}/restock", h.restockMilk)
 
 	mux.HandleFunc("POST /api/library/recipe", h.createRecipe)
 	mux.HandleFunc("PUT /api/library/recipe/{id}", h.updateRecipe)
