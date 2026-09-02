@@ -14,7 +14,7 @@ import (
 // newTestHandlers opens a throwaway on-disk SQLite DB via internal/db.Open
 // (same fixture pattern as shots/helpers_test.go) and wires it into a fresh
 // Handlers/Repository pair.
-func newTestHandlers(t *testing.T) (*Handlers, *Repository, *sql.DB) {
+func newTestHandlers(t testing.TB) (*Handlers, *Repository, *sql.DB) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "glp.db")
 	sqlDB, err := db.Open(dbPath)
@@ -37,7 +37,7 @@ func newMux(h *Handlers) *http.ServeMux {
 	return mux
 }
 
-func decodeBody(t *testing.T, body []byte) map[string]any {
+func decodeBody(t testing.TB, body []byte) map[string]any {
 	t.Helper()
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {
@@ -46,7 +46,7 @@ func decodeBody(t *testing.T, body []byte) map[string]any {
 	return m
 }
 
-func decodeBodyArray(t *testing.T, body []byte) []map[string]any {
+func decodeBodyArray(t testing.TB, body []byte) []map[string]any {
 	t.Helper()
 	var m []map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {

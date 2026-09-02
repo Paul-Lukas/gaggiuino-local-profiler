@@ -90,6 +90,17 @@ func ComputeGrinderWearStats(shotsRepo *shots.Repository, grinder Entity) (shots
 	if err != nil {
 		return 0, 0, err
 	}
+	s, g := ComputeGrinderWearFrom(allShots, grinder)
+	return s, g, nil
+}
+
+// ComputeGrinderWearFrom is ComputeGrinderWearStats' pure core: one
+// grinder's burr wear against an already-loaded shot list. Enriching every
+// grinder for GET /api/library (and the /grinders web page) used to call
+// ComputeGrinderWearStats per grinder, so a 3-grinder library scanned the
+// whole shot history 3× (#951); those call sites now load the shots once
+// and fold every grinder through this in a single pass.
+func ComputeGrinderWearFrom(allShots []shots.Shot, grinder Entity) (shotsSinceBurrs int, gramsSinceBurrs float64) {
 	name, _ := grinder["name"].(string)
 	name = lowerOrEmpty(name)
 
@@ -103,12 +114,12 @@ func ComputeGrinderWearStats(shotsRepo *shots.Repository, grinder Entity) (shots
 			resetTs = ms
 		}
 	}
+	if !resetValid {
+		return 0, 0
+	}
 
 	var grams float64
 	for _, shot := range allShots {
-		if !resetValid {
-			continue
-		}
 		ann, _ := shot["annotation"].(map[string]any)
 		grinderName := ""
 		if ann != nil {
@@ -128,8 +139,7 @@ func ComputeGrinderWearStats(shotsRepo *shots.Repository, grinder Entity) (shots
 			}
 		}
 	}
-	gramsSinceBurrs = roundTo1(grams)
-	return shotsSinceBurrs, gramsSinceBurrs, nil
+	return shotsSinceBurrs, roundTo1(grams)
 }
 
 // roundTo1 ports `Math.round(gramsSinceBurrs * 10) / 10` — grams ground is

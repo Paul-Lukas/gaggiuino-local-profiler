@@ -426,12 +426,17 @@ func (h *LibraryHandlers) grinderRows() ([]templates.GrinderRow, error) {
 // repo.GetLibrary() read — see beanRowsFromLib's doc comment (#901 code
 // review finding #3).
 func (h *LibraryHandlers) grinderRowsFromLib(lib library.Library) ([]templates.GrinderRow, error) {
-	rows := make([]templates.GrinderRow, len(lib.Grinders))
-	for i, grinder := range lib.Grinders {
-		shotsSince, gramsSince, err := library.ComputeGrinderWearStats(h.shotsRepo, grinder)
+	var allShots []shots.Shot
+	if len(lib.Grinders) > 0 {
+		var err error
+		allShots, err = h.shotsRepo.FindAllExcludingTrash()
 		if err != nil {
 			return nil, err
 		}
+	}
+	rows := make([]templates.GrinderRow, len(lib.Grinders))
+	for i, grinder := range lib.Grinders {
+		shotsSince, gramsSince := library.ComputeGrinderWearFrom(allShots, grinder)
 		rows[i] = toGrinderRow(grinder, shotsSince, gramsSince)
 	}
 	return rows, nil

@@ -158,9 +158,18 @@ func (h *Handlers) getLibrary(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
+	var allShots []shots.Shot
+	if len(lib.Grinders) > 0 {
+		allShots, err = h.shotsRepo.FindAllExcludingTrash()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+	}
 	grinders := make([]Entity, len(lib.Grinders))
 	for i, g := range lib.Grinders {
-		grinders[i] = h.withWear(g)
+		shotsSince, gramsSince := ComputeGrinderWearFrom(allShots, g)
+		grinders[i] = withWearEntity(g, shotsSince, gramsSince)
 	}
 	lib.Grinders = grinders
 	writeJSON(w, http.StatusOK, lib)
@@ -173,14 +182,20 @@ func (h *Handlers) getLibrary(w http.ResponseWriter, r *http.Request) {
 // real implementation; this package matches Node's real runtime behavior,
 // same "doc vs. code disagree, code wins" rule shots/doc.go states.
 func (h *Handlers) withWear(grinder Entity) Entity {
+	shotsSince, gramsSince, err := ComputeGrinderWearStats(h.shotsRepo, grinder)
+	if err != nil {
+		return withWearEntity(grinder, 0, 0)
+	}
+	return withWearEntity(grinder, shotsSince, gramsSince)
+}
+
+// withWearEntity returns a copy of grinder with the computed `wear` field
+// attached — the enrichment step shared by the single-grinder withWear and
+// getLibrary's single-pass loop.
+func withWearEntity(grinder Entity, shotsSince int, gramsSince float64) Entity {
 	out := make(Entity, len(grinder)+1)
 	for k, v := range grinder {
 		out[k] = v
-	}
-	shotsSince, gramsSince, err := ComputeGrinderWearStats(h.shotsRepo, grinder)
-	if err != nil {
-		out["wear"] = Entity{"shotsSinceBurrs": 0, "gramsSinceBurrs": 0}
-		return out
 	}
 	out["wear"] = Entity{"shotsSinceBurrs": shotsSince, "gramsSinceBurrs": gramsSince}
 	return out
