@@ -33,6 +33,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/achievements"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/backup"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
@@ -251,6 +252,25 @@ func main() {
 	// import) since internal/maintenance already imports internal/library.
 	libraryHandlers.SetOnGrinderDeleted(maintenanceRepo.DeleteGrinderTask)
 
+	// Phase 2b (#901): the achievements ("stamp card") domain —
+	// GET /api/achievements. A pure-logic port reading across shots,
+	// library, orders, maintenance, machines and the cached version check
+	// (systemHandlers.CachedVersion, via a callback — no cross-domain
+	// import). See go/internal/achievements/doc.go, incl. the documented
+	// "no event bus" deviation (evaluate-before-read instead).
+	achievementsRepo := achievements.NewRepository(sqlDB)
+	achievementsSvc := achievements.NewService(achievementsRepo, achievements.Deps{
+		Shots:       shotsRepo,
+		Library:     libRepo,
+		Orders:      ordersRepo,
+		Maintenance: maintenanceRepo,
+		Registry:    registry,
+		VersionFn: func() achievements.VersionCache {
+			latest, updateAvailable := systemHandlers.CachedVersion()
+			return achievements.VersionCache{Latest: latest, UpdateAvailable: updateAvailable}
+		},
+	})
+	achievements.NewHandlers(achievementsSvc).RegisterRoutes(mux)
 
 	// Phase 2e (#901): the Maintenance domain's Go frontend page —
 	// GET /maintenance (per-machine task list + a machine switcher) plus

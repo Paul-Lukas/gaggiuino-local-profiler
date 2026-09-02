@@ -110,6 +110,18 @@ func (v *versionChecker) fetchLatestTag(ctx context.Context) (string, bool) {
 	return tag, true
 }
 
+// CachedVersion ports lib/version-check.js's getCached(): the last-known
+// GitHub-release check result with NO fetch of its own — internal/
+// achievements' up_to_date badge reads this (Node's
+// lib/achievements/context.js does the same). Returns (nil, false) until a
+// real GET /api/version request has filled the cache, which the badge
+// treats as "nothing known yet". Shares this Handlers' own versionChecker
+// instance, so the same cache GET /api/version fills is the one read here.
+func (h *Handlers) CachedVersion() (latest *string, updateAvailable bool) {
+	r := h.vc.result()
+	return r.Latest, r.UpdateAvailable
+}
+
 // result ports _result(): #704's dev-channel guard — GLP_VERSION is frozen
 // at the last real release on the dev branch, so a dev build is
 // permanently "behind" by design; comparing against it would wrongly tell
