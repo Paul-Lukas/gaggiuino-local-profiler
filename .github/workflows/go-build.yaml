@@ -70,6 +70,14 @@ jobs:
       - name: go test -race
         run: go test ./... -race
 
+      # Fails the build if server.js / routes/*.js registers an HTTP route
+      # the Go rewrite (cmd/server/main.go + every internal/* RegisterRoutes,
+      # /ui/ sub-mux included) has no equivalent for. One-way: Go-only routes
+      # (the /ui/ templ fallback pages) are fine. Deferred routes go in the
+      # script's ALLOWLIST with a reference. No Go toolchain needed.
+      - name: route parity (Node vs Go)
+        run: bash scripts/route-parity.sh
+
   docker:
     name: Docker build ${{ matrix.arch }}
     needs: test
