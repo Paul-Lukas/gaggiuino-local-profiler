@@ -110,24 +110,24 @@
 //
 //   - most of lib/sync.js. Phase 2a (#901) ported the default machine's
 //     syncShots() pull loop for POST /api/sync's manual trigger (sync.go);
-//     still not ported are syncOtherMachines()/syncMachineShots() (needs
-//     adapter GetShot/GetLatestShotId methods — machines-domain work),
-//     syncAfterBrew()'s brew-finished auto-sync, scheduleNextSync()'s
-//     retry/backoff timer (state.syncRetryCount stays 0), and
-//     fetchMachineVersion(). The lib/poll.js call sites below still don't
-//     reach any of them:
-//     the #725 reachability-recovery catch-up sync, the brew-finished
-//     setTimeout(syncAfterBrew, 3000), and backgroundHaCheck's
+//     #953 (sync_triggers.go) added its three automatic drivers —
+//     syncAfterBrew()'s 3s post-brew pull, scheduleNextSync()'s periodic
+//     pull + retry-backoff, and lib/poll.js's #725 reachability-recovery
+//     catch-up. Still not ported are syncOtherMachines()/syncMachineShots()
+//     (needs adapter GetShot/GetLatestShotId methods — machines-domain
+//     work), syncNativeMaintenance() (#578), the SYNC_PROGRESS/SYNC_COMPLETE
+//     bus events (state.syncProgress), state.syncRetryCount (the backoff is
+//     tracked locally in runScheduledSync, not exposed), and
+//     fetchMachineVersion() — backgroundHaCheck's
 //     `if (!cachedMachineVersion) fetchMachineVersion()` fallback (this
 //     package's own pollViaGaggiuinoStatus already opportunistically
 //     captures cachedMachineVersion from every successful status poll, the
 //     same field Node's inline capture in lib/poll.js also fills — Node's
 //     fetchMachineVersion is a *fallback path* for when polling itself
-//     isn't running, e.g. switch off). None of them are reachable from any
-//     endpoint this phase ports; the shot-history sync engine is its own
-//     future phase. GET /api/status's lastSync/syncRetryCount/
-//     lastSyncError fields (Phase 3b, #901) are consequently always
-//     null/0 in this Go port — they describe exactly this unported engine
+//     isn't running, e.g. switch off).
+//     GET /api/status's syncRetryCount field (Phase 3b, #901) is
+//     consequently always 0 in this Go port — it describes exactly this
+//     unported piece of the engine
 //     — see handlers.go's getStatus doc comment.
 //   - lib/connectivity-stats.js's rolling-window debug-log summary
 //     (recordConnectivity/summarizeConnectivity) — pure logging

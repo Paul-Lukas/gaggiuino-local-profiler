@@ -203,6 +203,19 @@ type Poller struct {
 	liveMu     sync.Mutex
 	liveTicker *time.Ticker
 	liveStop   chan struct{}
+
+	// lifeCtx is Start()'s context — the parent for every auto-sync
+	// goroutine (sync_triggers.go) so they die with the poller. nil until
+	// Start runs; syncCtx() falls back to context.Background() for unit
+	// tests that drive a trigger directly.
+	lifeCtx context.Context
+	// syncIntervalOverride, when > 0, replaces loadSyncIntervalMinutes()
+	// for the periodic scheduler — tests only.
+	syncIntervalOverride time.Duration
+	// syncFn, when set, replaces syncDefaultMachineShots for the automatic
+	// triggers (sync_triggers.go) — tests only, so a trigger's behavior can
+	// be observed without a live machine.
+	syncFn func(context.Context) error
 }
 
 // NewPoller wires registry (the default machine's host/switch-entity
@@ -256,10 +269,15 @@ func (p *Poller) StatusInfo() StatusInfo {
 // own lifecycle is startLivePolling/stopLivePolling-driven, exactly like
 // Node's livePollTimer).
 func (p *Poller) Start(ctx context.Context) {
+	p.lifeCtx = ctx
 	p.loadPreheatState()
 	if err := p.checkAndApplyMachinePower(ctx); err != nil {
 		log.Printf("system: machine power check failed on startup: %v", err)
 	}
+	// #953: the periodic shot-history pull (lib/sync.js's scheduleNextSync).
+	// A no-op until SetShotsRepo has been called (cmd/server does; tests
+	// generally don't).
+	go p.runScheduledSync(ctx)
 	go p.runTicker(ctx, backgroundHaCheckInterval, func() {
 		if err := p.checkAndApplyMachinePower(ctx); err != nil {
 			log.Printf("system: background HA check failed: %v", err)
@@ -443,11 +461,10 @@ func (p *Poller) pollTick() {
 	p.pollViaGaggiuinoStatus(ctx)
 }
 
-// pollViaGaggiuinoStatus ports pollViaGaggiuinoStatus(runtime). Deliberately
-// NOT ported (see doc.go): the #725 reachability-recovery catch-up sync
-// (syncShots()), the brew-finished setTimeout(syncAfterBrew, 3000), and
-// recordConnectivity()'s debug-log summary — all three depend on
-// lib/sync.js, which this Go port doesn't have yet.
+// pollViaGaggiuinoStatus ports pollViaGaggiuinoStatus(runtime). The #725
+// reachability-recovery catch-up sync and the brew-finished
+// setTimeout(syncAfterBrew, 3000) are now ported (#953, sync_triggers.go);
+// still not ported (see doc.go) is recordConnectivity()'s debug-log summary.
 func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 	machine, err := p.registry.GetDefaultMachine()
 	if err != nil || machine == nil {
@@ -480,6 +497,7 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 	}
 
 	p.state.mu.Lock()
+	prevReachable := p.state.wasReachable
 	reachable := true
 	p.state.machineReachable = &reachable
 	p.state.lastMachineError = nil
@@ -493,6 +511,10 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 		}
 	}
 	p.state.mu.Unlock()
+
+	// #725: unreachable->reachable recovery with an outstanding sync — catch
+	// up now instead of waiting for the next scheduled pull.
+	p.maybeCatchUpAfterRecovery(prevReachable)
 
 	// #608: lib/live-transport.js's dispatch — MQTT for the default machine
 	// when the Settings toggle selects it, the adapter's WS session
@@ -551,10 +573,12 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 		p.state.liveAccum = &liveAccumState{startTime: now, profileName: result.ProfileName, prevWeight: ms.Weight}
 		log.Printf("system: brew started: profile %s", result.ProfileName)
 	}
+	brewJustFinished := false
 	if !result.IsBrewing && p.state.liveAccum != nil {
 		log.Printf("system: brew finished")
 		p.state.liveAccum = nil
 		p.state.liveSeq++
+		brewJustFinished = true
 	}
 	if result.IsBrewing && p.state.liveAccum != nil {
 		acc := p.state.liveAccum
@@ -616,6 +640,12 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 		acc.datapoints.Temperature = append(acc.datapoints.Temperature, round10(ms.Temperature))
 	}
 	p.state.mu.Unlock()
+
+	// #953: 3s after a brew ends, pull the shot the machine just wrote
+	// (lib/poll.js's setTimeout(syncAfterBrew, 3000)).
+	if brewJustFinished {
+		p.scheduleSyncAfterBrew()
+	}
 
 	p.emitLiveSnapshot()
 }
