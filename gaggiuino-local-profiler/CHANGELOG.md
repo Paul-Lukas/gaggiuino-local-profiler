@@ -1,4 +1,30 @@
 ## [Unreleased]
+### Deprecated
+- **armv7 support is planned for removal in a future release.** Node.js no longer publishes official Docker images for 32-bit ARM past v22 — staying on armv7 means staying on an increasingly outdated Node major indefinitely, the same tradeoff that led Home Assistant OS itself to drop several 32-bit ARM boards. No removal date is set yet; this is an early heads-up for anyone still running the add-on on a 32-bit ARM device (e.g. an older Raspberry Pi on a 32-bit OS image) to plan a move to a 64-bit image before support ends. Track #944 for updates.
+
+## [2.36.1] – 2026-08-30
+### Fixed
+- **Correcting a coffee bean's stock now actually sets the remaining weight**, instead of overwriting the bag's original size. Closes #930
+- **Milk "Restock" now adds to the existing stock instead of replacing it.** Closes #931
+- **Exhausted (0 g) coffee beans can be selected again in the shot annotator**, so you can still log the very last shot from a bag — they now sort after in-stock beans and are labelled "Empty" instead of disappearing entirely. Closes #933
+- **Input fields no longer flash white in dark theme when a value is entered or autofilled.** Closes #921
+- **Bean card metadata line no longer runs off-screen without truncating in the HA Companion App / installed PWA.** Closes #858
+
+### Changed
+- **Bumped the `@napi-rs/canvas` dependency to v1.0.8** (Renovate, #910). Upstream bug-fix release, no code change here.
+- **Bumped the `github/codeql-action` digest pin to `db488dd`** (Renovate, #909). CI/tooling only, no runtime effect on the app.
+
+## [2.36.0] – 2026-08-24
+
+### Fixed
+- **The power toggle button is now reachable on mobile.** It used to live only in the shot sidebar, which is hidden entirely on mobile screens, so there was no way to switch the machine on or off from a phone. Closes #914
+- **Coffee beans with zero remaining stock no longer show up in the shot-annotation bean picker.** Closes #915
+- **The Live tab no longer keeps showing stale heating/pressure/weight data after the machine loses power or drops off the network.** Closes #913
+- **The Live tab's shot timer no longer keeps counting after a BREW_AUTO shot has actually finished on the machine**, even while the physical brew switch is still up. Closes #904
+
+### Added
+- **The Live tab now shows current machine stats (temperature/target, pressure, water level) even when idle**, instead of just "Ready to brew" with no numbers. Closes #905
+- **Steam and flush mode are now shown as active states in the Live tab and the animated machine icon** (timer, live temp/pressure readout, dedicated badge), matching the existing brewing treatment. Closes #906
 
 ## [2.35.0] – 2026-08-19
 

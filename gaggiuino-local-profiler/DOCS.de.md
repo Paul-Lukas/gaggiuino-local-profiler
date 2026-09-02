@@ -169,6 +169,12 @@ App Store — **HA Container**, **HA Core** sowie jedes Docker-basierte
 NAS-Setup (Unraid, TrueNAS SCALE, Synology, …) mit einer eigenen, separaten
 HA-Container-Instanz.
 
+> ⚠ **armv7 gilt als veraltet und wird in einer künftigen Version entfernt**
+> (noch kein Datum festgelegt, siehe
+> [#944](https://github.com/mxkissnr/gaggiuino-local-profiler/issues/944)) — Node.js
+> veröffentlicht ab v22 keine offiziellen Docker-Images mehr für 32-Bit-ARM. Wer auf
+> einem 32-Bit-ARM-Gerät läuft, sollte auf ein 64-Bit-OS-Image umziehen.
+
 ```bash
 docker run -d --name glp --restart unless-stopped \
   -p 8099:8099 -v ./data:/data \
@@ -340,11 +346,15 @@ Das Laden von Demo-Daten befüllt die App mit einem statischen Beispieldatensatz
 
 ### Live-Tab, Switch-Entity und Aufwärmtimer
 
-Wenn `switch_entity` gesetzt ist, wird der **Live**-Tab ausgeblendet solange die Maschine aus ist und erscheint automatisch sobald sie eingeschaltet wird. Ohne Switch-Entity ist der Tab immer sichtbar.
+Wenn `switch_entity` gesetzt ist, wird der **Live**-Tab ausgeblendet solange die Maschine aus ist und erscheint automatisch sobald sie eingeschaltet wird. Ohne Switch-Entity ist der Tab immer sichtbar. Der Ein-/Aus-Schalter selbst sitzt am Desktop in der Shot-Sidebar; auf Mobilgeräten, wo die Sidebar ausgeblendet ist, steht derselbe Schalter zusätzlich in der Kopfzeile bereit.
 
 Nach dem Einschalten zeigt der Live-Tab einen Fortschrittsbalken und einen Countdown. Die Maschine gilt als bereit wenn **thermische Stabilität** erkannt wird: die Temperatur muss die letzten 30 Sekunden innerhalb von ±1,5 °C bei oder nahe dem Zielwert liegen. Der feste `preheat_time`-Timer dient als Sicherheits-Ceiling — nach Ablauf wird die Maschine in jedem Fall als bereit markiert, auch ohne erkannte Stabilität. Der Timer wird **nicht** zurückgesetzt bei kurzen Stromunterbrechungen (< 5 Minuten, Temperatur noch über 80 °C). Der Aufwärmstatus wird auch als HA-Sensoren bereitgestellt (`binary_sensor.…preheat_ready`, `sensor.…preheat_elapsed`, `sensor.…preheat_remaining`).
 
 **"Ready by"-Zeitplanung (Backend, ab v2.20.0):** Über `POST /api/preheat/ready-by` lässt sich eine wall-clock Zielzeit setzen, zu der die Maschine thermisch bereit sein soll; der bestehende 30-Sekunden-Preheat-Watcher rechnet ausgehend von `preheat_time` zurück und schaltet `switch_entity` automatisch ein, sobald der berechnete Einschaltzeitpunkt erreicht ist — danach wird das Ziel gelöscht (einmalig). ⚠ Dies ist aktuell nur eine Backend-Fähigkeit — weder in dieser App noch in der HA-Integration oder der Lovelace-Card gibt es bisher eine Oberfläche zum Setzen eines Ziels. Nutzbar wird es erst, sobald der zugehörige HA-Integrationsdienst und die Lovelace-Card-Steuerung in einer späteren Version erscheinen.
+
+Läuft die Maschine im BREW_AUTO-Modus, endet der Bezugs-Timer in dem Moment, in dem die Firmware selbst den Bezug als beendet meldet, statt darauf zu warten, dass der physische Brühschalter zurückgeklappt wird (den BREW_AUTO nach einem automatischen Stopp oben lässt).
+
+Im Leerlauf (kein Bezug, kein Dampf, kein Spülen aktiv) zeigt der Live-Tab die aktuellen Maschinenwerte — Temperatur samt Ziel, Druck, Wasserstand — statt nur "Maschine bereit" ohne Zahlen. Dampf- und Spülmodus erscheinen als eigene Live-Zustände (Badge, Timer, laufende Temperatur/Druck-Anzeige) — dieselbe Behandlung, die ein Bezug bereits bekommt —, und das animierte Maschinen-Icon spiegelt den jeweils aktiven Modus. Bei einem Netzwerkfehler beim Abruf (z. B. wenn die Maschine vom Stromnetz getrennt wird oder das Netzwerk verlässt) leert der Live-Tab die veralteten Werte, statt die zuletzt bekannten Zahlen weiter anzuzeigen.
 
 ### Import von kaffeebraun.com
 

@@ -18,6 +18,18 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '2.36.0', date: '2026-08-24', highlights: [
+        'The Live tab now shows current temperature/target, pressure and water level even while idle, instead of just "Ready to brew".',
+        'Steam and flush mode now get the same live treatment as brewing: a timer, live readouts, a badge and the animated machine icon.',
+        'Fixed: the power toggle is now reachable on mobile from the topbar, not just the (mobile-hidden) sidebar.',
+        'Fixed: exhausted beans (zero stock) no longer show up in the shot-annotation bean picker.',
+        'Fixed: the Live tab no longer keeps showing stale readings after the machine loses power or drops off the network.',
+        'Fixed: the Live tab\'s shot timer no longer keeps counting after a BREW_AUTO shot has actually finished.',
+    ] },
+    { version: '2.35.0', date: '2026-08-19', highlights: [
+        'Fixed the armv7 add-on image build, restored by reverting the Docker base image to node:22-slim.',
+        'Switched dependency updates from Dependabot to Renovate.',
+    ] },
     { version: '2.34.0', date: '2026-08-16', highlights: [
         '"Instrument" redesign: a cooler graphite look throughout the app, drawn icons in place of emoji, and a calmer, less boxy shot view with a guided metric line and a plain-text verdict.',
         'Added the achievement stamp card: a browsable catalogue of 54 badges across 7 categories, unlocked automatically as you brew.',
@@ -42,16 +54,6 @@ const WHATS_NEW_ENTRIES = [
         'The Live tab and the sidebar\'s shot counter now update in real time instead of only polling every few seconds, falling back automatically if a live connection can\'t be established.',
         'Settings → Machines: "Test connection" now saves the machine automatically first, you can change the default machine or delete any machine, and the host field can be left empty to save a machine as "not configured yet".',
         'Fixed several shot-sync sticking points (a stuck backfill, an out-of-range shot id) and the Live tab\'s flow reading always showing 0.',
-    ] },
-    { version: '2.31.0', date: '2026-08-07', highlights: [
-        'Added optional per-install shot-logging defaults (Settings → "Shot logging defaults") that auto-prefill a new shot\'s annotation panel.',
-        'Added Basket Stats and Puck Screen Stats groupings to Analytics, alongside the existing Grinder Stats.',
-        'Added on-duration to the status footer, edge-swipe to open the mobile drawer, and a persistent dev-build warning banner.',
-    ] },
-    { version: '2.30.0', date: '2026-08-06', highlights: [
-        'Backup export now downloads as a real .zip with selectable sections, an optional encrypted API-token/MQTT-login section, and a dry-run preview before restoring.',
-        'Fixed the status dot/Live tab staying green for hours after the machine was switched off — and, on the same fix, staying red for minutes after it was switched back on.',
-        'Fixed barcode scanning during bean import being completely broken for every user, blocked by the app\'s own content-security policy.',
     ] },
 ];
 

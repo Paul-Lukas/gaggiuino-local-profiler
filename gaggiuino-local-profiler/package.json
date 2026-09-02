@@ -1,6 +1,6 @@
 {
   "name": "gaggiuino-local-profiler-backend",
-  "version": "2.35.0",
+  "version": "2.36.1",
   "main": "server.js",
   "scripts": {
     "build": "vite build",
@@ -15,7 +15,7 @@
   "dependencies": {
     "@napi-rs/canvas": "^1.0.6",
     "@protobuf-ts/runtime": "^2.11.1",
-    "axios": "1.19.0",
+    "axios": "1.20.0",
     "better-sqlite3": "13.0.3",
     "chart.js": "4.5.1",
     "cheerio": "1.2.0",
@@ -27,7 +27,7 @@
     "qrcode": "1.5.4",
     "topojson-client": "3.1.0",
     "ws": "^8.21.3",
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -36,7 +36,7 @@
     "eslint": "^10.8.1",
     "globals": "^17.11.0",
     "playwright": "^1.62.1",
-    "vite": "8.2.1",
+    "vite": "8.2.2",
     "vitest": "4.1.11"
   },
   "allowScripts": {

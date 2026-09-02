@@ -1,7 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
-  "baseBranches": ["dev"],
+  "baseBranchPatterns": [
+    "dev"
+  ],
   "schedule": ["before 6am on monday"],
   "semanticCommits": "enabled",
   "lockFileMaintenance": {
@@ -45,6 +47,13 @@
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["major"],
       "groupName": "github-actions"
+    },
+    {
+      "matchManagers": ["dockerfile"],
+      "matchDepNames": ["node"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false,
+      "description": "Held until armv7 support is resolved — node:24-slim dropped linux/arm/v7, this add-on still publishes an armv7 build. See #944."
     }
   ]
 }

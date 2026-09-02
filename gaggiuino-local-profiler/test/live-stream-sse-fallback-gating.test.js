@@ -23,6 +23,11 @@ globalThis.navigator ??= { language: 'en-US' };
 const apiFetchMock = vi.fn(() => Promise.resolve({ ok: false, status: 500 }));
 vi.mock('../public-src/api.js', () => ({
   apiFetch: (...args) => apiFetchMock(...args),
+  // #913: fetchLiveData()'s !r.ok branch calls the real isApiPortBlocked() --
+  // omitting it here made it undefined, which threw and (only visibly once
+  // handleLiveData()'s catch-block fallback started calling
+  // syncMachineIcon()) surfaced as an unhandled rejection.
+  isApiPortBlocked: () => false,
 }));
 
 class FakeChart {
@@ -41,7 +46,11 @@ const { connectLiveStream, disconnectLiveStream } = await import('../public-src/
 function makeFakeDocument() {
   const registry = new Map();
   function makeElement() {
-    return { className: '', textContent: '', style: {}, classList: { add() {}, remove() {}, contains: () => false } };
+    return {
+      className: '', textContent: '', style: {},
+      classList: { add() {}, remove() {}, contains: () => false },
+      querySelector: () => null,
+    };
   }
   return {
     getElementById: id => {

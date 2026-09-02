@@ -23,6 +23,8 @@
 
 > **AI-generated project.** All code, tests, and documentation in this repo are written by Claude (Anthropic). Scope, hardware testing (Gaggia Classic + Gaggiuino), and release decisions are done by a human maintainer. Keep that in mind before installing this on your machine.
 
+> **armv7 support is deprecated and planned for removal in a future release** (no date set yet — see [#944](https://github.com/mxkissnr/gaggiuino-local-profiler/issues/944)). Node.js no longer publishes official Docker images for 32-bit ARM past v22, the same tradeoff that led Home Assistant OS itself to drop several 32-bit ARM boards. If you're running this on a 32-bit ARM device (e.g. an older Raspberry Pi on a 32-bit OS image), plan a move to a 64-bit image.
+
 > **Heads-up — this requires a machine running [Gaggiuino](https://gaggiuino.github.io/) or [GaggiMate](https://github.com/jniebuhr/gaggimate) firmware.** GLP does not work with stock espresso machines. Both are hardware mods (custom controller, pressure/temperature sensors) — Gaggiuino has full support, GaggiMate is experimental as of v2.0.0 (see the Multi-Machine row below). These mods aren't limited to one machine brand: **the "type" GLP asks for when you add a machine selects the firmware adapter it talks to, not the physical machine.** Any single-boiler machine with a Gaggiuino or GaggiMate board installed — Gaggia Classic, Rancilio Silvia, Lelit, and others — works identically from GLP's side. If your machine doesn't run either firmware yet, start there first.
 
 ## Why GLP?
@@ -81,7 +83,7 @@ More in [`docs/screenshots/`](gaggiuino-local-profiler/docs/screenshots/) (Dial-
 |---|---|---|
 | 🔀 | **Multi-Machine** | Manage more than one espresso machine from a single add-on instance — Gaggiuino (full support) or [GaggiMate](https://github.com/jniebuhr/gaggimate) (experimental: sync + live status, read-only profiles). Shot sync now runs for every registered machine, not just the default one; live view stays default-machine-only for now. Maintenance (descaling/backflush/group head/gaskets) is tracked per machine; shared equipment (water filter, grinder) stays global. Existing single-machine installs upgrade automatically, no manual steps. |
 | 📈 | **Shot Archive** | All shots with pressure, flow, weight and temperature curves |
-| 🔴 | **Live Mode** | Real-time display directly from the controller (`/api/system/status`); the Live tab, preheat/ready badge and the sidebar's shot counter push updates instantly over a live connection, falling back automatically to polling if one can't be established |
+| 🔴 | **Live Mode** | Real-time display directly from the controller (`/api/system/status`); the Live tab, preheat/ready badge and the sidebar's shot counter push updates instantly over a live connection, falling back automatically to polling if one can't be established. While idle, the Live tab shows current temperature/target, pressure and water level instead of a bare "Ready to brew"; steam and flush mode get the same live treatment (timer, readouts, badge, animated machine icon) as brewing. Stale readings are cleared automatically if the machine drops off the network. |
 | 📡 | **MQTT Live-Data Transport** | Alternative to the WebSocket connection for live sensor/system data — subscribes to the Gaggiuino's own MQTT-published topics instead, toggled in Settings ("Live connection: WebSocket / MQTT"). Broker connection is auto-discovered via the HA Supervisor's MQTT service when available, with manual entry as a fallback, plus a one-click "Apply to machine" that points the machine's own MQTT client at the same broker. Feeds the exact same live-state cache the WebSocket transport does — `glp-integration` needs zero changes either way. Applies to the default machine only. |
 | 🔄 | **Auto-Sync** | New shots load automatically when `gaggiuino_latest_shot_id` rises; a backfill's progress now updates live with a reliable completion/failure notification, also falling back to polling automatically |
 | ⇄ | **Compare Mode** | Overlay two shots side by side |
@@ -110,7 +112,7 @@ More in [`docs/screenshots/`](gaggiuino-local-profiler/docs/screenshots/) (Dial-
 | 💾 | **.shot Export** | Export in Decent Espresso format (Visualizer.coffee compatible) |
 | 📤 | **CSV Export** | All shots with annotations as CSV |
 | 🖼️ | **Share Card** | Export any shot as a 1080×1080 PNG card — score, pressure curve, metadata and GLP branding. Share button uses the native Web Share API on mobile or downloads the PNG on desktop. |
-| 🔌 | **Smart Plug** | Optional: power machine on/off via HA switch entity |
+| 🔌 | **Smart Plug** | Optional: power machine on/off via HA switch entity, from the sidebar on desktop or the topbar power toggle on mobile |
 | ☕ | **Preheat Timer** | Progress bar + countdown after machine switches on; configurable warmup time; smart reset (ignores brief off/on cycles while still warm) |
 | 🌐 | **Multi-Language UI** | DE / EN / IT / FR / ES / NL — auto-detected from browser, persisted per session |
 | 🎨 | **Accent Color Themes** | 6 color schemes: Amber (default), Ocean, Aurora, Ember, Forest, Crema — persisted in localStorage; Crema also warms the neutral gray scale and pairs with a bundled serif (Fraunces) for bean names in the Library and on the share card |
