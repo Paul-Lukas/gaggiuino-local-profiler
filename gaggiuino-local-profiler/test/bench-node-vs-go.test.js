@@ -9,6 +9,8 @@ import {
     probeLag,
     runBench,
     renderMarkdown,
+    rateLimitWarnings,
+    makePacer,
     REST_ENDPOINTS,
 } from '../scripts/bench-node-vs-go.mjs';
 
@@ -16,7 +18,8 @@ import {
 // endpoint the harness calls plus a fake SSE probe stream. No network, no
 // real server.js — this only has to be shaped enough for the harness to
 // produce a well-formed result object.
-function startStub({ withProbe = true } = {}) {
+function startStub({ withProbe = true, events = 'normal', restStatus = null } = {}) {
+    let restHits = 0;
     const server = http.createServer((req, res) => {
         const url = req.url.split('?')[0];
         const json = (obj, status = 200) => {
@@ -24,6 +27,13 @@ function startStub({ withProbe = true } = {}) {
             res.writeHead(status, { 'Content-Type': 'application/json' });
             res.end(body);
         };
+
+        // Simulate a rate limiter: once restStatus is set, every Nth REST hit
+        // gets a 429 instead of its normal response.
+        if (restStatus && url !== '/api/events' && url !== '/api/debug/ingress/sse-probe') {
+            restHits++;
+            if (restHits % restStatus.everyNth === 0) return json({ error: 'Rate limit exceeded' }, 429);
+        }
 
         if (url === '/api/status') return json({ shotCount: 3, glpVersion: '2.99.0', devBuild: 'go-preview-20260902_1200', machineVersion: 'v3.4.5' });
         if (url === '/api/version') return json({ current: '2.99.0', latest: '2.99.0', update_available: false, release_url: null });
@@ -62,10 +72,19 @@ function startStub({ withProbe = true } = {}) {
         }
 
         if (url === '/api/events') {
+            if (events === 'silent') {
+                // Headers only, then nothing at all — a genuinely starved stream.
+                res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+                return;
+            }
             res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
             res.write(`:${' '.repeat(2048)}\n\n`);
-            res.write('event: preheat-update\ndata: {"ready":false}\n\n');
-            res.write('event: live-snapshot\ndata: {"isLive":false}\n\n');
+            if (events === 'normal') {
+                res.write('event: preheat-update\ndata: {"ready":false}\n\n');
+                res.write('event: live-snapshot\ndata: {"isLive":false}\n\n');
+            }
+            // events === 'idle': just the initial padding + keepalive comments,
+            // no data events — a held-open stream with no shot running.
             const keepalive = setInterval(() => res.write(':ping\n\n'), 50);
             req.on('close', () => clearInterval(keepalive));
             return;
@@ -245,5 +264,89 @@ describe('bench-node-vs-go: SSE fallback when no probe endpoint exists', () => {
         expect(sc.perClient).toHaveLength(1);
         expect(Number.isFinite(sc.ttfbMeanMs)).toBe(true);
         expect(sc.perClient[0].blocks).toBeGreaterThanOrEqual(1);
+    }, 20_000);
+});
+
+describe('bench-node-vs-go: SSE fallback — idle is not starved', () => {
+    it('an /api/events stream with only padding + keepalives (no shot running) is NOT flagged starved', async () => {
+        const stub = await startStub({ withProbe: false, events: 'idle' });
+        try {
+            const opts = { ...FAST_OPTS, sseHoldMs: 400, sseClients: [2], go: stub.baseUrl, goToken: 'T', node: null, nodeToken: null, only: ['sse'], json: null, help: false };
+            const result = await runBench(opts);
+            const sc = result.sse.go.scenarios[2];
+            expect(sc.starvedClients).toBe(0);
+            expect(sc.perClient.every(p => p.sawKeepalive)).toBe(true);
+        } finally {
+            stub.server.close();
+        }
+    }, 20_000);
+
+    it('an /api/events stream that sends nothing at all IS flagged starved', async () => {
+        const stub = await startStub({ withProbe: false, events: 'silent' });
+        try {
+            const opts = { ...FAST_OPTS, sseHoldMs: 300, sseClients: [1], go: stub.baseUrl, goToken: 'T', node: null, nodeToken: null, only: ['sse'], json: null, help: false };
+            const result = await runBench(opts);
+            const sc = result.sse.go.scenarios[1];
+            expect(sc.starvedClients).toBe(1);
+        } finally {
+            stub.server.close();
+        }
+    }, 20_000);
+});
+
+describe('bench-node-vs-go: --rps pacing', () => {
+    it('parses --rps as a positive integer, rejects non-positive', () => {
+        expect(parseArgs(['--go', 'http://x', '--go-token', 'T', '--rps', '25']).rps).toBe(25);
+        expect(() => parseArgs(['--go', 'http://x', '--go-token', 'T', '--rps', '0'])).toThrow(/rps/);
+        expect(parseArgs(['--go', 'http://x', '--go-token', 'T']).rps).toBe(0);
+    });
+
+    it('makePacer spaces grants to ~1000/rps ms and is a no-op when off', async () => {
+        expect(makePacer(0)).toBeInstanceOf(Function);
+        await makePacer(0)(); // resolves immediately, no throw
+
+        const gate = makePacer(50); // 20ms spacing
+        const t0 = performance.now();
+        for (let i = 0; i < 5; i++) await gate();
+        // 5 grants => 4 intervals => ~80ms minimum, allow scheduler slack.
+        expect(performance.now() - t0).toBeGreaterThanOrEqual(60);
+    });
+});
+
+describe('bench-node-vs-go: 429 detection + report warning', () => {
+    it('counts 429s per endpoint/concurrency and flags a cell over the 5% threshold', async () => {
+        // every 2nd REST hit is a 429 => ~50% rate-limited, well over threshold
+        const stub = await startStub({ restStatus: { everyNth: 2 } });
+        try {
+            const opts = { ...FAST_OPTS, iterations: 8, warmup: 0, concurrency: [1], go: stub.baseUrl, goToken: 'T', node: null, nodeToken: null, only: ['rest'], json: null, help: false };
+            const result = await runBench(opts);
+
+            const cell = result.rest.go.endpoints['GET /api/status'].byConcurrency[1];
+            expect(cell.rateLimited).toBeGreaterThan(0);
+            expect(cell.runs).toBe(8);
+            expect(cell.rateLimitedFrac).toBeGreaterThan(0.05);
+
+            const warnings = rateLimitWarnings(result);
+            expect(warnings.length).toBeGreaterThan(0);
+            expect(warnings.join('\n')).toMatch(/GET \/api\/status @ c=1/);
+
+            const md = renderMarkdown(result);
+            expect(md).toContain('Rate-limited endpoints — comparison invalid');
+            expect(md).toMatch(/429/);
+        } finally {
+            stub.server.close();
+        }
+    }, 30_000);
+
+    it('a clean run produces no rate-limit warnings', async () => {
+        const stub = await startStub();
+        try {
+            const opts = { ...FAST_OPTS, iterations: 4, warmup: 0, concurrency: [1], go: stub.baseUrl, goToken: 'T', node: null, nodeToken: null, only: ['rest'], json: null, help: false };
+            const result = await runBench(opts);
+            expect(rateLimitWarnings(result)).toEqual([]);
+            expect(renderMarkdown(result)).not.toContain('comparison invalid');
+        } finally {
+            stub.server.close();
+        }
     }, 20_000);
 });

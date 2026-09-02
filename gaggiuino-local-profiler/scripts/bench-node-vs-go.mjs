@@ -26,7 +26,14 @@
 //
 // It also prints a Context block per instance (version/build, shot count, DB
 // size) so the reader knows the two datasets differ and by how much — the
-// numbers below are NOT a like-for-like comparison unless those match.
+// numbers below are NOT a like-for-like comparison unless those match. The
+// footer gives the export-db/import-db commands to align the two DBs.
+//
+// Every REST request's HTTP 429 count is tracked per endpoint/concurrency;
+// if a target's rate limiter kicks in above 5% for a cell, the report flags
+// that comparison as invalid (a limiter's latency is not the handler's).
+// Pass --rps <n> to throttle the whole run below the limiter's threshold
+// for an honest apples-to-apples comparison.
 //
 // Single-target mode (`--go URL --go-token T`, no --node) prints absolute
 // numbers only. Non-zero exit only on a harness error, never on "Go was
@@ -51,7 +58,16 @@ const DEFAULTS = {
     sseHoldMs: 6000,
     dbSweeps: 20,
     timeoutMs: 15000,
+    rps: 0, // 0 = unthrottled
 };
+
+// A target's own rate limiter (Node: lib/middleware/rateLimit.js's global
+// ceiling + the per-route limiters on backup/system/orders) can start
+// returning 429 under the REST mix, which drops that endpoint's real
+// latency samples on the floor and makes the Go-vs-Node column meaningless.
+// Above this share of 429s for one endpoint/concurrency cell the report
+// flags the comparison as invalid rather than printing a bogus delta.
+const RATE_LIMIT_INVALID_FRAC = 0.05;
 
 // Extra client-side lag (above the skew-corrected best-case baseline) beyond
 // which an SSE client counts as starving. The Go probe ticks every 200ms, so
@@ -80,6 +96,10 @@ Options:
   --sse-hold <ms>       How long to hold each /api/events stream open (default ${DEFAULTS.sseHoldMs})
   --db-sweeps <n>       Full /shots.json fetches for the DB-heavy sweep (default ${DEFAULTS.dbSweeps})
   --timeout <ms>        Per-request timeout (default ${DEFAULTS.timeoutMs})
+  --rps <n>             Cap total request rate (per target) to n req/s for the REST + DB
+                        sweeps, so a rate-limited Node instance stops returning 429 and
+                        the Go-vs-Node latency columns stay a fair comparison. Off by
+                        default; SSE is never throttled.
   --only <rest|sse|db>  Run only these sections (repeatable or comma-separated)
   --json <path>         Also write the full machine-readable result object here
   --help                Show this help
@@ -98,6 +118,7 @@ export function parseArgs(argv) {
         sseHoldMs: DEFAULTS.sseHoldMs,
         dbSweeps: DEFAULTS.dbSweeps,
         timeoutMs: DEFAULTS.timeoutMs,
+        rps: DEFAULTS.rps,
         only: [],
         json: null,
         help: false,
@@ -129,6 +150,7 @@ export function parseArgs(argv) {
             case '--sse-hold':   opts.sseHoldMs = posInt(need(), 'sse-hold'); break;
             case '--db-sweeps':  opts.dbSweeps = posInt(need(), 'db-sweeps'); break;
             case '--timeout':    opts.timeoutMs = posInt(need(), 'timeout'); break;
+            case '--rps':        opts.rps = posInt(need(), 'rps'); break;
             case '--only':       opts.only.push(...String(need()).split(',').map(s => s.trim()).filter(Boolean)); break;
             case '--json':       opts.json = need(); break;
             case '--help': case '-h': opts.help = true; break;
@@ -211,15 +233,35 @@ async function timedRequest(url, target, timeoutMs) {
     }
 }
 
+// A leaky-bucket pacer: gate() resolves at most `rps` times per second,
+// spacing the grants evenly. rps <= 0 returns a no-op gate (unthrottled).
+// Used to keep a rate-limited Node instance below its 429 threshold so the
+// Go-vs-Node latency comparison stays honest (--rps).
+export function makePacer(rps) {
+    if (!Number.isFinite(rps) || rps <= 0) return () => Promise.resolve();
+    const intervalMs = 1000 / rps;
+    let nextAt = 0;
+    return () => {
+        const now = performance.now();
+        const at = Math.max(now, nextAt);
+        nextAt = at + intervalMs;
+        const wait = at - now;
+        return wait > 0 ? new Promise(r => setTimeout(r, wait)) : Promise.resolve();
+    };
+}
+
 // Bounded-concurrency worker pool. taskFn(i) is invoked `total` times with at
-// most `concurrency` in flight; results are returned in call order.
-async function runPool(total, concurrency, taskFn) {
+// most `concurrency` in flight; results are returned in call order. When a
+// `pace` gate is given each task waits on it before starting, capping the
+// aggregate request rate.
+async function runPool(total, concurrency, taskFn, pace) {
     const results = new Array(total);
     let next = 0;
     const worker = async () => {
         for (;;) {
             const i = next++;
             if (i >= total) return;
+            if (pace) await pace();
             results[i] = await taskFn(i);
         }
     };
@@ -263,6 +305,7 @@ async function benchRestForTarget(target, opts) {
     const shotId = await resolveShotId(target, opts.timeoutMs);
     const ctx = { shotId };
     const endpoints = {};
+    const pace = makePacer(opts.rps);
 
     for (const ep of REST_ENDPOINTS) {
         if (ep.needsShot && shotId == null) {
@@ -275,17 +318,21 @@ async function benchRestForTarget(target, opts) {
         for (const c of opts.concurrency) {
             // Warm-up (not measured) — lets JIT / connection pools / SQLite
             // page cache settle so the first measured request isn't an outlier.
-            await runPool(opts.warmup, c, () => timedRequest(url, target, opts.timeoutMs));
+            await runPool(opts.warmup, c, () => timedRequest(url, target, opts.timeoutMs), pace);
 
             const wall0 = performance.now();
-            const runs = await runPool(opts.iterations, c, () => timedRequest(url, target, opts.timeoutMs));
+            const runs = await runPool(opts.iterations, c, () => timedRequest(url, target, opts.timeoutMs), pace);
             const wallMs = performance.now() - wall0;
 
             const ok = runs.filter(r => r.ok);
+            const rateLimited = runs.filter(r => r.status === 429).length;
             const stats = summarize(ok.map(r => r.ms));
             byConcurrency[c] = {
                 ...stats,
                 errors: runs.length - ok.length,
+                runs: runs.length,
+                rateLimited,
+                rateLimitedFrac: runs.length ? rateLimited / runs.length : 0,
                 reqPerSec: wallMs > 0 ? (opts.iterations / (wallMs / 1000)) : NaN,
                 bytesMean: ok.length ? ok.reduce((s, r) => s + r.bytes, 0) / ok.length : NaN,
             };
@@ -308,6 +355,8 @@ async function readSseStream(url, target, holdMs) {
     const blocks = [];
     let ttfbMs = NaN;
     let connectError = null;
+    let bytesTotal = 0;
+    let sawKeepalive = false; // any `:` comment line (SSE keepalive) => the stream is alive, just idle
 
     try {
         const res = await fetch(url, {
@@ -317,7 +366,7 @@ async function readSseStream(url, target, holdMs) {
         ttfbMs = performance.now() - start;
         if (!res.ok) {
             connectError = `HTTP ${res.status}`;
-            return { ttfbMs, blocks, connectError, status: res.status };
+            return { ttfbMs, blocks, connectError, status: res.status, bytesTotal, sawKeepalive };
         }
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -325,12 +374,15 @@ async function readSseStream(url, target, holdMs) {
         for (;;) {
             const { value, done } = await reader.read();
             if (done) break;
+            bytesTotal += value.byteLength;
             buf += decoder.decode(value, { stream: true });
             let sep;
             while ((sep = buf.indexOf('\n\n')) !== -1) {
                 const raw = buf.slice(0, sep);
                 buf = buf.slice(sep + 2);
-                if (raw.trim()) blocks.push({ atMs: Date.now(), raw });
+                if (!raw.trim()) continue;
+                if (raw.trimStart().startsWith(':')) sawKeepalive = true;
+                blocks.push({ atMs: Date.now(), raw });
             }
         }
     } catch (err) {
@@ -338,7 +390,7 @@ async function readSseStream(url, target, holdMs) {
     } finally {
         clearTimeout(holdTimer);
     }
-    return { ttfbMs, blocks, connectError, status: 200 };
+    return { ttfbMs, blocks, connectError, status: 200, bytesTotal, sawKeepalive };
 }
 
 // Parses `event: tick` / `data: {"n":N,"server_ms":M}` blocks from the Go
@@ -425,7 +477,13 @@ async function benchSseForTarget(target, opts) {
                 return { ...base, ticks: ticks.length, lagMeanMs: lag.meanMs, lagMaxMs: lag.maxMs, starved: Number.isFinite(lag.maxMs) && lag.maxMs > SSE_STARVE_MS };
             }
             const gap = maxInterBlockGap(s.blocks);
-            return { ...base, maxGapMs: gap, starved: !!s.connectError || s.blocks.length === 0 || (Number.isFinite(s.ttfbMs) && s.ttfbMs > 2000) };
+            // Idle != starved: a held-open /api/events stream with no shot
+            // running legitimately delivers nothing but the initial padding
+            // and periodic `:` keepalives for the whole hold. Only a real
+            // connect failure, or a stream that produced literally nothing
+            // (no bytes, no keepalive) within holdMs, counts as starvation.
+            const starved = !!s.connectError || (s.bytesTotal === 0 && !s.sawKeepalive);
+            return { ...base, maxGapMs: gap, bytes: s.bytesTotal, sawKeepalive: s.sawKeepalive, starved };
         });
 
         const finite = (xs) => xs.filter(Number.isFinite);
@@ -451,20 +509,29 @@ const maxOf = (xs) => (xs.length ? Math.max(...xs) : NaN);
 
 async function streamAndCount(url, target, timeoutMs) {
     const start = performance.now();
-    const res = await fetch(url, { headers: authHeaders(target), signal: AbortSignal.timeout(timeoutMs) });
-    if (!res.ok) return { ok: false, status: res.status, bytes: 0, ms: performance.now() - start };
-    let bytes = 0;
-    const reader = res.body.getReader();
-    for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        bytes += value.byteLength;
+    try {
+        const res = await fetch(url, { headers: authHeaders(target), signal: AbortSignal.timeout(timeoutMs) });
+        if (!res.ok) return { ok: false, status: res.status, bytes: 0, ms: performance.now() - start };
+        let bytes = 0;
+        const reader = res.body.getReader();
+        for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            bytes += value.byteLength;
+        }
+        return { ok: true, status: res.status, bytes, ms: performance.now() - start };
+    } catch (err) {
+        // A dropped/aborted download (client timeout, server closing the
+        // socket mid-stream — the add-on log's "DB export download failed:
+        // broken pipe") is a measurement that didn't complete, not a reason
+        // to abort the whole run.
+        return { ok: false, status: 0, bytes: 0, ms: performance.now() - start, error: String(err && err.message || err) };
     }
-    return { ok: true, status: res.status, bytes, ms: performance.now() - start };
 }
 
-async function benchDbForTarget(target, opts) {
+async function benchDbForTarget(target, opts, log = () => {}) {
     const out = {};
+    const pace = makePacer(opts.rps);
 
     // export-db: whole raw SQLite file. 404 when GLP_DEV_BUILD is unset.
     const exportUrl = `${target.baseUrl}/api/debug/export-db`;
@@ -475,6 +542,9 @@ async function benchDbForTarget(target, opts) {
             wallMs: exp.ms,
             mbPerSec: exp.ms > 0 ? (exp.bytes / 1e6) / (exp.ms / 1000) : NaN,
         };
+    } else if (exp.error) {
+        log(`db: ${target.label} export-db download did not complete (${exp.error}) — skipping that metric`);
+        out.exportDb = { skipped: `download failed: ${exp.error}` };
     } else {
         out.exportDb = { skipped: exp.status === 404 ? 'GLP_DEV_BUILD not set on this instance' : `HTTP ${exp.status}` };
     }
@@ -486,14 +556,18 @@ async function benchDbForTarget(target, opts) {
     const sweepRuns = [];
     const sweep0 = performance.now();
     for (let i = 0; i < opts.dbSweeps; i++) {
+        await pace();
         sweepRuns.push(await streamAndCount(sweepUrl, target, opts.timeoutMs));
     }
     const sweepWall = performance.now() - sweep0;
     const okRuns = sweepRuns.filter(r => r.ok);
+    const rateLimited = sweepRuns.filter(r => r.status === 429).length;
     const totalBytes = okRuns.reduce((s, r) => s + r.bytes, 0);
     out.shotsSweep = {
         sweeps: opts.dbSweeps,
         okSweeps: okRuns.length,
+        rateLimited,
+        rateLimitedFrac: sweepRuns.length ? rateLimited / sweepRuns.length : 0,
         listBytes: okRuns.length ? Math.round(totalBytes / okRuns.length) : NaN,
         wallMs: sweepWall,
         listsPerSec: sweepWall > 0 ? opts.dbSweeps / (sweepWall / 1000) : NaN,
@@ -541,17 +615,25 @@ async function contextForTarget(target, opts) {
     } catch { /* non-fatal */ }
 
     // DB size: no endpoint reports it directly, so read the Content-Length of
-    // the raw export (the DB file itself) and drop the body.
+    // the raw export (the DB file itself). A HEAD keeps the server from
+    // streaming the whole file just for us to drop it — which is what logged
+    // "DB export download failed: broken pipe" on the add-on. Both runtimes
+    // route HEAD to their GET handler (Express by default, Go's ServeMux for
+    // a "GET" pattern); if a target somehow doesn't, fall back to a GET whose
+    // body we cancel.
+    ctx.dbBytes = null;
     try {
-        const res = await fetch(`${target.baseUrl}/api/debug/export-db`, { headers: authHeaders(target), signal: AbortSignal.timeout(opts.timeoutMs) });
+        let res = await fetch(`${target.baseUrl}/api/debug/export-db`, { method: 'HEAD', headers: authHeaders(target), signal: AbortSignal.timeout(opts.timeoutMs) });
+        if (res.status === 405 || res.status === 501) {
+            res = await fetch(`${target.baseUrl}/api/debug/export-db`, { headers: authHeaders(target), signal: AbortSignal.timeout(opts.timeoutMs) });
+            if (res.body) await res.body.cancel();
+        }
         if (res.ok) {
             const len = res.headers.get('content-length');
             ctx.dbBytes = len ? parseInt(len, 10) : null;
         } else {
-            ctx.dbBytes = null;
             ctx.dbSizeNote = res.status === 404 ? 'export-db gated off (GLP_DEV_BUILD unset)' : `export-db HTTP ${res.status}`;
         }
-        if (res.body) await res.body.cancel();
     } catch {
         ctx.dbBytes = null;
     }
@@ -572,6 +654,7 @@ export async function runBench(opts, { log = () => {} } = {}) {
             iterations: opts.iterations, warmup: opts.warmup,
             concurrency: opts.concurrency, sseClients: opts.sseClients,
             sseHoldMs: opts.sseHoldMs, dbSweeps: opts.dbSweeps, timeoutMs: opts.timeoutMs,
+            rps: opts.rps || 0,
         },
         sections,
         targets: targets.map(t => ({ key: t.key, label: t.label, baseUrl: t.baseUrl })),
@@ -601,7 +684,7 @@ export async function runBench(opts, { log = () => {} } = {}) {
     if (sections.includes('db')) {
         for (const t of targets) {
             log(`db: ${t.label} — export-db + ${opts.dbSweeps}x /shots.json`);
-            result.db[t.key] = await benchDbForTarget(t, opts);
+            result.db[t.key] = await benchDbForTarget(t, opts, log);
         }
     }
 
@@ -622,6 +705,30 @@ const deltaCell = (go, node) => {
     return `${sign}${d.toFixed(1)}%`;
 };
 
+// Scans every REST endpoint/concurrency cell and the /shots.json sweep on
+// each target for a 429 share above RATE_LIMIT_INVALID_FRAC, returning a
+// human-readable warning line per offending cell. An empty list means no
+// target was meaningfully rate-limited during the run.
+export function rateLimitWarnings(result) {
+    const out = [];
+    const flag = (label, where, frac, n, total) => {
+        if (Number.isFinite(frac) && frac > RATE_LIMIT_INVALID_FRAC) {
+            out.push(`**${label}** ${where}: ${n}/${total} (${(frac * 100).toFixed(0)}%) rate-limited`);
+        }
+    };
+    for (const t of result.targets) {
+        const rest = result.rest?.[t.key]?.endpoints || {};
+        for (const [name, ep] of Object.entries(rest)) {
+            for (const [c, cell] of Object.entries(ep.byConcurrency || {})) {
+                flag(t.label, `${name} @ c=${c}`, cell.rateLimitedFrac, cell.rateLimited, cell.runs);
+            }
+        }
+        const sweep = result.db?.[t.key]?.shotsSweep;
+        if (sweep) flag(t.label, 'GET /shots.json sweep', sweep.rateLimitedFrac, sweep.rateLimited, sweep.sweeps);
+    }
+    return out;
+}
+
 export function renderMarkdown(result) {
     const L = [];
     const keys = result.targets.map(t => t.key);
@@ -629,8 +736,22 @@ export function renderMarkdown(result) {
 
     L.push('# Node-vs-Go benchmark');
     L.push('');
-    L.push(`Run ${result.startedAt} · sections: ${result.sections.join(', ')} · iterations ${result.options.iterations}, concurrency [${result.options.concurrency.join(', ')}], SSE clients [${result.options.sseClients.join(', ')}].`);
+    const rpsNote = result.options.rps ? `, --rps ${result.options.rps}` : '';
+    L.push(`Run ${result.startedAt} · sections: ${result.sections.join(', ')} · iterations ${result.options.iterations}, concurrency [${result.options.concurrency.join(', ')}], SSE clients [${result.options.sseClients.join(', ')}]${rpsNote}.`);
     L.push('');
+
+    // ── Rate-limit sanity (surfaced first — an invalidated endpoint makes
+    //    its whole row meaningless) ──
+    const rlWarnings = rateLimitWarnings(result);
+    if (rlWarnings.length) {
+        L.push('## ⚠️ Rate-limited endpoints — comparison invalid');
+        L.push('');
+        L.push('One or both targets returned HTTP 429 for these endpoint/concurrency cells above the '
+            + `${(RATE_LIMIT_INVALID_FRAC * 100).toFixed(0)}% threshold. Their latency and req/s numbers below reflect the limiter, not the handler — ignore the row or re-run with \`--rps <n>\` low enough that neither side 429s:`);
+        L.push('');
+        for (const w of rlWarnings) L.push(`- ${w}`);
+        L.push('');
+    }
 
     // ── Context (surfaced first, deliberately) ──
     L.push('## Context — the datasets are NOT identical');
@@ -666,30 +787,31 @@ export function renderMarkdown(result) {
             L.push(`### Concurrency ${c}`);
             L.push('');
             if (twoWay) {
-                L.push('| Endpoint | Go p50 | Go p95 | Go req/s | Node p50 | Node p95 | Node req/s | Δ p50 | Δ req/s |');
-                L.push('|---|--:|--:|--:|--:|--:|--:|--:|--:|');
+                L.push('| Endpoint | Go p50 | Go p95 | Go req/s | Node p50 | Node p95 | Node req/s | Δ p50 | Δ req/s | 429 Go/Node |');
+                L.push('|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|');
             } else {
-                L.push('| Endpoint | p50 ms | p90 ms | p95 ms | p99 ms | mean ms | req/s | errors |');
-                L.push('|---|--:|--:|--:|--:|--:|--:|--:|');
+                L.push('| Endpoint | p50 ms | p90 ms | p95 ms | p99 ms | mean ms | req/s | errors | 429 |');
+                L.push('|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|');
             }
+            const rl = (cell) => (cell && cell.rateLimited ? `${cell.rateLimited}/${cell.runs}` : '0');
             for (const ep of REST_ENDPOINTS) {
                 const g = result.rest.go?.endpoints?.[ep.name];
                 if (twoWay) {
                     const nd = result.rest.node?.endpoints?.[ep.name];
-                    if (g?.skipped && nd?.skipped) { L.push(`| ${ep.name} | _skipped_ | | | | | | | |`); continue; }
+                    if (g?.skipped && nd?.skipped) { L.push(`| ${ep.name} | _skipped_ | | | | | | | | |`); continue; }
                     const gc = g?.byConcurrency?.[c] || {};
                     const nc = nd?.byConcurrency?.[c] || {};
-                    L.push(`| ${ep.name} | ${n1(gc.p50)} | ${n1(gc.p95)} | ${n1(gc.reqPerSec)} | ${n1(nc.p50)} | ${n1(nc.p95)} | ${n1(nc.reqPerSec)} | ${deltaCell(gc.p50, nc.p50)} | ${deltaCell(gc.reqPerSec, nc.reqPerSec)} |`);
+                    L.push(`| ${ep.name} | ${n1(gc.p50)} | ${n1(gc.p95)} | ${n1(gc.reqPerSec)} | ${n1(nc.p50)} | ${n1(nc.p95)} | ${n1(nc.reqPerSec)} | ${deltaCell(gc.p50, nc.p50)} | ${deltaCell(gc.reqPerSec, nc.reqPerSec)} | ${rl(gc)} / ${rl(nc)} |`);
                 } else {
-                    if (g?.skipped) { L.push(`| ${ep.name} | _skipped: ${g.skipped}_ | | | | | | |`); continue; }
+                    if (g?.skipped) { L.push(`| ${ep.name} | _skipped: ${g.skipped}_ | | | | | | | |`); continue; }
                     const s = g?.byConcurrency?.[c] || {};
-                    L.push(`| ${ep.name} | ${n1(s.p50)} | ${n1(s.p90)} | ${n1(s.p95)} | ${n1(s.p99)} | ${n1(s.mean)} | ${n1(s.reqPerSec)} | ${nInt(s.errors)} |`);
+                    L.push(`| ${ep.name} | ${n1(s.p50)} | ${n1(s.p90)} | ${n1(s.p95)} | ${n1(s.p99)} | ${n1(s.mean)} | ${n1(s.reqPerSec)} | ${nInt(s.errors)} | ${rl(s)} |`);
                 }
             }
             L.push('');
         }
         if (twoWay) {
-            L.push('_Δ is Go relative to Node. Negative Δ p50 = Go lower latency; positive Δ req/s = Go higher throughput._');
+            L.push('_Δ is Go relative to Node. Negative Δ p50 = Go lower latency; positive Δ req/s = Go higher throughput. A non-zero 429 count means that cell hit the target\'s rate limiter — see the warning block above if it crossed the threshold._');
             L.push('');
         }
     }
@@ -777,6 +899,24 @@ function manualFooter(result) {
     lines.push('```');
     lines.push('');
     lines.push('Take the memory reading after a benchmark run (warm), not at idle.');
+    lines.push('');
+    lines.push('## Make the two datasets identical before a like-for-like run');
+    lines.push('');
+    lines.push('The Context table above only matches if both add-ons serve the same');
+    lines.push('`glp.db`. Both dev/preview builds expose the raw DB over HTTP — copy one');
+    lines.push("channel's DB into the other, then re-run:");
+    lines.push('');
+    lines.push('```');
+    lines.push('# pull the Node dev DB, load it into the Go preview build');
+    lines.push('curl -sf -H "X-GLP-Token: $NODE_TOKEN"  http://HOST:8098/api/debug/export-db -o /tmp/glp.db');
+    lines.push('curl -sf -H "X-GLP-Token: $GO_TOKEN" -X POST --data-binary @/tmp/glp.db \\');
+    lines.push('     -H "Content-Type: application/octet-stream" http://HOST:8097/api/debug/import-db');
+    lines.push('# (swap the URLs/tokens to go the other direction)');
+    lines.push('```');
+    lines.push('');
+    lines.push('`import-db` replaces the target\'s DB wholesale and both builds reload it');
+    lines.push('in place — no add-on restart needed. Re-run the benchmark afterwards and');
+    lines.push('the Context shot counts / DB sizes should line up.');
     return lines.join('\n');
 }
 
