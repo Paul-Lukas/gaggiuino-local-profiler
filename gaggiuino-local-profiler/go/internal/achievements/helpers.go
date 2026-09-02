@@ -124,10 +124,7 @@ func hasPressurePlateau(times, pressures []float64, windowSec, tolerance float64
 // value divided by div — the `(d.timeInShot || []).map(v => v / 10)` idiom
 // the registry uses everywhere.
 func datapointsScaled(shot shots.Shot, key string, div float64) []float64 {
-	dp, _ := shot["datapoints"].(map[string]any)
-	if dp == nil {
-		return nil
-	}
+	dp := shots.DatapointsMap(shot)
 	arr, _ := dp[key].([]any)
 	out := make([]float64, 0, len(arr))
 	for _, x := range arr {

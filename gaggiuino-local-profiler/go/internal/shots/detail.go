@@ -110,7 +110,7 @@ func ComputeShotMetrics(shot Shot) ShotMetrics {
 	if shot == nil {
 		return m
 	}
-	d := toMap(shot["datapoints"])
+	d := DatapointsMap(shot)
 	times := divAll(floatSlice(d["timeInShot"]), 10)
 	pressures := divAll(floatSlice(d["pressure"]), 10)
 
@@ -197,7 +197,7 @@ func ComputeGrindAdvice(shot Shot, m ShotMetrics) *GrindAdvice {
 		return nil
 	}
 
-	d := toMap(shot["datapoints"])
+	d := DatapointsMap(shot)
 	times := divAll(floatSlice(d["timeInShot"]), 10)
 	pressures := divAll(floatSlice(d["pressure"]), 10)
 	if detectChanneling(times, pressures) {

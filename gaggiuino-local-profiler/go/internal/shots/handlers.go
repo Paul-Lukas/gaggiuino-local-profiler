@@ -82,12 +82,10 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/shots/{id}/image", h.deleteImage)
 }
 
-// ── response helpers (see internal/httputil) ─────────────────────────────
-
-var (
-	writeJSON  = httputil.WriteJSON
-	writeError = httputil.WriteError
-)
+// ── response helpers ────────────────────────────────────────────────────
+//
+// writeJSON / writeError live in json.go — the package-local goccy-backed
+// equivalents of httputil.WriteJSON / httputil.WriteError (#951).
 
 func withScore(shot Shot, detail ScoreDetail) Shot {
 	out := shot.clone()
@@ -183,18 +181,20 @@ func (h *Handlers) listShots(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// lastShot ports GET /api/shots/last.
+// lastShot ports GET /api/shots/last. Node reads shotService.getAll() and
+// keeps `shots[shots.length - 1]`; this fetches only that one shot (see
+// Service.GetLast / Repository.FindLastExcludingTrash) instead of hydrating
+// the whole history to discard all but the newest (#951).
 func (h *Handlers) lastShot(w http.ResponseWriter, r *http.Request) {
-	list, err := h.service.GetAll()
+	last, err := h.service.GetLast()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
-	if len(list) == 0 {
+	if last == nil {
 		writeJSON(w, http.StatusOK, nil)
 		return
 	}
-	last := list[len(list)-1]
 	writeJSON(w, http.StatusOK, withScore(last, h.service.ComputeScoreDetail(last)))
 }
 

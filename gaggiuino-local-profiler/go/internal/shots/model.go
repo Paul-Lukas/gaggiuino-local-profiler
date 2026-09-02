@@ -1,9 +1,12 @@
 package shots
 
 import (
+	"bytes"
 	"database/sql"
-	"encoding/json"
+	stdjson "encoding/json"
 	"fmt"
+
+	json "github.com/goccy/go-json"
 )
 
 // MaxShotID mirrors lib/constants.js's MAX_SHOT_ID: the highest value a
@@ -111,8 +114,32 @@ func hydrateRow(sc rowScanner) (Shot, error) {
 
 	var rest map[string]any
 	if data != "" {
-		if err := json.Unmarshal([]byte(data), &rest); err != nil {
+		var raw map[string]stdjson.RawMessage
+		if err := json.Unmarshal([]byte(data), &raw); err != nil {
 			return nil, fmt.Errorf("shots: decoding shot %d data: %w", id, err)
+		}
+		rest = make(map[string]any, len(raw))
+		for k, v := range raw {
+			if k == "datapoints" {
+				// Keep the datapoints series as raw JSON bytes instead of
+				// boxing every sample into an []any: /shots.json hydrates
+				// and re-serialises all 213 shots on every request and the
+				// scorer only needs a handful of typed series
+				// (scoreSeriesFromRaw), so the boxing + reflect-marshal of
+				// these arrays was ~all of the endpoint's cost (#951). A
+				// hand-built Shot (tests, demo data) still holds a
+				// map[string]any here — DatapointsMap and extractScoreSeries
+				// both accept either shape.
+				cp := make(stdjson.RawMessage, len(v))
+				copy(cp, v)
+				rest[k] = cp
+				continue
+			}
+			var val any
+			if err := json.Unmarshal(v, &val); err != nil {
+				return nil, fmt.Errorf("shots: decoding shot %d field %q: %w", id, k, err)
+			}
+			rest[k] = val
 		}
 	}
 	if rest == nil {
@@ -155,4 +182,38 @@ func hydrateRow(sc rowScanner) (Shot, error) {
 	}
 
 	return shot, nil
+}
+
+// DatapointsMap returns a shot's "datapoints" as a decoded map[string]any.
+// hydrateRow keeps that value as an encoding/json.RawMessage to keep
+// /shots.json fast (see there); the callers that genuinely need the decoded
+// series — the shot-detail view, the share-card renderer, the achievements
+// engine — go through this. A Shot built by hand (tests, demo seed data)
+// that still holds a map[string]any is returned as-is; anything missing or
+// null yields an empty map, never nil.
+func DatapointsMap(shot Shot) map[string]any {
+	if shot == nil {
+		return map[string]any{}
+	}
+	switch t := shot["datapoints"].(type) {
+	case map[string]any:
+		return t
+	case stdjson.RawMessage:
+		return decodeDatapoints(t)
+	case []byte:
+		return decodeDatapoints(t)
+	default:
+		return map[string]any{}
+	}
+}
+
+func decodeDatapoints(raw []byte) map[string]any {
+	if trimmed := bytes.TrimSpace(raw); len(trimmed) == 0 || string(trimmed) == "null" {
+		return map[string]any{}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return map[string]any{}
+	}
+	return m
 }

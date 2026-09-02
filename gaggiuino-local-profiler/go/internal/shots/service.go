@@ -36,6 +36,14 @@ func (s *Service) GetByID(id int64) (Shot, error) {
 	return s.repo.FindByID(id)
 }
 
+// GetLast returns the newest non-trashed shot — routes/shots.js's GET
+// /api/shots/last reads shotService.getAll() then keeps the last element;
+// this fetches only that shot (see Repository.FindLastExcludingTrash).
+// Returns (nil, nil) for an empty shot history.
+func (s *Service) GetLast() (Shot, error) {
+	return s.repo.FindLastExcludingTrash()
+}
+
 // GetTrash ports ShotService.js's getTrash(): every trashed shot, hydrated,
 // skipping any id whose shot row is somehow already gone. See
 // Repository.FindTrashed's doc comment for why this is one joined query

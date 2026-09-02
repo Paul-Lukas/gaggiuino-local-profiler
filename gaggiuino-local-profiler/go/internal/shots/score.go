@@ -1,9 +1,13 @@
 package shots
 
 import (
+	"bytes"
+	stdjson "encoding/json"
 	"math"
 	"regexp"
 	"strconv"
+
+	json "github.com/goccy/go-json"
 )
 
 // This file ports lib/score.js verbatim: the canonical shot score (0-100)
@@ -136,6 +140,99 @@ func floatSlice(v any) []float64 {
 	return out
 }
 
+// scoreSeries is the small set of datapoint arrays CalcShotScoreDetail and
+// ComputeShotMetrics actually read. hydrateRow keeps a shot's datapoints as
+// raw JSON bytes (see model.go), so the list scorer parses only these five
+// series — typed, never boxed through []any — instead of decoding the whole
+// (much larger) datapoints object per shot (#951).
+type scoreSeries struct {
+	pressure          []float64
+	temperature       []float64
+	targetTemperature []float64
+	timeInShot        []float64
+	// weight ports JS's `d.shotWeight || d.weight`: shotWeight wins whenever
+	// it is present and non-null, even when it is an empty array (in which
+	// case weight is deliberately NOT consulted as a fallback).
+	weight []float64
+}
+
+// extractScoreSeries pulls the scoring series out of a shot's "datapoints"
+// value in whichever shape it arrives: a json.RawMessage (hydrateRow) or a
+// map[string]any (a Shot built by hand in tests / demo seed data).
+func extractScoreSeries(v any) scoreSeries {
+	switch t := v.(type) {
+	case stdjson.RawMessage:
+		return scoreSeriesFromRaw(t)
+	case []byte:
+		return scoreSeriesFromRaw(t)
+	case map[string]any:
+		return scoreSeriesFromMap(t)
+	default:
+		return scoreSeries{}
+	}
+}
+
+func scoreSeriesFromMap(d map[string]any) scoreSeries {
+	s := scoreSeries{
+		pressure:          floatSlice(d["pressure"]),
+		temperature:       floatSlice(d["temperature"]),
+		targetTemperature: floatSlice(d["targetTemperature"]),
+		timeInShot:        floatSlice(d["timeInShot"]),
+	}
+	if v, ok := d["shotWeight"]; ok && v != nil {
+		s.weight = floatSlice(v)
+	} else if v, ok := d["weight"]; ok && v != nil {
+		s.weight = floatSlice(v)
+	}
+	return s
+}
+
+func scoreSeriesFromRaw(raw stdjson.RawMessage) scoreSeries {
+	var s scoreSeries
+	if isJSONNull(raw) {
+		return s
+	}
+	var m map[string]stdjson.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return s
+	}
+	s.pressure = decodeFloatArray(m["pressure"])
+	s.temperature = decodeFloatArray(m["temperature"])
+	s.targetTemperature = decodeFloatArray(m["targetTemperature"])
+	s.timeInShot = decodeFloatArray(m["timeInShot"])
+	if v, ok := m["shotWeight"]; ok && !isJSONNull(v) {
+		s.weight = decodeFloatArray(v)
+	} else if v, ok := m["weight"]; ok && !isJSONNull(v) {
+		s.weight = decodeFloatArray(v)
+	}
+	return s
+}
+
+func isJSONNull(r stdjson.RawMessage) bool {
+	t := bytes.TrimSpace(r)
+	return len(t) == 0 || string(t) == "null"
+}
+
+// decodeFloatArray parses a JSON number array. It first tries a direct
+// []float64 decode (fast, no boxing) and falls back to a lenient []any
+// decode filtered through floatSlice — matching floatSlice's original
+// "skip anything that isn't a number" tolerance for a stray null in the
+// series.
+func decodeFloatArray(r stdjson.RawMessage) []float64 {
+	if len(r) == 0 {
+		return nil
+	}
+	var out []float64
+	if err := json.Unmarshal(r, &out); err == nil {
+		return out
+	}
+	var anyArr []any
+	if err := json.Unmarshal(r, &anyArr); err != nil {
+		return nil
+	}
+	return floatSlice(anyArr)
+}
+
 func divAll(vals []float64, d float64) []float64 {
 	out := make([]float64, len(vals))
 	for i, v := range vals {
@@ -184,9 +281,9 @@ func CalcShotScoreDetail(shot Shot, bean *Bean) ScoreDetail {
 	if shot == nil {
 		return ScoreDetail{}
 	}
-	d := toMap(shot["datapoints"])
+	ss := extractScoreSeries(shot["datapoints"])
 
-	p := divAll(floatSlice(d["pressure"]), 10)
+	p := divAll(ss.pressure, 10)
 	var pVals []float64
 	for _, v := range p {
 		if v >= 5 {
@@ -214,7 +311,7 @@ func CalcShotScoreDetail(shot Shot, bean *Bean) ScoreDetail {
 	scores = append(scores, jsRound(sPressure))
 	weights = append(weights, 25)
 
-	tVals := divAll(floatSlice(d["temperature"]), 10)
+	tVals := divAll(ss.temperature, 10)
 	if len(tVals) > 5 {
 		sd := stddev(tVals)
 		var stab float64
@@ -233,7 +330,7 @@ func CalcShotScoreDetail(shot Shot, bean *Bean) ScoreDetail {
 
 		avgT := avg(tVals)
 		var tgt []float64
-		for _, v := range divAll(floatSlice(d["targetTemperature"]), 10) {
+		for _, v := range divAll(ss.targetTemperature, 10) {
 			if v > 0 {
 				tgt = append(tgt, v)
 			}
@@ -300,17 +397,9 @@ func CalcShotScoreDetail(shot Shot, bean *Bean) ScoreDetail {
 	}
 
 	ann := toMap(shot["annotation"])
-	// wArr replicates JS's `d.shotWeight || d.weight || []`: JS truthiness
-	// picks d.shotWeight whenever the key is present with a non-null value —
-	// including an empty array — over d.weight, even if d.weight has real
-	// data. Not a Go idiom, a deliberate reproduction of that exact quirk.
-	var wRaw any
-	if v, ok := d["shotWeight"]; ok && v != nil {
-		wRaw = v
-	} else if v, ok := d["weight"]; ok && v != nil {
-		wRaw = v
-	}
-	wArr := floatSlice(wRaw)
+	// ss.weight already replicates JS's `d.shotWeight || d.weight || []`
+	// truthiness quirk (see scoreSeries.weight's doc comment).
+	wArr := ss.weight
 	var finalW float64
 	if len(wArr) > 0 {
 		finalW = maxOf(divAll(wArr, 10))
@@ -370,7 +459,7 @@ func CalcShotScoreDetail(shot Shot, bean *Bean) ScoreDetail {
 		weights = append(weights, 20)
 	}
 
-	times := divAll(floatSlice(d["timeInShot"]), 10)
+	times := divAll(ss.timeInShot, 10)
 	if detectChanneling(times, p) {
 		scores = append(scores, 20)
 	} else {

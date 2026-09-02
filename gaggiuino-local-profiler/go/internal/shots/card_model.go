@@ -46,10 +46,7 @@ func newCardModel(shot Shot, score *int, format, accent, theme string, deps card
 // ── datapoint / annotation extraction (lib/card.js "── Data ──") ────────
 
 func (c *cardModel) datapoints() map[string]any {
-	if dp, ok := c.shot["datapoints"].(map[string]any); ok {
-		return dp
-	}
-	return map[string]any{}
+	return DatapointsMap(c.shot)
 }
 
 func (c *cardModel) annotation() map[string]any {

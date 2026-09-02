@@ -13,7 +13,7 @@ import (
 // newTestHandlers opens a throwaway on-disk SQLite DB via internal/db.Open
 // (same fixture pattern as internal/db's own tests — see db_test.go) and
 // wires it into a fresh Handlers/Repository pair.
-func newTestHandlers(t *testing.T) (*Handlers, *Repository, *sql.DB) {
+func newTestHandlers(t testing.TB) (*Handlers, *Repository, *sql.DB) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "glp.db")
 	sqlDB, err := db.Open(dbPath)
@@ -43,7 +43,7 @@ func newMux(h *Handlers) *http.ServeMux {
 // deliberately doesn't port ShotRepository.js's upsert()/upsertMany() in
 // this phase — see repository.go's doc comment) plus an optional
 // annotation row.
-func insertShot(t *testing.T, sqlDB *sql.DB, id, timestamp int64, duration *int64, profileName string, data map[string]any, annotation map[string]any) {
+func insertShot(t testing.TB, sqlDB *sql.DB, id, timestamp int64, duration *int64, profileName string, data map[string]any, annotation map[string]any) {
 	t.Helper()
 	if data == nil {
 		data = map[string]any{}
@@ -77,7 +77,7 @@ func insertShot(t *testing.T, sqlDB *sql.DB, id, timestamp int64, duration *int6
 	}
 }
 
-func decodeBody(t *testing.T, body []byte) map[string]any {
+func decodeBody(t testing.TB, body []byte) map[string]any {
 	t.Helper()
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {

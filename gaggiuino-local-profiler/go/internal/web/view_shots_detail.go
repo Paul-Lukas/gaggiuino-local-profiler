@@ -51,10 +51,7 @@ func grinderGrindLabel(grinder, grindSetting string) string {
 // panel shows an empty-state message instead of an inert empty canvas for
 // a shot with no datapoints (e.g. one imported without curve data).
 func hasChartData(shot shots.Shot) bool {
-	dp, ok := shot["datapoints"].(map[string]any)
-	if !ok {
-		return false
-	}
+	dp := shots.DatapointsMap(shot)
 	arr, ok := dp["timeInShot"].([]any)
 	return ok && len(arr) > 0
 }

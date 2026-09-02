@@ -60,6 +60,27 @@ func (r *Repository) FindAllExcludingTrash() ([]Shot, error) {
 	return out, rows.Err()
 }
 
+// FindLastExcludingTrash returns the single newest non-trashed shot — the
+// one routes/shots.js's GET /api/shots/last keeps as `shots[shots.length -
+// 1]` after shotService.getAll() (findAllExcludingTrash, ORDER BY timestamp
+// ASC). "Newest" there means greatest timestamp and, on a tie, the row
+// SQLite returned last for that ASC scan (greatest id) — so the equivalent
+// single-row query is ORDER BY s.timestamp DESC, s.id DESC LIMIT 1, the
+// same ordering getLatestId already uses. Hydrating one row instead of all
+// 213 to discard the rest (#951). Returns (nil, nil) when there are no
+// shots, matching the Node `shots.length ? … : null` / `if (!last)` branch.
+func (r *Repository) FindLastExcludingTrash() (Shot, error) {
+	row := r.db.QueryRow(selectBase + ` WHERE s.id NOT IN (SELECT shot_id FROM trash) ORDER BY s.timestamp DESC, s.id DESC LIMIT 1`)
+	shot, err := hydrateRow(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("shots: finding last shot: %w", err)
+	}
+	return shot, nil
+}
+
 // FindAllExcludingTrashByMachine ports ShotRepository.js's
 // findAllExcludingTrash(machineId) with machineId actually supplied — the
 // machineId-scoped variant the type doc comment above flagged as

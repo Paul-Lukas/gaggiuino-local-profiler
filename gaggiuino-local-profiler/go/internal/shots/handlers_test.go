@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func doJSON(t *testing.T, mux *http.ServeMux, method, path string, body []byte) *httptest.ResponseRecorder {
+func doJSON(t testing.TB, mux *http.ServeMux, method, path string, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	var r *http.Request
 	if body != nil {

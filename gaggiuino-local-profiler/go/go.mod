@@ -6,6 +6,7 @@ require (
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/a-h/templ v0.3.1020
 	github.com/eclipse/paho.mqtt.golang v1.5.1
+	github.com/goccy/go-json v0.10.6
 	github.com/kanrichan/resvg-go v0.0.1
 	golang.org/x/crypto v0.55.0
 	golang.org/x/image v0.45.0
