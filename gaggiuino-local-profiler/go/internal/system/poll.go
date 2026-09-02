@@ -12,6 +12,7 @@ import (
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ha"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
 )
 
@@ -131,6 +132,16 @@ type pollGlobalState struct {
 	// phase") exists to consume the false->true transition this captures.
 	wasReachable *bool
 
+	// Phase 2a (#901): manual-sync (POST /api/sync) progress. lastManualSync
+	// backs the 30s cooldown; lastSyncTime/lastSyncError mirror
+	// lib/state.js's fields of the same name and are now reported by GET
+	// /api/status (before 2a they were permanently null — see doc.go).
+	// defaultSyncInFlight is syncShots()'s #773 single-run guard.
+	lastManualSync      time.Time
+	lastSyncTime        *string
+	lastSyncError       *string
+	defaultSyncInFlight bool
+
 	readyByTargetAt   *int64
 	plannedSwitchOnAt *int64
 	// preheatNotifySent mirrors lib/state.js's field of the same name,
@@ -161,6 +172,11 @@ type Poller struct {
 
 	runtime *RuntimeState
 	state   pollGlobalState
+
+	// shots is the sync-target Repository, wired via SetShotsRepo (sync.go)
+	// rather than NewPoller so the existing NewPoller call sites stay
+	// unchanged. nil until cmd/server sets it — RunManualSync no-ops then.
+	shots *shots.Repository
 
 	liveMu     sync.Mutex
 	liveTicker *time.Ticker

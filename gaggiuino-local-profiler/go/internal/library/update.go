@@ -109,15 +109,18 @@ func UpdateBean(repo *Repository, id int64, body Entity) (Entity, Library, bool,
 	if _, present := body["brewNotes"]; present {
 		bean["brewNotes"] = trimMax(body["brewNotes"], 300)
 	}
-	// geocodeBean (region -> map coordinates) is deliberately NOT ported —
-	// see doc.go. A region change still clears the stale `location`,
-	// matching the Node original; it just never gets recomputed here.
+	// Phase 2g (#901): a region change clears the stale `location` AND
+	// triggers a fire-and-forget re-geocode (maybeGeocode below, after the
+	// save), matching routes/library/beans.js's
+	// `if (regionChanged && ...region) libraryService.geocodeBean(id)`.
+	regionChanged := false
 	if _, present := body["region"]; present {
 		newRegion := trimMax(body["region"], 200)
 		oldRegion, _ := bean["region"].(string)
 		bean["region"] = newRegion
 		if newRegion != oldRegion {
 			bean["location"] = nil
+			regionChanged = true
 		}
 	}
 	if _, present := body["stock_g"]; present {
@@ -153,6 +156,11 @@ func UpdateBean(repo *Repository, id int64, body Entity) (Entity, Library, bool,
 	lib.Beans[idx] = bean
 	if err := repo.SaveLibrary(lib); err != nil {
 		return nil, Library{}, false, err
+	}
+	if regionChanged {
+		region, _ := bean["region"].(string)
+		origin, _ := bean["origin"].(string)
+		maybeGeocode(id, region, origin)
 	}
 	return bean, lib, true, nil
 }

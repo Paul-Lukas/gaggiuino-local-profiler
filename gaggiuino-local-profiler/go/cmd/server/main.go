@@ -127,6 +127,17 @@ func main() {
 	libraryHandlers := library.NewHandlers(libRepo, shotsRepo)
 	libraryHandlers.RegisterRoutes(mux)
 
+	// Phase 2g (#901): fire-and-forget bean-region geocoding
+	// (lib/geo.js + LibraryService.geocodeBean). library.CreateBean/
+	// UpdateBean call library.GeocodeHook un-awaited when a bean's region
+	// is set/changed — the Go equivalent of routes/library/beans.js's
+	// `libraryService.geocodeBean(id).catch(() => {})`. Set here (nil in
+	// tests) to keep those functions' signatures unchanged.
+	geocoder := library.NewGeocoder(libRepo)
+	library.GeocodeHook = func(beanID int64, _, _ string) {
+		geocoder.GeocodeBean(context.Background(), beanID)
+	}
+
 	// Phase 2b (#901): the Library domain's Go frontend pages — Beans (plus
 	// its one htmx write action, toggle-active) and read-only lists for
 	// Grinders/Baskets/Puck Screens/Milks/Recipes, built on the same
@@ -182,6 +193,9 @@ func main() {
 	// every other domain package here), so ctx is background — cancelling
 	// it would only matter for a future clean-shutdown path.
 	poller := system.NewPoller(registry, machinesHandlers, hub, haClient)
+	// Phase 2a (#901): POST /api/sync's manual shot-history pull loop
+	// persists through shotsRepo — see go/internal/system/sync.go.
+	poller.SetShotsRepo(shotsRepo)
 	poller.Start(context.Background())
 	// Closes internal/orders' shop-broadcast deferral (see
 	// internal/orders/doc.go and internal/system/doc.go's "internal/orders'
@@ -236,6 +250,7 @@ func main() {
 	// `grinder_{id}` maintenance-table row, via a callback (not a direct
 	// import) since internal/maintenance already imports internal/library.
 	libraryHandlers.SetOnGrinderDeleted(maintenanceRepo.DeleteGrinderTask)
+
 
 	// Phase 2e (#901): the Maintenance domain's Go frontend page —
 	// GET /maintenance (per-machine task list + a machine switcher) plus

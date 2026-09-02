@@ -11,10 +11,11 @@ import (
 // This file ports the LibraryService.js methods routes/library/*.js's
 // handlers actually call: getBeansInfo, computeGrinderWearStats,
 // upsertKnownGrindSetting, setBeanImage. Everything else on
-// LibraryService.js (maintenance/*, computeBeanRemaining, getActiveBeans,
-// getActiveMilks, deductMilkByName, migrate*, geocodeBean,
-// checkLowStockNotify, resolveBeanForAnnotation/findBeanByName) is out of
-// this phase's scope — see doc.go for exactly why each one is deferred.
+// LibraryService.js (maintenance/*, migrate*, checkLowStockNotify,
+// resolveBeanForAnnotation/findBeanByName) is out of this phase's scope —
+// see doc.go. computeBeanRemaining/getActiveBeans/getActiveMilks/
+// deductMilkByName landed in Phase 1f (orders_support.go); geocodeBean
+// landed in Phase 2g (geo.go).
 
 // GetBeansInfo ports LibraryService.js's getBeansInfo() — lightweight bean
 // metadata for GET /api/library/beans-info, a contract glp-integration's

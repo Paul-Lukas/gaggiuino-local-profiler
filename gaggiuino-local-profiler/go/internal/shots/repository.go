@@ -212,6 +212,30 @@ func (r *Repository) GetLatestID(machineID int64) (id int64, ok bool, err error)
 	return id, true, nil
 }
 
+// MaxNativeShotID ports lib/sync.js's maxDefaultMachineShotId(): the
+// highest shot id filed under the given machine that is still a real
+// native id. #341: scoped to one machine so another machine's synthetic
+// ids (10,000,000+) can't inflate it. #719: also excludes any id at or
+// above machineIDOffset even if it's (wrongly) filed under this machine —
+// a corrupt/pre-existing row must never poison the max the sync loop
+// catches up from. Trash is excluded, matching the Node original's
+// `shotService.getAll(1)` == findAllExcludingTrash(1). Returns 0 when the
+// machine has no qualifying shots yet, matching the Node reduce() seed.
+func (r *Repository) MaxNativeShotID(machineID int64) (int64, error) {
+	var maxID sql.NullInt64
+	err := r.db.QueryRow(
+		`SELECT MAX(id) FROM shots WHERE machine_id = ? AND id < ? AND id NOT IN (SELECT shot_id FROM trash)`,
+		machineID, machineIDOffset,
+	).Scan(&maxID)
+	if err != nil {
+		return 0, fmt.Errorf("shots: getting max native id: %w", err)
+	}
+	if !maxID.Valid {
+		return 0, nil
+	}
+	return maxID.Int64, nil
+}
+
 // Count ports ShotRepository.js's count(): a plain `SELECT COUNT(*) FROM
 // shots`, deliberately including trashed rows (no `NOT IN (SELECT shot_id
 // FROM trash)` filter — mirrors the Node original exactly, not

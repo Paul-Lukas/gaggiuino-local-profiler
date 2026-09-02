@@ -109,6 +109,13 @@ func (h *Handlers) SetPreheatInfoProvider(fn PreheatInfoFunc) {
 func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	gate := h.withOrdersGate
 
+	// Phase 2a (#901): routes/system.js's GET /api/menu — the public drink
+	// list for shot annotations, deliberately NOT behind the isOrdersEnabled
+	// gate (loadMenu() === orderRepo.getMenu(), so it's this same handler,
+	// just ungated). Lives here rather than internal/system because this
+	// package owns the orders Repository getMenu reads from.
+	mux.HandleFunc("GET /api/menu", h.getMenu)
+
 	mux.HandleFunc("GET /api/orders/menu", gate(h.getMenu))
 	mux.HandleFunc("POST /api/orders/menu", gate(h.postMenu))
 	mux.HandleFunc("PUT /api/orders/menu/{id}", gate(h.putMenuItem))

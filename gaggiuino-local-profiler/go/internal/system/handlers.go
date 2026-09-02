@@ -53,6 +53,29 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/demo/end", h.postDemoEnd)
 	mux.HandleFunc("GET /api/token", h.getToken)
 	mux.HandleFunc("GET /api/status", h.getStatus)
+
+	// Phase 2a (#901): the remaining routes/system.js endpoints the
+	// embedded Vite frontend / glp-integration call — see switch.go,
+	// openapi.go, sync.go.
+	mux.HandleFunc("GET /api/switch", h.getSwitch)
+	mux.HandleFunc("POST /api/switch/toggle", h.postSwitchToggle)
+	mux.HandleFunc("GET /api/openapi.json", h.getOpenAPI)
+	mux.HandleFunc("POST /api/sync", h.postSync)
+}
+
+// postSync ports routes/system.js's POST /api/sync: a 30s-cooldown manual
+// trigger of the shot-history pull loop. Responds 200 `{ ok: true }`
+// immediately and runs the sync un-awaited (matching Node's `res.json({ ok:
+// true }); require('../lib/live-sync').syncAllMachines();` ordering), or 429
+// with the German cooldown message. See sync.go for the pull loop itself
+// and what of lib/sync.js it does and does not port.
+func (h *Handlers) postSync(w http.ResponseWriter, r *http.Request) {
+	if !h.poller.tryStartManualSync() {
+		writeError(w, http.StatusTooManyRequests, "Bitte 30 Sekunden zwischen manuellen Syncs warten.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	go h.poller.RunManualSync(context.Background())
 }
 
 // machineStatus ports GET /api/machine/status: the default machine's
@@ -245,13 +268,14 @@ func (h *Handlers) getToken(w http.ResponseWriter, r *http.Request) {
 // Ingress bypass, from the header alone; Ingress makes the middleware let
 // the request through, it does NOT make req.glpAuthenticated true).
 //
-// Deliberately always null/zero here, pending a future sync-engine phase
-// (see doc.go's "Deliberately not ported" — lib/sync.js): lastSync,
-// syncRetryCount, lastSyncError. Nothing in this Go port tracks the
-// shot-history sync loop those three describe yet; they're present in the
-// response (matching openapi.yaml's Status schema) so a client parsing
-// them doesn't break, just permanently at their zero value until that
-// engine exists.
+// Phase 2a (#901) wired lastSync/lastSyncError: POST /api/sync's manual
+// pull loop (sync.go) now records them, so GET /api/status reports real
+// values once a sync has run (null until then, as before). syncRetryCount
+// stays permanently 0 — the automatic retry/backoff scheduler
+// (scheduleNextSync) is still not ported, there being no automatic sync
+// loop in this Go port for it to hang off; it's present in the response
+// (matching openapi.yaml's Status schema) so a client parsing it doesn't
+// break.
 func (h *Handlers) getStatus(w http.ResponseWriter, r *http.Request) {
 	registry := h.poller.registry
 
@@ -278,6 +302,7 @@ func (h *Handlers) getStatus(w http.ResponseWriter, r *http.Request) {
 	machineURL, machineHostname := apiURLAndHostnameFor(defaultHost)
 
 	info := h.poller.StatusInfo()
+	syncInfo := h.poller.SyncState()
 	snap := h.poller.Runtime().Get()
 	machineReachable := info.MachineReachable
 	lastMachineError := info.LastMachineError
@@ -328,7 +353,7 @@ func (h *Handlers) getStatus(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]any{
 		"shotCount":                   shotCount,
-		"lastSync":                    nil,
+		"lastSync":                    nullableStr(syncInfo.LastSync),
 		"syncRetryCount":              0,
 		"machineVersion":              info.CachedMachineVersion,
 		"syncInterval":                loadSyncIntervalMinutes(),
@@ -352,7 +377,7 @@ func (h *Handlers) getStatus(w http.ResponseWriter, r *http.Request) {
 	if auth.IsTokenValid(h.token, r.Header.Get("X-GLP-Token")) {
 		resp["machineUrl"] = machineURL
 		resp["machineHostname"] = machineHostname
-		resp["lastSyncError"] = nil
+		resp["lastSyncError"] = nullableStr(syncInfo.LastSyncError)
 		resp["lastMachineError"] = lastMachineError
 		var switchEntity any
 		if entity := h.poller.defaultSwitchEntity(); entity != "" {
@@ -377,6 +402,15 @@ var (
 
 func internalError(w http.ResponseWriter, err error) {
 	httputil.InternalError(w, "system", err)
+}
+
+// nullableStr renders a *string as its value or JSON null — GET /api/status's
+// lastSync/lastSyncError, which are null until the first manual sync runs.
+func nullableStr(s *string) any {
+	if s == nil {
+		return nil
+	}
+	return *s
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request) (map[string]any, bool) {

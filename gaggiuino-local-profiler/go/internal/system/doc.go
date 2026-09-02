@@ -20,19 +20,21 @@
 // every GlpDataCoordinator poll's first call — without both, nothing
 // downstream of Phase 1g's own endpoints was ever reachable by a real
 // client. See handlers.go's getToken/getStatus doc comments for exactly
-// which fields those two report and which (lastSync/syncRetryCount/
-// lastSyncError) are still permanently null/0 pending a future sync-engine
-// phase.
+// which fields those two report. Phase 2a (#901) wired GET /api/status's
+// lastSync/lastSyncError from POST /api/sync's manual pull loop (sync.go);
+// syncRetryCount stays permanently 0 — the automatic retry/backoff
+// scheduler is still unported (no automatic sync loop for it to hang off).
 //
-// Still explicitly out of scope — GET/POST /api/switch(/toggle), POST
-// /api/sync, GET /api/openapi.json, GET /api/menu (that one is
-// internal/orders' GetMenu already), and the H2 debug-only
-// GET /api/debug/machine. These remain unrouted; a future pass can add
-// them without touching anything this phase built, since none of the
-// endpoints ported here depend on them. go/README.md's status section
-// reflects this precisely — "every REST domain package now exists and
-// routes the endpoints its phase brief scoped it to," not "every single
-// route in routes/system.js is ported."
+// Phase 2a (#901) routed the rest of routes/system.js's surface the
+// embedded Vite frontend / glp-integration call: GET /api/switch +
+// POST /api/switch/toggle (switch.go), GET /api/openapi.json (openapi.go —
+// the repo-root openapi.yaml is committed as go/internal/system/
+// openapi.yaml and served as JSON), POST /api/sync (sync.go — see its
+// header for exactly what of lib/sync.js it does and does not port), and
+// GET /api/menu (routed ungated from internal/orders, which owns the menu
+// Repository). Still unrouted: only the H2 debug-only
+// GET /api/debug/machine (an internal/system debug helper — Phase 2e's
+// debug-routes brief owns that one).
 //
 // # File layout
 //
@@ -105,8 +107,14 @@
 //
 // # Deliberately not ported (and why)
 //
-//   - lib/sync.js entirely — syncShots()/syncAfterBrew()/scheduleNextSync()/
-//     fetchMachineVersion(). Three call sites in lib/poll.js reference it:
+//   - most of lib/sync.js. Phase 2a (#901) ported the default machine's
+//     syncShots() pull loop for POST /api/sync's manual trigger (sync.go);
+//     still not ported are syncOtherMachines()/syncMachineShots() (needs
+//     adapter GetShot/GetLatestShotId methods — machines-domain work),
+//     syncAfterBrew()'s brew-finished auto-sync, scheduleNextSync()'s
+//     retry/backoff timer (state.syncRetryCount stays 0), and
+//     fetchMachineVersion(). The lib/poll.js call sites below still don't
+//     reach any of them:
 //     the #725 reachability-recovery catch-up sync, the brew-finished
 //     setTimeout(syncAfterBrew, 3000), and backgroundHaCheck's
 //     `if (!cachedMachineVersion) fetchMachineVersion()` fallback (this
@@ -136,8 +144,8 @@
 //     internal/orders' settings, and internal/orders already depends on
 //     this package (see below) for its own shop-broadcast — adding the
 //     reverse dependency too, in the same phase, would need a second round
-//     of callback plumbing this phase's budget didn't cover. Tracked as a
-//     follow-up alongside GET/POST /api/switch above.
+//     of callback plumbing this phase's budget didn't cover. Still a
+//     follow-up (GET/POST /api/switch itself is now ported — Phase 2a).
 //   - lib/machines/options-adoption.js's adoptOptionChanges() (the write
 //     side of reconciling a legacy machine_host/switch_entity add-on
 //     option into the registry) — GET /api/status's
@@ -145,8 +153,8 @@
 //     documented always-false stub; see status.go's
 //     hasUnconfirmedLegacyMachineOptions doc comment for why porting the
 //     read side alone isn't meaningful without it.
-//   - GET/POST /api/switch(/toggle), POST /api/sync, GET
-//     /api/openapi.json, GET /api/debug/machine — see "Scope" above.
+//   - GET /api/debug/machine (Phase 2e's debug-routes brief). Everything
+//     else in routes/system.js is now routed — see "Scope" above.
 //
 // # internal/orders' shop-broadcast (closed in this phase)
 //

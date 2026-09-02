@@ -118,6 +118,11 @@ func CreateBean(repo *Repository, imageDir string, body Entity) (Entity, Library
 		go SetBeanImage(repo, imageDir, id, imageURL)
 	}
 
+	// Fire-and-forget region -> map-coordinates geocode (Phase 2g, #901) —
+	// mirrors routes/library/beans.js's un-awaited geocodeBean call. A no-op
+	// unless cmd/server wired GeocodeHook and region is non-empty.
+	maybeGeocode(id, trimMax(body["region"], 200), origin)
+
 	return bean, lib, nil
 }
 

@@ -69,17 +69,19 @@
 // Still deferred, unchanged from Phase 1d:
 //
 //   - LibraryService.js's geocodeBean (region -> map coordinates via
-//     lib/geo.js, an external geocoding provider) is fire-and-forget and
-//     not part of this phase's explicit scope (unlike setBeanImage's
-//     ALLOWED_IMAGE_HOSTS-gated download, which the task called out by
-//     name and IS ported, see image.go/service.go). A bean's `region`
-//     field is still stored; `location` is just never (re)computed by the
-//     Go server. Move this here once internal/geo (or equivalent) exists.
+//     lib/geo.js, an external geocoding provider) is now ported (Phase 2g,
+//     #901) in geo.go: CreateBean/UpdateBean call the package-level
+//     GeocodeHook fire-and-forget when a bean's region is set/changed
+//     (cmd/server wires it to a Geocoder; nil in tests). The outbound
+//     Nominatim call goes through assertPublicHost (ssrf.go) like scan.go's
+//     Open Food Facts call, and results are cached in the kv table.
 //   - bus.emit(EVENTS.BEAN_CHANGED, ...) (routes/library/beans.js's
-//     create/update/new-bag) is not fired: the achievements domain that
-//     listens for it doesn't exist in this rewrite yet. No user-visible
-//     effect on the Library API surface itself — only on achievement
-//     unlocks, which aren't part of this REST contract.
+//     create/update/new-bag) is not fired: this Go port has no event bus.
+//     internal/achievements now exists (Phase 2b) but re-evaluates on
+//     every read instead of on bus events, so the only thing lost is the
+//     restock badge's live "wasEmpty" moment (documented in
+//     internal/achievements/doc.go). No effect on the Library REST
+//     contract itself.
 //
 // See openapi.yaml's Library tag for the frozen response-shape contract.
 // Where Node's actual runtime behavior and the OpenAPI doc disagree (e.g.
