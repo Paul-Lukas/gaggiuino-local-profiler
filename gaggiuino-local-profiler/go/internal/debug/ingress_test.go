@@ -82,6 +82,24 @@ func TestIngress_JSONShape_IngressRequest(t *testing.T) {
 	}
 }
 
+func TestPathPrefixVerdict(t *testing.T) {
+	cases := []struct {
+		name, path, want string
+	}{
+		{"empty", "", "warn"},
+		{"classic hex token", "/api/hassio_ingress/0123456789abcdef", "ok"},
+		{"url-safe token (newer HA)", "/api/hassio_ingress/aB3-_xYz.9", "ok"},
+		{"wrong prefix", "/app/373fc166_glp_go_preview", "warn"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pathPrefixVerdict(c.path).Status; got != c.want {
+				t.Errorf("pathPrefixVerdict(%q).Status = %q, want %q", c.path, got, c.want)
+			}
+		})
+	}
+}
+
 func TestIngress_JSONShape_BareRequest(t *testing.T) {
 	mux := ingressMux(t)
 

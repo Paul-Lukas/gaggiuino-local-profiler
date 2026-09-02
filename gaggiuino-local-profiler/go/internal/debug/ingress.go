@@ -150,10 +150,19 @@ func pathPrefixVerdict(xIngressPath string) ingressVerdict {
 	switch {
 	case xIngressPath == "":
 		return ingressVerdict{"warn", "no X-Ingress-Path header on this request — either it did not arrive through HA ingress, or the Supervisor did not set the header." + invariant}
-	case ingressPathRE.MatchString(xIngressPath):
-		return ingressVerdict{"ok", fmt.Sprintf("X-Ingress-Path %q is well-formed (/api/hassio_ingress/<hex>).", xIngressPath) + invariant}
+	case strings.HasPrefix(xIngressPath, auth.HAIngressPrefix):
+		// Same check auth.IsIngressRequest makes — the per-session token
+		// after the prefix is opaque (HA has used both hex and URL-safe
+		// base64 tokens across versions), so its exact charset is not
+		// something to warn about. ingressPathRE stays as the "textbook
+		// shape" note only.
+		msg := fmt.Sprintf("X-Ingress-Path %q has the expected %s… prefix.", xIngressPath, auth.HAIngressPrefix)
+		if !ingressPathRE.MatchString(xIngressPath) {
+			msg += " (token segment is not classic hex, which is fine — newer HA uses URL-safe tokens.)"
+		}
+		return ingressVerdict{"ok", msg + invariant}
 	default:
-		return ingressVerdict{"warn", fmt.Sprintf("X-Ingress-Path %q is present but not the expected /api/hassio_ingress/<hex> shape — double-check the proxy.", xIngressPath) + invariant}
+		return ingressVerdict{"warn", fmt.Sprintf("X-Ingress-Path %q is present but does not start with %s — double-check the proxy chain.", xIngressPath, auth.HAIngressPrefix) + invariant}
 	}
 }
 
