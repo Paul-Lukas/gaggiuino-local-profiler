@@ -57,6 +57,14 @@ async function syncAfterBrew() {
 }
 
 async function syncShots(runtime = defaultRuntime) {
+    // GaggiMate does not expose /api/shots/latest. Delegate to the
+    // adapter-driven syncMachineShots() path which uses req:history:list
+    // + /api/history/<id>.slog instead.
+    const defaultMachine = registry.getDefaultMachine();
+    if (defaultMachine?.type === 'gaggimate') {
+        debugLog('Skipping Gaggiuino latest-shot polling for GaggiMate');
+        return syncMachineShots(defaultMachine);
+    }
     const switchEntity = registry.switchEntityFor();
     // #655: this early return intentionally leaves lastSyncTime/lastSyncError
     // untouched -- lib/poll.js's checkAndApplyMachinePower() now sets
