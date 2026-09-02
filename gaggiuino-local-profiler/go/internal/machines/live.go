@@ -37,17 +37,13 @@ import (
 // calls Hub.Publish today. See go/internal/system/doc.go's "Reconciling
 // with Phase 1e's live.go" section for the full story.
 //
-// A persistent GaggiMate equivalent (ws-client.js's GaggiMateLiveClient
-// class) is deliberately NOT ported: every REST endpoint in this phase's
-// scope that would read cached live GaggiMate data
-// (GET /api/machine/live) is gated by requireSettingsProxySupport, and the
-// GaggiMate adapter reports capabilities().settingsProxy == false — so
-// that endpoint 501s for GaggiMate before ever reaching a live-cache read.
-// The persistent class exists in Node only to feed lib/poll.js's
-// multi-machine live-poll loop (system domain, not yet ported) — see
-// gaggimate_ws.go's header comment for the short-lived request/
-// waitForStatus functions this package does port (used by
-// GaggiMateAdapter.GetStatus, reachable via POST /api/machines/{id}/test).
+// The persistent GaggiMate equivalent (ws-client.js's GaggiMateLiveClient
+// class) is its own file now — gaggimate_live.go (#952) — added once the
+// system-domain live-poll loop landed and started calling
+// GaggiMateAdapter.GetStatus once a second for a GaggiMate default machine
+// (PR #947's "GaggiMate WS hammer"). Same session/reconnect/idle-eviction
+// pattern as this file; it caches one evt:status map instead of the two
+// typed proto DTOs.
 
 const (
 	liveReconnectDelay = 3 * time.Second

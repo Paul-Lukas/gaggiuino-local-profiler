@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 )
 
@@ -141,6 +142,30 @@ func TestRunScheduledSync_NoopWithoutShotsRepo(t *testing.T) {
 	}
 	if ran.Load() {
 		t.Fatal("sync ran despite no shots repo wired")
+	}
+}
+
+func TestSyncDefaultMachineShots_GaggiMateProbesInsteadOfHammering(t *testing.T) {
+	fake := &fakeAdapter{}
+	fake.setStatus(okStatus(t, `{}`, 92, 93, 0, 0, false, "Espresso", 1), nil)
+	p, sqlDB := newTestPoller(t, fake)
+	p.SetShotsRepo(shots.NewRepository(sqlDB))
+
+	gm := "gaggimate"
+	if _, err := machines.NewRegistry(sqlDB).UpdateMachine(1, machines.MachineInput{Type: &gm}, nil); err != nil {
+		t.Fatalf("set machine type: %v", err)
+	}
+
+	if err := p.syncDefaultMachineShots(context.Background()); err != nil {
+		t.Fatalf("syncDefaultMachineShots: %v", err)
+	}
+
+	// Reachability recorded from the adapter probe, but nothing was synced.
+	if r := p.StatusInfo().MachineReachable; r == nil || !*r {
+		t.Errorf("MachineReachable = %v, want true after a successful GaggiMate probe", r)
+	}
+	if ss := p.SyncState(); ss.LastSync != nil {
+		t.Errorf("LastSync = %v, want nil (a probe is not a sync)", *ss.LastSync)
 	}
 }
 

@@ -13,7 +13,7 @@ func TestGaggiMateAdapter_GetStatus(t *testing.T) {
 	allowLoopbackMachineHost(t)
 	fake := newFakeGaggiMateMachine()
 	defer fake.Close()
-	a := NewGaggiMateAdapter()
+	a := newTestGaggiMateAdapter(t)
 
 	status, err := a.GetStatus(context.Background(), testGaggiMateMachine(fake.URL))
 	if err != nil {
@@ -35,7 +35,7 @@ func TestGaggiMateAdapter_ProfileListLoadSelect(t *testing.T) {
 	fake := newFakeGaggiMateMachine()
 	fake.profiles = []map[string]any{{"id": float64(1), "name": "Espresso"}}
 	defer fake.Close()
-	a := NewGaggiMateAdapter()
+	a := newTestGaggiMateAdapter(t)
 	m := testGaggiMateMachine(fake.URL)
 	ctx := context.Background()
 
@@ -64,7 +64,7 @@ func TestGaggiMateAdapter_ProfileListLoadSelect(t *testing.T) {
 // proxy off entirely — verifies the capability flags handlers.go checks
 // before ever calling the corresponding adapter methods.
 func TestGaggiMateAdapter_Capabilities(t *testing.T) {
-	caps := NewGaggiMateAdapter().Capabilities()
+	caps := newTestGaggiMateAdapter(t).Capabilities()
 	if caps.ProfileEdit {
 		t.Error("GaggiMate Capabilities().ProfileEdit = true, want false (v1 UI-level gate)")
 	}
@@ -77,7 +77,7 @@ func TestGaggiMateAdapter_Capabilities(t *testing.T) {
 }
 
 func TestGaggiMateAdapter_SettingsProxyUnsupported(t *testing.T) {
-	a := NewGaggiMateAdapter()
+	a := newTestGaggiMateAdapter(t)
 	m := testGaggiMateMachine("gaggimate.local")
 	ctx := context.Background()
 

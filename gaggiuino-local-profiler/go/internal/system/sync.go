@@ -137,6 +137,19 @@ func (p *Poller) syncDefaultMachineShots(ctx context.Context) error {
 	if machine.Host == "" {
 		return nil
 	}
+
+	// #952: a GaggiMate default machine has no /api/shots REST surface — its
+	// shot history is the binary index.bin/.slog files
+	// (lib/machines/gaggimate/history.js), whose parser is not ported yet
+	// (Part B). Dispatch by adapter type here AFTER the machine-off and
+	// in-flight guards above: probe reachability via the adapter's own
+	// status call (which reads the persistent evt:status cache, not a fresh
+	// connection) instead of blindly hammering the Gaggiuino-only
+	// /api/shots/latest, and leave the backfill for the history-parser port.
+	if machine.Type == "gaggimate" {
+		return p.probeGaggiMateReachable(ctx, machine)
+	}
+
 	base, err := machines.BaseURLFor(ctx, machine)
 	if err != nil {
 		return fmt.Errorf("resolving machine URL: %w", err)
@@ -208,6 +221,25 @@ func (p *Poller) syncDefaultMachineShots(ctx context.Context) error {
 
 	log.Printf("system: sync complete: caught up to shot %d", *latestMachineID)
 	p.recordSyncSuccess()
+	return nil
+}
+
+// probeGaggiMateReachable handles a GaggiMate default machine on the sync
+// path: one adapter status probe (persistent-cache-backed) to keep
+// machineReachable accurate, then a logged skip of the actual backfill
+// until lib/machines/gaggimate/history.js's binary parser is ported (#952
+// Part B). Never touches lastSyncTime — nothing was actually synced.
+func (p *Poller) probeGaggiMateReachable(ctx context.Context, machine *machines.Machine) error {
+	adapter, err := p.adapters.GetAdapter(machine)
+	if err != nil {
+		return err
+	}
+	if _, err := adapter.GetStatus(ctx, machine); err != nil {
+		p.recordSyncError(err)
+		return err
+	}
+	p.recordMachineReachable()
+	log.Printf("system: sync: GaggiMate default machine reachable — shot-history backfill not ported yet (#952 Part B)")
 	return nil
 }
 

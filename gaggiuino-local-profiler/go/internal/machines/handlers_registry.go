@@ -95,7 +95,7 @@ func (h *Handlers) updateMachine(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSONBody(w, r, &in) {
 		return
 	}
-	machine, found, err := UpdateMachineChecked(r.Context(), h.registry, id, in, h.liveClient.DisconnectForHost)
+	machine, found, err := UpdateMachineChecked(r.Context(), h.registry, id, in, h.disconnectLiveForHost)
 	if err != nil {
 		var verr *ValidationError
 		if errors.As(err, &verr) {
@@ -118,7 +118,7 @@ func (h *Handlers) deleteMachine(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	deleted, err := h.registry.DeleteMachine(id, h.liveClient.DisconnectForHost)
+	deleted, err := h.registry.DeleteMachine(id, h.disconnectLiveForHost)
 	if err != nil {
 		if errors.Is(err, ErrCannotDeleteDefault) || errors.Is(err, ErrCannotDeleteLastMachine) {
 			writeError(w, http.StatusBadRequest, err.Error())

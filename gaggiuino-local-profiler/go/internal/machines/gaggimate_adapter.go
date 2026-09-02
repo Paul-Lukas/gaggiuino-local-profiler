@@ -20,9 +20,18 @@ import (
 // profile checks that first (requireProfileEditSupport's Go port, see
 // handlers.go) — matching capabilities()'s comment in the Node original
 // that this is a deliberate v1 UI-level gate, not a protocol limitation.
-type GaggiMateAdapter struct{}
+type GaggiMateAdapter struct {
+	// live is the persistent evt:status cache (#952). GetStatus reads it
+	// instead of opening a fresh WebSocket per call — the live-poll loop
+	// calls GetStatus once a second, and short-lived-connection-per-tick
+	// was PR #947's "GaggiMate WS hammer". Falls back to a one-shot
+	// gaggimateWaitForStatus when the cache has no fresh frame yet.
+	live *gaggiMateLiveClient
+}
 
-func NewGaggiMateAdapter() *GaggiMateAdapter { return &GaggiMateAdapter{} }
+func NewGaggiMateAdapter(live *gaggiMateLiveClient) *GaggiMateAdapter {
+	return &GaggiMateAdapter{live: live}
+}
 
 var _ Adapter = (*GaggiMateAdapter)(nil)
 
@@ -36,9 +45,19 @@ func (a *GaggiMateAdapter) GetStatus(ctx context.Context, m *Machine) (Status, e
 	if err != nil {
 		return Status{}, err
 	}
-	evt, err := gaggimateWaitForStatus(ctx, baseURL, 5*time.Second)
-	if err != nil {
-		return Status{}, err
+	var evt map[string]any
+	var ok bool
+	if a.live != nil {
+		evt, ok = a.live.Status(baseURL)
+	}
+	if !ok {
+		// No fresh cached frame yet (session still warming up, or the
+		// machine just went unreachable) — one short-lived wait, exactly
+		// like the pre-#952 behaviour.
+		evt, err = gaggimateWaitForStatus(ctx, baseURL, 5*time.Second)
+		if err != nil {
+			return Status{}, err
+		}
 	}
 	raw, _ := json.Marshal(evt)
 	profileName := looseStringPtr(evt["p"])

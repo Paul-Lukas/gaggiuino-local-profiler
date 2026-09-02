@@ -64,6 +64,7 @@ type Handlers struct {
 	firmware      *FirmwareChecker
 	profilesCache *profilesCache
 	liveClient    *gaggiuinoLiveClient
+	gaggimateLive *gaggiMateLiveClient
 }
 
 // NewHandlers builds Handlers around registry (backed by the same *sql.DB
@@ -72,14 +73,25 @@ type Handlers struct {
 // data reaches it).
 func NewHandlers(registry *Registry, hub *sse.Hub) *Handlers {
 	live := newGaggiuinoLiveClient(hub)
+	gmLive := newGaggiMateLiveClient()
 	return &Handlers{
 		registry:      registry,
 		gaggiuino:     NewGaggiuinoAdapter(live),
-		gaggimate:     NewGaggiMateAdapter(),
+		gaggimate:     NewGaggiMateAdapter(gmLive),
 		firmware:      NewFirmwareChecker(),
 		profilesCache: newProfilesCache(),
 		liveClient:    live,
+		gaggimateLive: gmLive,
 	}
+}
+
+// disconnectLiveForHost tears down both persistent live sessions for a host
+// whose machine record's host changed or was deleted — the Gaggiuino WS
+// session (d_sensor_snap/d_sys_state cache) and the GaggiMate WS session
+// (evt:status cache, #952).
+func (h *Handlers) disconnectLiveForHost(host string) {
+	h.liveClient.DisconnectForHost(host)
+	h.gaggimateLive.DisconnectForHost(host)
 }
 
 // RegisterRoutes registers every /api/machines* and /api/machine/* route

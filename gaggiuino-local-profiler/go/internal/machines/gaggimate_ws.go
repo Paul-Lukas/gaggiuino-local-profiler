@@ -21,9 +21,9 @@ import (
 // frames on its own cadence.
 //
 // ws-client.js's GaggiMateLiveClient (a third, persistent-connection
-// pattern for the multi-machine live-poll loop) is deliberately NOT
-// ported — see live.go's header comment for why it's out of this phase's
-// reachable REST surface.
+// pattern) IS ported now — gaggimate_live.go (#952): GaggiMateAdapter.GetStatus
+// reads its cache and only falls back to gaggimateWaitForStatus below when
+// the cache has no fresh frame yet.
 
 const gaggimateWSTimeout = 8 * time.Second
 

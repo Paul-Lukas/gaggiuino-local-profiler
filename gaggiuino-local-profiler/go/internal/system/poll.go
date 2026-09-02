@@ -461,10 +461,16 @@ func (p *Poller) pollTick() {
 	p.pollViaGaggiuinoStatus(ctx)
 }
 
-// pollViaGaggiuinoStatus ports pollViaGaggiuinoStatus(runtime). The #725
-// reachability-recovery catch-up sync and the brew-finished
-// setTimeout(syncAfterBrew, 3000) are now ported (#953, sync_triggers.go);
-// still not ported (see doc.go) is recordConnectivity()'s debug-log summary.
+// pollViaGaggiuinoStatus ports pollViaGaggiuinoStatus(runtime). Despite the
+// name it is adapter-agnostic: adapter.GetStatus dispatches to the right
+// machine adapter, and for a GaggiMate default that call now reads the
+// persistent evt:status cache (gaggimate_live.go, #952) rather than opening
+// a fresh WebSocket every tick (PR #947's "GaggiMate WS hammer") —
+// GetLiveSensorSnapshot/GetLiveSystemState return nil for GaggiMate, which
+// deriveMachineState already tolerates. The #725 reachability-recovery
+// catch-up sync and the brew-finished setTimeout(syncAfterBrew, 3000) are
+// ported (#953, sync_triggers.go); still not ported (see doc.go) is
+// recordConnectivity()'s debug-log summary.
 func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 	machine, err := p.registry.GetDefaultMachine()
 	if err != nil || machine == nil {

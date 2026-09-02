@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"testing"
+	"time"
 
 	"nhooyr.io/websocket"
 )
@@ -150,4 +152,15 @@ func toFloat(v any) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// newTestGaggiMateAdapter builds a GaggiMateAdapter whose persistent live
+// client uses a short idle timeout and is torn down at test end, so no
+// reconnect goroutine outlives the test.
+func newTestGaggiMateAdapter(t *testing.T) *GaggiMateAdapter {
+	t.Helper()
+	lc := newGaggiMateLiveClient()
+	lc.idleTimeout = 50 * time.Millisecond
+	t.Cleanup(lc.DisconnectAll)
+	return NewGaggiMateAdapter(lc)
 }
