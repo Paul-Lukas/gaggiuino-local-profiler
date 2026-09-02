@@ -2,10 +2,12 @@ package sse
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -270,4 +272,157 @@ func TestHandler_NoFlusherRejected(t *testing.T) {
 // the embedded value has, so it never satisfies http.Flusher.
 type noFlushRecorder struct {
 	http.ResponseWriter
+}
+
+// ── live-snapshot coalescing (#901 — the ~14s chart lag) ─────────────────
+
+func TestCoalesceLiveSnapshots(t *testing.T) {
+	snap := func(n int) Event { return Event{Type: EventLiveSnapshot, Data: n} }
+	preheat := Event{Type: EventPreheatUpdate, Data: "p"}
+	orders := Event{Type: EventOrdersUpdate, Data: HTML("<div/>")}
+
+	t.Run("keeps only the last snapshot, other events in order", func(t *testing.T) {
+		in := []Event{snap(1), preheat, snap(2), snap(3), orders, snap(4)}
+		got := coalesceLiveSnapshots(in)
+		want := []Event{preheat, orders, snap(4)}
+		if len(got) != len(want) {
+			t.Fatalf("got %d events %v, want %d %v", len(got), got, len(want), want)
+		}
+		for i := range want {
+			if got[i].Type != want[i].Type || got[i].Data != want[i].Data {
+				t.Errorf("event %d = %+v, want %+v", i, got[i], want[i])
+			}
+		}
+	})
+
+	t.Run("no allocation / passthrough for 0 or 1 snapshots", func(t *testing.T) {
+		one := []Event{preheat, snap(9), orders}
+		if got := coalesceLiveSnapshots(one); &got[0] != &one[0] {
+			t.Error("expected the input slice returned unchanged for a single snapshot")
+		}
+		none := []Event{preheat, orders}
+		if got := coalesceLiveSnapshots(none); &got[0] != &none[0] {
+			t.Error("expected the input slice returned unchanged for no snapshots")
+		}
+	})
+}
+
+// gatedFlusher is a ResponseWriter+Flusher whose Flush blocks until the test
+// sends on release — lets the test wedge the handler's send() mid-stream and
+// pile up events on the subscriber channel, reproducing ingress backpressure.
+type gatedFlusher struct {
+	mu      sync.Mutex
+	buf     strings.Builder
+	release chan struct{}
+	hdr     http.Header
+}
+
+func newGatedFlusher() *gatedFlusher {
+	return &gatedFlusher{release: make(chan struct{}), hdr: http.Header{}}
+}
+func (g *gatedFlusher) Header() http.Header { return g.hdr }
+func (g *gatedFlusher) WriteHeader(int)     {}
+func (g *gatedFlusher) Write(p []byte) (int, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.buf.Write(p)
+}
+func (g *gatedFlusher) Flush()       { <-g.release }
+func (g *gatedFlusher) body() string { g.mu.Lock(); defer g.mu.Unlock(); return g.buf.String() }
+func (g *gatedFlusher) letFlush(n int) {
+	for i := 0; i < n; i++ {
+		g.release <- struct{}{}
+	}
+}
+
+func TestHandler_SlowConsumerGetsOnlyLatestSnapshot(t *testing.T) {
+	hub := NewHub()
+	h := &Handler{Hub: hub, PingInterval: time.Hour}
+	gw := newGatedFlusher()
+	ctx, cancelReq := context.WithCancel(context.Background())
+	defer cancelReq()
+	req := httptest.NewRequest(http.MethodGet, "/api/events", nil).WithContext(ctx)
+
+	done := make(chan struct{})
+	go func() { h.ServeHTTP(gw, req); close(done) }()
+
+	// Handler writes the padding line then blocks on its first Flush.
+	gw.letFlush(1) // release padding flush -> handler proceeds to Subscribe()
+
+	// Wait until it has subscribed.
+	deadline := time.After(2 * time.Second)
+	for {
+		hub.mu.Lock()
+		n := len(hub.subs)
+		hub.mu.Unlock()
+		if n == 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("handler never subscribed")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	// First snapshot: handler wakes, sends it, blocks on Flush.
+	hub.Publish(Event{Type: EventLiveSnapshot, Data: map[string]any{"seq": 1}})
+	time.Sleep(20 * time.Millisecond)
+
+	// While the handler is wedged on that Flush, a burst piles up on the
+	// subscriber channel: 8 more snapshots with an orders event in the middle.
+	for i := 2; i <= 5; i++ {
+		hub.Publish(Event{Type: EventLiveSnapshot, Data: map[string]any{"seq": i}})
+	}
+	hub.Publish(Event{Type: EventOrdersUpdate, Data: HTML("<div>queue</div>")})
+	for i := 6; i <= 9; i++ {
+		hub.Publish(Event{Type: EventLiveSnapshot, Data: map[string]any{"seq": i}})
+	}
+
+	// Let the handler drain: release enough flushes for snap1 + the coalesced
+	// batch (orders + snap9). Do it from a goroutine so we don't deadlock if
+	// the handler needs fewer/more flushes than expected.
+	flushDone := make(chan struct{})
+	go func() {
+		defer close(flushDone)
+		for i := 0; i < 6; i++ {
+			select {
+			case gw.release <- struct{}{}:
+			case <-done:
+				return
+			case <-time.After(time.Second):
+				return
+			}
+		}
+	}()
+	time.Sleep(80 * time.Millisecond)
+
+	body := gw.body()
+	snaps := strings.Count(body, "event: "+EventLiveSnapshot+"\n")
+	if snaps != 2 {
+		t.Errorf("live-snapshot frames sent = %d, want 2 (the pre-burst one + one coalesced), body:\n%s", snaps, body)
+	}
+	if got := strings.Count(body, "event: "+EventOrdersUpdate+"\n"); got != 1 {
+		t.Errorf("orders-update frames = %d, want 1", got)
+	}
+	if !strings.Contains(body, `"seq":9`) {
+		t.Errorf("expected the newest snapshot (seq 9) in the stream, body:\n%s", body)
+	}
+	if strings.Contains(body, `"seq":5`) || strings.Contains(body, `"seq":2`) {
+		t.Errorf("intermediate snapshots should have been coalesced away, body:\n%s", body)
+	}
+
+	// Tear down: cancel the request, then keep releasing flushes until the
+	// handler goroutine returns.
+	cancelReq()
+	for {
+		select {
+		case gw.release <- struct{}{}:
+		case <-done:
+			<-flushDone
+			return
+		case <-time.After(2 * time.Second):
+			t.Fatal("handler did not exit after request cancel")
+		}
+	}
 }

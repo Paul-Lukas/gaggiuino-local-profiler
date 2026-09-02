@@ -181,6 +181,51 @@ func sendHTML(w http.ResponseWriter, flusher http.Flusher, eventType, html strin
 	return true
 }
 
+// drainBuffered returns first plus every event already sitting in ch's
+// buffer (a non-blocking drain — it never waits for a new event). closed is
+// true when ch was closed mid-drain, so the caller can flush what it has
+// and then exit.
+func drainBuffered(ch <-chan Event, first Event) (batch []Event, closed bool) {
+	batch = append(batch, first)
+	for {
+		select {
+		case e, ok := <-ch:
+			if !ok {
+				return batch, true
+			}
+			batch = append(batch, e)
+		default:
+			return batch, false
+		}
+	}
+}
+
+// coalesceLiveSnapshots drops every live-snapshot event except the last —
+// each one is a full state snapshot, so the intermediate ones are pure
+// redundancy once a burst has queued up. Order of every other event type is
+// preserved, and the surviving snapshot keeps the position of the last one.
+// Returns events unchanged (no allocation) when it holds 0 or 1 snapshots.
+func coalesceLiveSnapshots(events []Event) []Event {
+	lastSnap, snapCount := -1, 0
+	for i, e := range events {
+		if e.Type == EventLiveSnapshot {
+			lastSnap = i
+			snapCount++
+		}
+	}
+	if snapCount <= 1 {
+		return events
+	}
+	out := make([]Event, 0, len(events)-snapCount+1)
+	for i, e := range events {
+		if e.Type == EventLiveSnapshot && i != lastSnap {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // ServeHTTP implements http.Handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
@@ -247,7 +292,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			if !send(ev) {
+			// If a slow flush (Cloudflare-tunnel / ingress backpressure)
+			// let this subscriber's channel back up, everything queued is
+			// already stale. Every live-snapshot frame carries the FULL
+			// live-data state (a growing datapoints array — see
+			// system.buildLiveDataResponse), so replaying the intermediate
+			// ones one-by-one just makes the chart trail the clock by up to
+			// subscriberBuffer ticks (#901, the ~14s lag Max saw). Drain
+			// whatever else is buffered right now and drop all but the
+			// newest live-snapshot; every other event type stays in order.
+			batch, closed := drainBuffered(sub, ev)
+			for _, e := range coalesceLiveSnapshots(batch) {
+				if !send(e) {
+					return
+				}
+			}
+			if closed {
 				return
 			}
 		case <-ping.C:
