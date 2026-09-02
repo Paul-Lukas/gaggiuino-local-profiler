@@ -241,6 +241,11 @@ func buildApp(ctx context.Context, cfg appConfig) (http.Handler, *sql.DB, error)
 	// route-scoped 500 MB body ceiling server.js:192 sets with
 	// express.raw({ limit: '500mb' }) — see the handler-chain comment below
 	// and go/internal/debug/debug.go.
+	//
+	// Phase 3 (#901): GET /api/debug/ingress (+ /sse-probe) — a Go-only
+	// HA-ingress self-diagnostic for opening through the real HA panel, same
+	// NODE_ENV != production gating as /api/debug/machine. See
+	// go/internal/debug/ingress.go.
 	debug.NewHandlers(sqlDB, dbPath, registry).RegisterRoutes(mux)
 
 	haClient := ha.NewClientFromEnv()

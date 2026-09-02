@@ -116,6 +116,10 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/debug/import-db", h.importDB)
 	if h.nonProd {
 		mux.HandleFunc("GET /api/debug/machine", h.machine)
+		// Same gating as /api/debug/machine (NODE_ENV != production, behind
+		// auth.RequireToken) — see ingress.go's package doc.
+		mux.HandleFunc("GET /api/debug/ingress", h.ingress)
+		mux.HandleFunc("GET /api/debug/ingress/sse-probe", h.ingressSSEProbe)
 	}
 }
 

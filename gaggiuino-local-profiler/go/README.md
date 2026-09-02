@@ -215,6 +215,23 @@ library domain on top of that same pattern:
   `GET /api/openapi.json`, `GET /api/debug/machine`) — see
   `internal/system/doc.go`'s "Scope" section for the full reasoning on
   each.
+- `internal/debug` (Phase 2e, extended Phase 3) — `routes/debug.js`'s
+  `GET /api/debug/export-db` / `POST /api/debug/import-db` (raw SQLite
+  dump/restore, `GLP_DEV_BUILD`-gated) plus `routes/system.js`'s
+  `GET /api/debug/machine`. Phase 3 (#901) adds a **Go-only** ingress
+  self-check, `GET /api/debug/ingress` (+ `/sse-probe`), gated the same way
+  `GET /api/debug/machine` is (`NODE_ENV !== 'production'`, behind
+  `auth.RequireToken`): open it through the real HA sidebar panel and it
+  reports what the add-on received from the Supervisor ingress proxy
+  (source IP, `X-Ingress-Path`, `X-Forwarded-*`, the reused
+  `auth.IsIngressRequest` verdict, which auth path let the request in) and
+  live-probes — with `EventSource` against `/sse-probe`'s 5 staggered
+  200ms ticks — whether that proxy buffers SSE, printing a green/red
+  verdict. `cmd/server/smoke_test.go` covers the app side of the three
+  ingress traps from a dev machine; this is the piece that can only be
+  answered against a real install. Serves JSON to `Accept: application/json`
+  / `?format=json`, the self-contained HTML page (inline style + a
+  SHA-256-pinned inline script, no external assets) otherwise.
 
 Every REST domain package named in the original migration plan now exists
 and routes the endpoints its phase brief scoped it to, including the two
@@ -392,6 +409,7 @@ go/
     maintenance/           routes/maintenance.js + LibraryService/LibraryRepository's maintenance-table methods (implemented, Phase 1f)
     backup/                routes/backup.js + lib/backup-crypto.js (implemented, Phase 1f)
     ha/                    lib/ha.js — SendNotify/GetNotifyServices/GetPersons/GetSwitchState/CallHaService/GetHaLanguage (implemented, Phase 1f, extended Phase 1g)
+    debug/                 routes/debug.js's export-db/import-db + /api/debug/machine + the Go-only /api/debug/ingress self-check (implemented, Phase 2e, ingress in Phase 3)
     system/                routes/system.js's token/status/live/preheat/version/demo endpoints + lib/poll.js + lib/preheat.js (implemented, Phase 1g; token/status added Phase 3b)
     web/                   templ+htmx+Alpine pages, now the frozen no-JS fallback view mounted under /ui/ (Phase 1 parity round, #901): GET /ui/shots (Phase 2a) + Library (2b) + Machines/Live (2c) + Orders/Menu (2d) + Maintenance/Settings/Backup (2e)
       templates/             .templ sources (own package — see internal/web/doc.go)
