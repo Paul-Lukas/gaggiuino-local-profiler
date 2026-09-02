@@ -5,13 +5,12 @@
 # of the still-undecided Phase 5 cutover. The repo-root Dockerfile (Node)
 # remains the only image any real install pulls.
 #
-# Far simpler than the Node Dockerfile: one build stage instead of three
-# (builder + prod-deps + runtime there), because there is no separate
-# frontend build, no npm prod-dependency stage, and no better-sqlite3 native
-# module to rebuild per target arch — modernc.org/sqlite is pure Go (no
-# CGo), and every template/static asset is compiled into the binary via
-# embed.FS (see internal/web/assets.go), so nothing besides the binary
-# itself ships in the runtime stage.
+# Build context is the repo subdir gaggiuino-local-profiler/ (NOT go/) —
+# Phase 1 (#901) embeds the production Vite SPA bundle into the binary via
+# internal/webapp's //go:embed, so the frontend source (public-src/,
+# vite.config.js, the shared lib/ files vite.config.js pulls in) must be in
+# context alongside go/. The CI workflows pass `context:
+# ./gaggiuino-local-profiler` + `file: ./gaggiuino-local-profiler/go/Dockerfile`.
 #
 # Multi-arch strategy: native Go cross-compilation, not QEMU emulation, for
 # the expensive step. `--platform=$BUILDPLATFORM` below pins the builder
@@ -26,6 +25,28 @@
 # `apk add` below, which — unlike a C++ compile — installs three tiny
 # prebuilt packages; docker/setup-qemu-action is kept in the CI workflow
 # for exactly that (and only that) reason.
+
+# ── Frontend stage: the Vite/rolldown SPA build (Phase 1, #901) ────────────
+# Same inputs as the repo-root Node Dockerfile's own builder stage: the JS
+# toolchain is host-platform only (no QEMU), and `npm ci` needs python3/
+# make/g++ for the native deps in devDependencies (vite itself is a
+# devDependency, so --omit=dev is not an option). Output is /app/public,
+# copied into internal/webapp/dist/ in the Go builder below.
+FROM --platform=$BUILDPLATFORM node:22-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS frontend
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm ci
+
+COPY vite.config.js ./
+COPY public-src/ ./public-src/
+COPY lib/ ./lib/
+RUN npm run build
+
+# ── Go builder ────────────────────────────────────────────────────────────
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
 ARG TARGETOS
 ARG TARGETARCH
@@ -33,7 +54,7 @@ ARG TARGETVARIANT
 
 WORKDIR /src
 
-COPY go.mod go.sum ./
+COPY go/go.mod go/go.sum ./
 RUN go mod download
 
 # templ generate is a required codegen step — internal/web/templates'
@@ -43,7 +64,11 @@ RUN go mod download
 # the library it generates code against never drift apart.
 RUN go install github.com/a-h/templ/cmd/templ@v0.3.1020
 
-COPY . .
+COPY go/ .
+# Replace the committed dist/index.html placeholder with the real Vite
+# build so internal/webapp's `//go:embed all:dist` picks up the full bundle.
+RUN rm -rf internal/webapp/dist
+COPY --from=frontend /app/public ./internal/webapp/dist
 RUN templ generate
 
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOARM=${TARGETVARIANT#v} \
@@ -88,20 +113,18 @@ RUN apk add --no-cache wget ca-certificates su-exec \
     && chown glp:glp /data
 
 COPY --from=builder /out/glp-server /usr/local/bin/glp-server
-COPY docker-entrypoint.sh /usr/local/bin/
+COPY go/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 8099
 
-# /web/static/style.css, not / (which has no registered route yet — the Go
-# frontend's entry points are /shots, /beans, etc., not / itself, and
-# hitting an unmapped path 404s wget --spider into a false "unhealthy"): a
-# vendored static asset that's always 200 without a token (see
-# internal/web/handlers.go's GET /web/static/ registration), so this only
-# proves the HTTP server itself answers, matching the Node healthcheck's
-# actual intent without depending on DB/auth state.
+# GET / now serves internal/webapp's SPA shell (Phase 1, #901) — always 200
+# without a token (auth.RequireToken's GET/HEAD static bypass, same as the
+# Node app's own index.html), so this only proves the HTTP server itself
+# answers, matching the Node healthcheck's actual intent without depending
+# on DB/auth state.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD wget -q --spider http://localhost:8099/web/static/style.css || exit 1
+    CMD wget -q --spider http://localhost:8099/ || exit 1
 
 # Same as the Node image: starts as root (needed to chown the /data bind
 # mount, see docker-entrypoint.sh) and immediately drops to the

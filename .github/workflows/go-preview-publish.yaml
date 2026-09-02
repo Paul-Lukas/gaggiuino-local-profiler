@@ -138,7 +138,8 @@ jobs:
         continue-on-error: true
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
-          context: ./gaggiuino-local-profiler/go
+          context: ./gaggiuino-local-profiler
+          file: ./gaggiuino-local-profiler/go/Dockerfile
           platforms: linux/amd64
           push: true
           build-args: |
@@ -168,7 +169,8 @@ jobs:
         if: steps.push.outcome == 'failure'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
-          context: ./gaggiuino-local-profiler/go
+          context: ./gaggiuino-local-profiler
+          file: ./gaggiuino-local-profiler/go/Dockerfile
           platforms: linux/amd64
           push: true
           build-args: |
@@ -247,7 +249,8 @@ jobs:
         continue-on-error: true
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
-          context: ./gaggiuino-local-profiler/go
+          context: ./gaggiuino-local-profiler
+          file: ./gaggiuino-local-profiler/go/Dockerfile
           platforms: ${{ matrix.platform }}
           push: true
           build-args: |
@@ -280,7 +283,8 @@ jobs:
         if: steps.push.outcome == 'failure'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
-          context: ./gaggiuino-local-profiler/go
+          context: ./gaggiuino-local-profiler
+          file: ./gaggiuino-local-profiler/go/Dockerfile
           platforms: ${{ matrix.platform }}
           push: true
           build-args: |
