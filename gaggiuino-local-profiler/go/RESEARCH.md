@@ -143,6 +143,19 @@ already wraps, for no benefit. `gg` is a small, dependency-light, widely-used
 library (no known abandonment concerns as of this research) — reasonable to
 add as the one graphics dependency.
 
+> **Superseded (Phase 2f, #901).** The maintainer chose an SVG template +
+> rasteriser over any `gg`-style immediate-mode canvas API: the card is
+> assembled as an SVG string we fully control (`internal/shots/card_model.go`)
+> and rendered to PNG by `github.com/kanrichan/resvg-go` — resvg 0.35
+> compiled to wasm, run on `github.com/tetratelabs/wazero`, still pure Go /
+> no cgo / single static binary. Fonts are `golang.org/x/image/font/gofont`
+> (Go typeface; its `.TTF` bytes are already compiled into that package, and
+> `fontdb` in the resvg wasm build has no woff2 support, so the bundled
+> Fraunces serif can't be used — the bean headline falls back to bold Go
+> sans, which is `lib/card.js`'s own `Fs()` fallback). Text metrics for
+> wrap/centre come from `golang.org/x/image/font/opentype`. Binary size
+> delta from adding all of this: ~+2.7 MB.
+
 ### `skip2/go-qrcode`
 
 Well-known, small, pure-Go QR encoder — encode-only (no scanning/decoding),

@@ -2,7 +2,9 @@ package shots
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -37,6 +39,18 @@ type Handlers struct {
 	service  *Service
 	repo     *Repository
 	imageDir string
+	card     cardDeps
+}
+
+// SetCardDeps wires the two cross-domain lookups the share-card renderer
+// (GET /api/shots/{id}/card) needs — the install-id short code and a
+// bean-name → origin-country-code resolver. cmd/server passes closures over
+// internal/db and internal/library so this package imports neither; either
+// closure may be nil, in which case the card omits that piece exactly as
+// lib/card.js does on a caught error. Optional: an unwired Handlers still
+// renders a card, just without the footer install code / origin chip.
+func (h *Handlers) SetCardDeps(installCode func() string, beanOriginCode func(coffeeName string) string) {
+	h.card = cardDeps{installCode: installCode, beanOriginCode: beanOriginCode}
 }
 
 // NewHandlers builds Handlers around repo — the single DB-backed
@@ -276,15 +290,15 @@ func (h *Handlers) getShot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// getCard ports GET /api/shots/:id/card. Image generation itself
-// (lib/card.js's Canvas-based PNG render) is NOT ported in this phase —
-// see go/RESEARCH.md for the fogleman/gg spike this needs. The id-parsing
-// and shot-lookup error branches ARE ported (400/404), so this only
-// diverges from the eventual real endpoint on the success path, which
-// answers 501 instead of a PNG.
+// getCard ports routes/shots.js's GET /api/shots/:id/card — the share-card
+// PNG (lib/card.js). See internal/shots/card.go for the SVG-template +
+// resvg-wasm approach and the list of deliberate cosmetic deviations.
 //
-// TODO(Phase 1c-follow-up): fogleman/gg-based image generation, see
-// go/RESEARCH.md.
+// routes/shots.js's `if (!cardAvailable()) return res.status(503)` branch
+// has no equivalent: the renderer is always compiled into this binary. The
+// frontend treats 501/503 identically ("card unavailable"), so a partial
+// Go rollout is safe regardless. Node sets no Cache-Control on this route,
+// only Content-Type + Content-Disposition — matched exactly.
 func (h *Handlers) getCard(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseID(r.PathValue("id"))
 	if !ok {
@@ -300,7 +314,24 @@ func (h *Handlers) getCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Shot not found")
 		return
 	}
-	writeError(w, http.StatusNotImplemented, "share-card image generation not yet implemented in the Go server")
+
+	format := "square"
+	if r.URL.Query().Get("format") == "story" {
+		format = "story"
+	}
+	accent := r.URL.Query().Get("accent")
+	theme := r.URL.Query().Get("theme")
+
+	png, err := renderShareCard(shot, h.service.ComputeScore(shot), format, accent, theme, h.card)
+	if err != nil {
+		log.Printf("shots: share-card render for shot %d failed: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="glp-shot-%d-%s.png"`, id, format))
+	w.WriteHeader(http.StatusOK)
+	w.Write(png)
 }
 
 // annotate ports POST /api/shots/:id/annotate. Body validation runs before

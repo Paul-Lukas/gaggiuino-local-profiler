@@ -207,8 +207,11 @@ func TestGetCard_StatusCodes(t *testing.T) {
 	if rec := doJSON(t, mux, http.MethodGet, "/api/shots/999999/card", nil); rec.Code != http.StatusNotFound {
 		t.Errorf("missing shot: status = %d, want 404", rec.Code)
 	}
-	if rec := doJSON(t, mux, http.MethodGet, "/api/shots/1/card", nil); rec.Code != http.StatusNotImplemented {
-		t.Errorf("existing shot: status = %d, want 501 (stub)", rec.Code)
+	// Phase 2f (#901): the success path now renders a PNG (see card_test.go
+	// for the image-shape assertions); this test keeps only the 400/404
+	// branch coverage it originally had.
+	if rec := doJSON(t, mux, http.MethodGet, "/api/shots/1/card", nil); rec.Code != http.StatusOK {
+		t.Errorf("existing shot: status = %d, want 200", rec.Code)
 	}
 }
 

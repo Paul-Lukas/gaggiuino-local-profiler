@@ -39,10 +39,12 @@ library domain on top of that same pattern:
   restore,delete}`, and `/api/shots/:id/image` (GET+POST+DELETE) —
   `lib/score.js`'s scoring, `ShotService`'s annotation/trash/blocklist
   logic, and `ShotRepository`'s + `ShotDefaultsRepository`'s DB access, all
-  ported. `GET /api/shots/:id/card` (share-card PNG) is deliberately
-  stubbed at 501 — see `internal/shots/doc.go` for exactly what that
-  endpoint and the `#450`/`#456` library-dependent scoring/notification
-  paths defer to the not-yet-ported Library phase.
+  ported. `GET /api/shots/:id/card` (share-card PNG) was ported in Phase 2f
+  as an SVG template rasterised by a cgo-free resvg-wasm renderer
+  (`internal/shots/card*.go`) — see `internal/shots/doc.go` for its
+  deliberate cosmetic deviations, and `internal/shots/doc.go` for the
+  `#450`/`#456` library-dependent scoring/notification paths still deferred
+  to the not-yet-ported Library phase.
 - `internal/library` (Phase 1d, new) — the full coffee-library REST domain:
   `GET /api/library` (grinders enriched with a computed `wear` field),
   `GET /api/library/beans-info`, full CRUD + bag/frozen-portion lifecycle +

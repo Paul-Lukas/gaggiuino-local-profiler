@@ -320,3 +320,52 @@ var coffeeCountryNames = map[string]string{
 	"VE": "Venezuela", "VN": "Vietnam", "YE": "Yemen", "ZM": "Zambia",
 	"ZW": "Zimbabwe",
 }
+
+// IsCoffeeCountryCode ports lib/coffee-countries.js's
+// `COFFEE_COUNTRY_CODES.includes(code)` membership test — the coffee
+// -growing ISO 3166-1 alpha-2 set. coffeeCountryNames' keys ARE that list
+// (verified equal, 47 entries), so this reuses it rather than re-embedding
+// the codes a third time (importer/countries.go holds the localized-name
+// map, this file the English-name map).
+func IsCoffeeCountryCode(code string) bool {
+	_, ok := coffeeCountryNames[strings.ToUpper(strings.TrimSpace(code))]
+	return ok
+}
+
+// ResolveBeanOriginCode ports lib/card.js's resolveBeanOriginCode(coffeeName,
+// library): the first resolvable coffee-growing-country code for the bean
+// whose name matches coffeeName exactly (case-insensitively), or "" when
+// nothing matches. The share-card renderer (internal/shots) calls this
+// through a callback so it doesn't import this package directly — same
+// wiring style as the geocode hook above.
+func ResolveBeanOriginCode(coffeeName string, repo *Repository) string {
+	name := strings.ToLower(strings.TrimSpace(coffeeName))
+	if name == "" || repo == nil {
+		return ""
+	}
+	lib, err := repo.GetLibrary()
+	if err != nil {
+		return ""
+	}
+	for _, bean := range lib.Beans {
+		if strings.ToLower(strings.TrimSpace(strOf(bean["name"]))) != name {
+			continue
+		}
+		// origins array first (blend-capable), then the legacy scalar
+		// origin — mirrors card.js's
+		// `Array.isArray(bean.origins) && bean.origins.length ? ... : (bean.origin ? [{code: bean.origin}] : [])`.
+		var code string
+		if origins, ok := bean["origins"].([]any); ok && len(origins) > 0 {
+			if first, ok := origins[0].(map[string]any); ok {
+				code = strOf(first["code"])
+			}
+		} else {
+			code = strOf(bean["origin"])
+		}
+		if code != "" && IsCoffeeCountryCode(code) {
+			return strings.ToUpper(strings.TrimSpace(code))
+		}
+		return ""
+	}
+	return ""
+}

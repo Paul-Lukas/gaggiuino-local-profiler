@@ -1,0 +1,279 @@
+package shots
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"sync"
+
+	resvg "github.com/kanrichan/resvg-go"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/gofont/gobold"
+	"golang.org/x/image/font/gofont/goregular"
+	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/math/fixed"
+)
+
+// card.go is the Go port of lib/card.js's GET /api/shots/:id/card
+// share-card renderer (Phase 2f, issue #901). lib/card.js draws a PNG with
+// @napi-rs/canvas; the maintainer's decision (see the round's plan) was to
+// rebuild the card as an SVG we fully control and rasterise it with a
+// pure-Go, cgo-free renderer so the single-static-binary goal survives.
+//
+// Pipeline:
+//
+//  1. buildCardSVG assembles the card as an SVG string via text/template-
+//     free string building (we own every element, so there's nothing to
+//     sanitise beyond XML-escaping user text — see esc). The
+//     pressure/flow/temp curves are plain <path> elements built from the
+//     shot's own datapoint series (the same series shot-chart.js feeds its
+//     Chart.js chart — dp.pressure/pumpFlow/weightFlow/shotWeight|weight/
+//     temperature and the dp.target* lines, all tenths, ÷10 here).
+//  2. rasterise renders that SVG to PNG with github.com/kanrichan/resvg-go
+//     (resvg 0.35 compiled to wasm, run on wazero — no cgo). Fonts are the
+//     Go typeface (golang.org/x/image/font/gofont), whose .TTF bytes are
+//     already compiled into those packages, so no separate //go:embed is
+//     needed to get them into the static binary. lib/card.js registers
+//     system Liberation/DejaVu Sans plus a bundled Fraunces woff2 for the
+//     bean headline; fontdb in the resvg wasm build has no woff2 support,
+//     so the headline uses bold Go sans here instead — lib/card.js's Fs()
+//     itself falls back to sans when the serif fails to register, so this
+//     is that same documented fallback, just always taken.
+//
+// Deviations from lib/card.js, all deliberate and all cosmetic:
+//
+//   - The frozen LEGACY_GLP layout (boxed header/footer/tiles, score ring)
+//     for pre-#462 cached links is not reproduced — see card_palette.go.
+//   - The shot photo "avatar" and the icon.png logo are not drawn; the
+//     header shows the "GLP" wordmark lib/card.js falls back to when
+//     icon.png is missing.
+//   - Visual equivalence, not pixel parity: text metrics come from the Go
+//     font, not @napi-rs/canvas, so wrap/centre positions differ slightly.
+//
+// lib/card.js's "canvas module not available" 503 branch (routes/shots.js)
+// has no equivalent: the renderer is always compiled in. The frontend
+// already treats 501/503 as "card unavailable", so a partial Go rollout
+// stays safe regardless.
+
+// cardDeps are the two cross-domain lookups lib/card.js does through a
+// lazy require() and a try/catch (so a card never fails over them). Wired
+// from cmd/server; either may be nil, in which case that piece is omitted
+// exactly as lib/card.js omits it on a caught error.
+type cardDeps struct {
+	// installCode returns the install's short code (lib/card.js's
+	// installCodeFor(getInstallId())) or "" if unavailable.
+	installCode func() string
+	// beanOriginCode ports resolveBeanOriginCode(coffeeName, library): the
+	// origin chip's country code, or "" if none resolves.
+	beanOriginCode func(coffeeName string) string
+}
+
+const installCodeAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+
+// installCodeFor ports lib/card.js's installCodeFor: sha256 the UUID, take
+// the first 8 bytes as a big-endian uint64, render 8 base-31 digits from
+// the confusable-free alphabet, format as XXXX-XXXX. The algorithm is
+// frozen (it's in screenshots people have posted) — must never change.
+func InstallCodeFor(uuid string) string {
+	sum := sha256.Sum256([]byte(uuid))
+	n := binary.BigEndian.Uint64(sum[:8])
+	chars := make([]byte, 8)
+	for i := 7; i >= 0; i-- {
+		chars[i] = installCodeAlphabet[n%uint64(len(installCodeAlphabet))]
+		n /= uint64(len(installCodeAlphabet))
+	}
+	return string(chars[:4]) + "-" + string(chars[4:])
+}
+
+// ── rasterisation ──────────────────────────────────────────────────────
+
+// The resvg wasm module (~2 MB, decompressed and instantiated by
+// resvg.NewContext) is kept warm for the process lifetime and reused: a
+// fresh Context per request cost ~1-2 s each, all of it wasm
+// instantiation. resvgMu serialises access — one wasm module instance is
+// not safe for concurrent calls, and a share-card download is rare enough
+// that serialising it costs nothing in practice. A fresh Renderer (cheap)
+// is still made per call so each render starts with an empty fontdb.
+var (
+	resvgMu  sync.Mutex
+	resvgCtx *resvg.Context
+)
+
+func rasterise(svg []byte, w, h uint32) ([]byte, error) {
+	resvgMu.Lock()
+	defer resvgMu.Unlock()
+
+	if resvgCtx == nil {
+		ctx, err := resvg.NewContext(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("resvg context: %w", err)
+		}
+		resvgCtx = ctx
+	}
+
+	r, err := resvgCtx.NewRenderer()
+	if err != nil {
+		return nil, fmt.Errorf("resvg renderer: %w", err)
+	}
+	defer r.Close()
+	if err := r.LoadFontData(goregular.TTF); err != nil {
+		return nil, fmt.Errorf("resvg load regular font: %w", err)
+	}
+	if err := r.LoadFontData(gobold.TTF); err != nil {
+		return nil, fmt.Errorf("resvg load bold font: %w", err)
+	}
+	if err := r.SetFontFamily(cardFontFamily); err != nil {
+		return nil, fmt.Errorf("resvg font family: %w", err)
+	}
+	png, err := r.RenderWithSize(svg, w, h)
+	if err != nil {
+		return nil, fmt.Errorf("resvg render: %w", err)
+	}
+	return png, nil
+}
+
+// renderShareCard is the package entry point routes/shots.js's getCard
+// calls. score is the shot's computed score (may be nil).
+func renderShareCard(shot Shot, score *int, format, accent, theme string, deps cardDeps) ([]byte, error) {
+	c := newCardModel(shot, score, format, accent, theme, deps)
+	svg := c.svg()
+	return rasterise([]byte(svg), uint32(c.w), uint32(c.h))
+}
+
+// ── font metrics ───────────────────────────────────────────────────────
+
+const cardFontFamily = "Go"
+
+var (
+	fontOnce          sync.Once
+	regularSF, boldSF *opentype.Font
+	faceMu            sync.Mutex
+	faceCache         = map[string]font.Face{}
+)
+
+func initFonts() {
+	fontOnce.Do(func() {
+		regularSF, _ = opentype.Parse(goregular.TTF)
+		boldSF, _ = opentype.Parse(gobold.TTF)
+	})
+}
+
+func faceFor(size float64, bold bool) font.Face {
+	initFonts()
+	key := fmt.Sprintf("%v-%.2f", bold, size)
+	faceMu.Lock()
+	defer faceMu.Unlock()
+	if fc, ok := faceCache[key]; ok {
+		return fc
+	}
+	src := regularSF
+	if bold {
+		src = boldSF
+	}
+	fc, err := opentype.NewFace(src, &opentype.FaceOptions{Size: size, DPI: 72})
+	if err != nil {
+		return nil
+	}
+	faceCache[key] = fc
+	return fc
+}
+
+// textWidth measures s in the Go font at the given px size. Used for
+// truncation and centring — the equivalent of ctx.measureText().width.
+func textWidth(s string, size float64, bold bool) float64 {
+	fc := faceFor(size, bold)
+	if fc == nil {
+		return float64(len([]rune(s))) * size * 0.55
+	}
+	return float64(font.MeasureString(fc, s)) / 64.0
+}
+
+var _ = fixed.I // keep the math/fixed import meaningful across Go versions
+
+// truncateToWidth ports lib/card.js's truncateText: drop 4 runes at a time
+// (plus an ellipsis) until it fits.
+func truncateToWidth(s string, maxWidth, size float64, bold bool) string {
+	r := []rune(s)
+	for textWidth(string(r), size, bold) > maxWidth && len(r) > 4 {
+		r = append(r[:len(r)-4], '…')
+	}
+	return string(r)
+}
+
+// ── SVG helpers ────────────────────────────────────────────────────────
+
+func esc(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '&':
+			b.WriteString("&amp;")
+		case '<':
+			b.WriteString("&lt;")
+		case '>':
+			b.WriteString("&gt;")
+		case '"':
+			b.WriteString("&quot;")
+		case '\'':
+			b.WriteString("&apos;")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+type svgBuf struct{ b strings.Builder }
+
+func (s *svgBuf) raw(str string)                 { s.b.WriteString(str) }
+func (s *svgBuf) printf(format string, a ...any) { fmt.Fprintf(&s.b, format, a...) }
+
+// text emits a <text> at (x, baselineY). anchor is "", "middle" or "end".
+func (s *svgBuf) text(x, y, size float64, bold bool, fill, anchor, content string) {
+	weight := ""
+	if bold {
+		weight = ` font-weight="bold"`
+	}
+	a := ""
+	if anchor != "" {
+		a = fmt.Sprintf(` text-anchor="%s"`, anchor)
+	}
+	s.printf(`<text x="%s" y="%s" font-family="%s" font-size="%s"%s fill="%s"%s>%s</text>`,
+		fnum(x), fnum(y), cardFontFamily, fnum(size), weight, fill, a, esc(content))
+}
+
+func (s *svgBuf) line(x1, y1, x2, y2 float64, stroke string, width float64, dash string) {
+	d := ""
+	if dash != "" {
+		d = fmt.Sprintf(` stroke-dasharray="%s"`, dash)
+	}
+	s.printf(`<line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"%s/>`,
+		fnum(x1), fnum(y1), fnum(x2), fnum(y2), stroke, fnum(width), d)
+}
+
+func (s *svgBuf) rect(x, y, w, h, rx float64, fill, stroke string, strokeW float64) {
+	attrs := fmt.Sprintf(`x="%s" y="%s" width="%s" height="%s"`, fnum(x), fnum(y), fnum(w), fnum(h))
+	if rx > 0 {
+		attrs += fmt.Sprintf(` rx="%s"`, fnum(rx))
+	}
+	if fill != "" {
+		attrs += fmt.Sprintf(` fill="%s"`, fill)
+	} else {
+		attrs += ` fill="none"`
+	}
+	if stroke != "" {
+		attrs += fmt.Sprintf(` stroke="%s" stroke-width="%s"`, stroke, fnum(strokeW))
+	}
+	s.printf(`<rect %s/>`, attrs)
+}
+
+func fnum(v float64) string {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return "0"
+	}
+	return strconv.FormatFloat(math.Round(v*100)/100, 'f', -1, 64)
+}
