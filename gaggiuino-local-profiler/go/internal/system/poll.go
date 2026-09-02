@@ -12,9 +12,25 @@ import (
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ha"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines/proto"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/sse"
 )
+
+// LiveTransport is the WS-vs-MQTT dispatch seam lib/live-transport.js
+// implements (#608) — *mqtt.Transport satisfies it. Each method's second
+// return is true when MQTT is the active transport for this machine (only
+// ever the default machine, and only when the Settings toggle is on MQTT
+// with a broker configured): the poller then uses the returned value
+// (possibly nil, if the MQTT cache is stale/empty) instead of the adapter's
+// WS session, exactly as Node's `if (useMqtt) return gaggiuinoMqtt...`. An
+// interface (not a direct internal/mqtt import) keeps this central package
+// decoupled from the transport implementation, the same pattern
+// AdapterProvider already follows here.
+type LiveTransport interface {
+	SensorSnapshot(isDefaultMachine bool) (*proto.SensorStateSnapshotDto, bool)
+	SystemState(isDefaultMachine bool) (*proto.SystemStateDto, bool)
+}
 
 // This file ports lib/poll.js: the 1s live-polling loop
 // (startLivePolling/stopLivePolling/pollLive/pollViaGaggiuinoStatus) plus
@@ -178,6 +194,12 @@ type Poller struct {
 	// unchanged. nil until cmd/server sets it — RunManualSync no-ops then.
 	shots *shots.Repository
 
+	// liveTransport is the optional MQTT live-data override (#608), wired via
+	// SetLiveTransport. nil in tests and when MQTT support isn't compiled in
+	// — the poller then always reads live data through the adapter's WS path,
+	// exactly as before this hook existed.
+	liveTransport LiveTransport
+
 	liveMu     sync.Mutex
 	liveTicker *time.Ticker
 	liveStop   chan struct{}
@@ -196,6 +218,11 @@ func NewPoller(registry *machines.Registry, adapters AdapterProvider, hub *sse.H
 // Runtime exposes the default machine's RuntimeState to handlers.go
 // (GET /api/machine/status) and preheat.go.
 func (p *Poller) Runtime() *RuntimeState { return p.runtime }
+
+// SetLiveTransport wires the #608 MQTT live-data override — cmd/server calls
+// this with *mqtt.Transport after NewPoller, the same post-construction
+// pattern as SetShotsRepo. nil-safe: never set in tests.
+func (p *Poller) SetLiveTransport(lt LiveTransport) { p.liveTransport = lt }
 
 // StatusInfo is the subset of pollGlobalState GET /api/status reports —
 // see that struct's own field comments (lastMachineError/lastMachineSuccess
@@ -458,8 +485,28 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 	}
 	p.state.mu.Unlock()
 
-	sensorSnap, _ := adapter.GetLiveSensorSnapshot(ctx, machine)
-	sysState, _ := adapter.GetLiveSystemState(ctx, machine)
+	// #608: lib/live-transport.js's dispatch — MQTT for the default machine
+	// when the Settings toggle selects it, the adapter's WS session
+	// otherwise. When MQTT is the active transport its getter is used even
+	// if it returns nil (a stale/empty MQTT cache), never falling through to
+	// open a WS session, matching Node's `if (useMqtt) return`.
+	var sensorSnap *proto.SensorStateSnapshotDto
+	var sysState *proto.SystemStateDto
+	if p.liveTransport != nil {
+		if snap, mqttActive := p.liveTransport.SensorSnapshot(machine.IsDefault); mqttActive {
+			sensorSnap = snap
+		} else {
+			sensorSnap, _ = adapter.GetLiveSensorSnapshot(ctx, machine)
+		}
+		if sys, mqttActive := p.liveTransport.SystemState(machine.IsDefault); mqttActive {
+			sysState = sys
+		} else {
+			sysState, _ = adapter.GetLiveSystemState(ctx, machine)
+		}
+	} else {
+		sensorSnap, _ = adapter.GetLiveSensorSnapshot(ctx, machine)
+		sysState, _ = adapter.GetLiveSystemState(ctx, machine)
+	}
 
 	result := deriveMachineState(DeriveInput{
 		Status:     rawStatusFrom(status),

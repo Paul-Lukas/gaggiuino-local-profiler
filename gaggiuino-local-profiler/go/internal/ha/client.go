@@ -266,8 +266,26 @@ func (c *Client) GetPersons(ctx context.Context) []Person {
 	return out
 }
 
+// SupervisorGet performs an authenticated GET against the Supervisor's own
+// API root (http://supervisor — lib/constants.js's SUPERVISOR_API), NOT the
+// Core proxy c.apiBase points at. Used by internal/mqtt's broker
+// auto-discovery (lib/mqtt-discovery.js's discoverSupervisorMqtt). Returns
+// an error (never a panic) when no token is configured or the call fails —
+// callers treat that as "not available", matching the Node original's
+// try/catch -> null and its `if (!HA_TOKEN) return null` guard.
+func (c *Client) SupervisorGet(ctx context.Context, path string, out any) error {
+	if !c.enabled() {
+		return fmt.Errorf("no Supervisor token")
+	}
+	return c.getFrom(ctx, "http://supervisor", path, out)
+}
+
 func (c *Client) get(ctx context.Context, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBase+path, nil)
+	return c.getFrom(ctx, c.apiBase, path, out)
+}
+
+func (c *Client) getFrom(ctx context.Context, base, path string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
 	if err != nil {
 		return err
 	}

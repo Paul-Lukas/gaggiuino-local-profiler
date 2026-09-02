@@ -42,6 +42,7 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/maintenance"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/mqtt"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/orders"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ratelimit"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/shots"
@@ -211,6 +212,20 @@ func main() {
 	// Phase 2a (#901): POST /api/sync's manual shot-history pull loop
 	// persists through shotsRepo — see go/internal/system/sync.go.
 	poller.SetShotsRepo(shotsRepo)
+
+	// Phase 2d (#901): MQTT live-data transport (#608). mqttRepo is the
+	// Settings-page toggle + broker connection (kv.key = 'mqtt_settings', no
+	// migration needed). mqttTransport is lib/live-transport.js's dispatch
+	// seam — wired into the poller so the default machine's live reads go to
+	// the MQTT subscription instead of the adapter's WS session whenever the
+	// toggle selects it. The 4 /api/mqtt/* routes reuse machinesHandlers'
+	// GetAdapter (apply-to-machine) and haClient's Supervisor access
+	// (discovery).
+	mqttRepo := mqtt.NewRepository(sqlDB)
+	mqttTransport := mqtt.NewTransport(mqtt.NewClient(), mqttRepo)
+	poller.SetLiveTransport(mqttTransport)
+	mqtt.NewHandlers(mqttRepo, mqttTransport, registry, machinesHandlers, haClient).RegisterRoutes(mux)
+
 	poller.Start(context.Background())
 	// Closes internal/orders' shop-broadcast deferral (see
 	// internal/orders/doc.go and internal/system/doc.go's "internal/orders'
