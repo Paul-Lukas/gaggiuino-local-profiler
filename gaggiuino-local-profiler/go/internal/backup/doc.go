@@ -72,14 +72,12 @@
 //     reads the file); a not-yet-restarted one keeps accepting the old
 //     token. See Dependencies.Token's doc comment.
 //   - routes/debug.js's GET /api/debug/export-db / POST /api/debug/import-db
-//     (raw SQLite file dump/restore, ~500MB body limit) are NOT ported:
-//     they're closely related to backup/restore in spirit but are a
-//     separate route file Node itself never merged into routes/backup.js,
-//     aren't named in this phase's task scope, and are a materially
-//     different mechanism (whole-file SQLite blob, not a structured JSON
-//     bundle) — porting them well would be its own task. Deferred to
-//     whichever future phase covers routes/debug.js as a whole, or a
-//     dedicated follow-up if one lands first.
+//     (raw SQLite file dump/restore, ~500MB body limit) are NOT part of
+//     this package: they're closely related to backup/restore in spirit
+//     but are a separate route file Node itself never merged into
+//     routes/backup.js, and are a materially different mechanism
+//     (whole-file SQLite blob, not a structured JSON bundle). Phase 2e
+//     (#901) ported them into their own package, internal/debug.
 //   - lib/zip.js's hand-rolled DEFLATE/CRC32 ZIP reader-writer is not
 //     ported at all: Go's stdlib archive/zip already implements the same
 //     ZIP format (APPNOTE.TXT, DEFLATE) that hand-rolled version targets,

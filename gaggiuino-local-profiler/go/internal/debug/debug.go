@@ -1,0 +1,315 @@
+// Package debug is the Go port of routes/debug.js (Phase 2e, issue #901)
+// plus routes/system.js's one debug helper:
+//
+//   - GET  /api/debug/export-db  — stream the raw glp.db file as a download
+//   - POST /api/debug/import-db  — replace glp.db 1:1 from an uploaded file
+//   - GET  /api/debug/machine    — raw dump of the default machine's
+//     /api/system/status (routes/system.js, gated on NODE_ENV)
+//
+// The two DB routes are gated on GLP_DEV_BUILD exactly the way
+// routes/debug.js gates them: the flag check is the first thing each
+// handler does, and a non-dev build answers 404 with an empty body — the
+// same response an unregistered route would give, so a real install can't
+// even tell the route exists (routes/debug.js's own comment).
+//
+// server.js:192 sets a route-scoped raw body parser for /api/debug/import-db
+// (express.raw({ type: 'application/octet-stream', limit: '500mb' })). Go's
+// net/http has no global body-parser middleware chain, so importDB bounds
+// its own body with http.MaxBytesReader(w, r.Body, importDBMaxBytes) —
+// that reader IS the route-scoped 500 MB ceiling (see cmd/server/main.go's
+// handler-chain comment, which anticipated exactly this).
+//
+// The DB-replace path mirrors routes/debug.js's #755 safety mechanism
+// step for step: checkpoint the live WAL, copy the current glp.db to a
+// timestamped pre-import-backup, write the upload to a temp file in the
+// same directory, atomically rename it into place, then delete the OLD
+// database's -wal/-shm sidecars (a WAL from the old file would be replayed
+// against the mismatched new main file on the next startup otherwise). The
+// running process keeps its already-open file descriptor pinned to the old
+// inode through POSIX rename semantics — modernc.org/sqlite is no
+// different from better-sqlite3 here — so only a restart picks up the new
+// file, which is why the 200 response says restartRequired.
+package debug
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
+
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/httputil"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
+)
+
+// importDBMaxBytes mirrors server.js:192's express.raw({ limit: '500mb' })
+// for /api/debug/import-db — 500 * 1024 * 1024, the same generous ceiling
+// server.js documents for a DB with years of shot history. A var, not a
+// const, purely so debug_test.go can lower it to exercise the 413 path
+// without sending half a gigabyte through httptest.
+var importDBMaxBytes int64 = 500 * 1024 * 1024
+
+// sqliteMagic is routes/debug.js's SQLITE_MAGIC: the 16-byte header every
+// SQLite 3 database file starts with, trailing NUL included
+// (Buffer.from('SQLite format 3\0')).
+var sqliteMagic = []byte("SQLite format 3\x00")
+
+// execer is the only DB capability this package needs: routes/debug.js runs
+// getDb().pragma('wal_checkpoint(TRUNCATE)') before both the export
+// download and the pre-import backup. *sql.DB satisfies it.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+// Handlers ports routes/debug.js's router plus routes/system.js's
+// /api/debug/machine handler.
+type Handlers struct {
+	db       execer
+	dbPath   string
+	registry *machines.Registry
+
+	// devBuild / nonProd are captured at construction from the environment,
+	// matching routes/debug.js / routes/system.js reading process.env on a
+	// value that never changes for a process lifetime.
+	devBuild bool
+	nonProd  bool
+
+	// now / httpGet are test seams; nil means use the real ones.
+	now     func() time.Time
+	httpGet func(ctx context.Context, url string) (*http.Response, error)
+}
+
+// NewHandlers captures the GLP_DEV_BUILD / NODE_ENV state once and wires
+// the DB handle (for the WAL checkpoint), the on-disk glp.db path (the
+// file the export streams and the import replaces — cmd/server's resolved
+// GLP_DB_PATH / db.DefaultPath), and the machine registry.
+func NewHandlers(db execer, dbPath string, registry *machines.Registry) *Handlers {
+	return &Handlers{
+		db:       db,
+		dbPath:   dbPath,
+		registry: registry,
+		devBuild: os.Getenv("GLP_DEV_BUILD") != "",
+		nonProd:  os.Getenv("NODE_ENV") != "production",
+	}
+}
+
+func (h *Handlers) clock() time.Time {
+	if h.now != nil {
+		return h.now()
+	}
+	return time.Now()
+}
+
+// RegisterRoutes mounts the debug routes. /api/debug/machine is registered
+// only when NODE_ENV !== 'production', exactly as routes/system.js guards
+// it (`if (process.env.NODE_ENV !== 'production')`) — on a production build
+// the route genuinely does not exist and 404s.
+func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/debug/export-db", h.exportDB)
+	mux.HandleFunc("POST /api/debug/import-db", h.importDB)
+	if h.nonProd {
+		mux.HandleFunc("GET /api/debug/machine", h.machine)
+	}
+}
+
+// exportDB ports routes/debug.js's GET /api/debug/export-db.
+func (h *Handlers) exportDB(w http.ResponseWriter, _ *http.Request) {
+	if !h.devBuild {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	if _, err := h.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		// routes/debug.js returns the raw err.message here (a 500 with
+		// { error: <message> }, not the generic body) — matched.
+		httputil.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	f, err := os.Open(h.dbPath)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	filename := fmt.Sprintf("glp-db-export-%s.db", h.clock().Format("2006-01-02_15-04-05"))
+	// res.download(): Content-Disposition attachment + a by-extension
+	// Content-Type (.db has no registered MIME, so express falls back to
+	// application/octet-stream) + Content-Length.
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	if _, err := io.Copy(w, f); err != nil {
+		log.Printf("debug: DB export download failed: %v", err)
+	}
+}
+
+// importDB ports routes/debug.js's POST /api/debug/import-db.
+func (h *Handlers) importDB(w http.ResponseWriter, r *http.Request) {
+	if !h.devBuild {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, importDBMaxBytes)
+	buf, err := io.ReadAll(r.Body)
+	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			// server.js:192's express.raw({ limit: '500mb' }) rejects an
+			// oversized body with a 413 before the handler runs;
+			// lib/middleware/error.js turns that into { error: <message> }.
+			httputil.WriteError(w, http.StatusRequestEntityTooLarge, "request entity too large")
+			return
+		}
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+
+	if len(buf) == 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "No database file uploaded")
+		return
+	}
+	if len(buf) < len(sqliteMagic) || string(buf[:len(sqliteMagic)]) != string(sqliteMagic) {
+		httputil.WriteError(w, http.StatusBadRequest, "Not a SQLite database file")
+		return
+	}
+
+	if _, err := h.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		log.Printf("debug: DB import failed: %v", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+
+	nowMS := h.clock().UnixMilli()
+	dir := filepath.Dir(h.dbPath)
+	backupPath := filepath.Join(dir, fmt.Sprintf("pre-import-backup-%d.db", nowMS))
+	if err := copyFile(h.dbPath, backupPath); err != nil {
+		log.Printf("debug: DB import failed: %v", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+
+	tmpPath := fmt.Sprintf("%s.importing-%d", h.dbPath, nowMS)
+	if err := os.WriteFile(tmpPath, buf, 0o644); err != nil {
+		log.Printf("debug: DB import failed: %v", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	if err := os.Rename(tmpPath, h.dbPath); err != nil {
+		_ = os.Remove(tmpPath)
+		log.Printf("debug: DB import failed: %v", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		sidecar := h.dbPath + suffix
+		if _, statErr := os.Stat(sidecar); statErr == nil {
+			_ = os.Remove(sidecar)
+		}
+	}
+
+	log.Printf("debug: DB import: replaced glp.db (%d bytes, previous version backed up to %s) -- restart required to load it", len(buf), backupPath)
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"ok":              true,
+		"restartRequired": true,
+		"backupPath":      filepath.Base(backupPath),
+	})
+}
+
+// machine ports routes/system.js's GET /api/debug/machine (H2). Always 200:
+// both the success and the failure branch answer with a JSON body, exactly
+// as the Node original does (`res.json({ ok, ... })` in the catch too).
+func (h *Handlers) machine(w http.ResponseWriter, r *http.Request) {
+	baseURL, err := h.defaultMachineBaseURL(r.Context())
+	if err != nil {
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"ok": false, "baseUrl": baseURL, "error": err.Error(),
+		})
+		return
+	}
+
+	get := h.httpGet
+	if get == nil {
+		get = func(ctx context.Context, url string) (*http.Response, error) {
+			req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+			if reqErr != nil {
+				return nil, reqErr
+			}
+			client := &http.Client{Timeout: 5 * time.Second}
+			return client.Do(req)
+		}
+	}
+
+	resp, err := get(r.Context(), baseURL+"/api/system/status")
+	if err != nil {
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"ok": false, "baseUrl": baseURL, "error": err.Error(),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	var data any
+	if decErr := json.NewDecoder(io.LimitReader(resp.Body, 5<<20)).Decode(&data); decErr != nil {
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"ok": false, "baseUrl": baseURL, "error": decErr.Error(),
+		})
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "baseUrl": baseURL, "data": data,
+	})
+}
+
+// defaultMachineBaseURL resolves registry.baseUrlFor() (no machineId) — the
+// default machine's SSRF-guarded base URL. On any failure it returns a
+// best-effort host string alongside the error so the caller can still
+// report { ok:false, baseUrl, error } the way Node's always-a-string
+// getMachineBaseUrl() lets it.
+func (h *Handlers) defaultMachineBaseURL(ctx context.Context) (string, error) {
+	if h.registry == nil {
+		return "", errors.New("machine registry unavailable")
+	}
+	m, err := h.registry.GetDefaultMachine()
+	if err != nil {
+		return "", err
+	}
+	baseURL, err := machines.BaseURLFor(ctx, m)
+	if err != nil {
+		return m.Host, err
+	}
+	return baseURL, nil
+}
+
+// copyFile mirrors routes/debug.js's fs.copyFileSync(DB_PATH, backupPath):
+// a plain whole-file copy of the current database before it is replaced.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}

@@ -32,9 +32,10 @@
 // openapi.yaml and served as JSON), POST /api/sync (sync.go — see its
 // header for exactly what of lib/sync.js it does and does not port), and
 // GET /api/menu (routed ungated from internal/orders, which owns the menu
-// Repository). Still unrouted: only the H2 debug-only
-// GET /api/debug/machine (an internal/system debug helper — Phase 2e's
-// debug-routes brief owns that one).
+// Repository). routes/system.js's whole surface is now routed: the last
+// holdout, the H2 debug-only GET /api/debug/machine, moved to
+// internal/debug alongside routes/debug.js's export-db/import-db in Phase
+// 2e (#901).
 //
 // # File layout
 //

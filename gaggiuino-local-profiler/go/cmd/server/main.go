@@ -37,6 +37,7 @@ import (
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/auth"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/backup"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/db"
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/debug"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/ha"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/importer"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/library"
@@ -130,6 +131,21 @@ func main() {
 	libraryHandlers := library.NewHandlers(libRepo, shotsRepo)
 	libraryHandlers.RegisterRoutes(mux)
 
+	// Phase 2f (#901): wire the share-card renderer's two cross-domain
+	// lookups (lib/card.js does both through a lazy require + try/catch).
+	// Closures keep internal/shots from importing internal/db or
+	// internal/library.
+	shotsHandlers.SetCardDeps(
+		func() string {
+			id, err := db.EnsureInstallID(sqlDB)
+			if err != nil || id == "" {
+				return ""
+			}
+			return shots.InstallCodeFor(id)
+		},
+		func(coffeeName string) string { return library.ResolveBeanOriginCode(coffeeName, libRepo) },
+	)
+
 	// Phase 2g (#901): fire-and-forget bean-region geocoding
 	// (lib/geo.js + LibraryService.geocodeBean). library.CreateBean/
 	// UpdateBean call library.GeocodeHook un-awaited when a bean's region
@@ -166,6 +182,15 @@ func main() {
 	registry := machines.NewRegistry(sqlDB)
 	machinesHandlers := machines.NewHandlers(registry, hub)
 	machinesHandlers.RegisterRoutes(mux)
+
+	// Phase 2e (#901): routes/debug.js — GET /api/debug/export-db,
+	// POST /api/debug/import-db (both gated on GLP_DEV_BUILD) — plus
+	// routes/system.js's H2 GET /api/debug/machine (registered only when
+	// NODE_ENV !== 'production'). importDB's own http.MaxBytesReader is the
+	// route-scoped 500 MB body ceiling server.js:192 sets with
+	// express.raw({ limit: '500mb' }) — see the handler-chain comment below
+	// and go/internal/debug/debug.go.
+	debug.NewHandlers(sqlDB, dbPath, registry).RegisterRoutes(mux)
 
 	haClient := ha.NewClientFromEnv()
 	ordersRepo := orders.NewRepository(sqlDB)
@@ -366,10 +391,11 @@ func main() {
 	// server.js's body-parser step (lines ~178-193) has no Go equivalent to
 	// slot in here: net/http reads a request body lazily per-handler, not
 	// through a chained global middleware, so there is nothing to add yet.
-	// Phase 1c's handlers will each bound their own request body size
-	// per-route the way routes/backup.js's /api/restore and
-	// routes/debug.js's /api/debug/import-db use route-scoped
-	// express.json()/express.raw() limits today.
+	// Phase 1c's handlers each bound their own request body size per-route
+	// the way routes/backup.js's /api/restore and routes/debug.js's
+	// /api/debug/import-db use route-scoped express.json()/express.raw()
+	// limits today — internal/debug's importDB, for one, wraps its body in
+	// http.MaxBytesReader at server.js:192's exact 500 MB ceiling.
 	handler := auth.SecurityHeaders(
 		limiter.Middleware(
 			auth.RequireToken(token)(mux),
