@@ -25,6 +25,8 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -59,22 +61,71 @@ import (
 // the add-on container, same pattern as dbPath/tokenPath below.
 const defaultPort = "8099"
 
-func main() {
-	dbPath := getEnv("GLP_DB_PATH", db.DefaultPath)
-	tokenPath := getEnv("GLP_TOKEN_FILE", auth.DefaultTokenFile)
-	port := getEnv("GLP_PORT", defaultPort)
-	rateLimitWindow := time.Duration(getEnvNumber("GLP_RATE_LIMIT_WINDOW_MS", float64(ratelimit.DefaultWindow/time.Millisecond))) * time.Millisecond
-	rateLimitMax := int(getEnvNumber("GLP_RATE_LIMIT_MAX", float64(ratelimit.DefaultMax)))
+// appConfig is the resolved runtime configuration buildApp needs — every
+// field is an env-var read in production (configFromEnv) and an explicit
+// value in tests (cmd/server's smoke test).
+type appConfig struct {
+	dbPath          string
+	tokenPath       string
+	port            string
+	rateLimitWindow time.Duration
+	rateLimitMax    int
+}
 
-	sqlDB, err := db.Open(dbPath)
+func configFromEnv() appConfig {
+	return appConfig{
+		dbPath:          getEnv("GLP_DB_PATH", db.DefaultPath),
+		tokenPath:       getEnv("GLP_TOKEN_FILE", auth.DefaultTokenFile),
+		port:            getEnv("GLP_PORT", defaultPort),
+		rateLimitWindow: time.Duration(getEnvNumber("GLP_RATE_LIMIT_WINDOW_MS", float64(ratelimit.DefaultWindow/time.Millisecond))) * time.Millisecond,
+		rateLimitMax:    int(getEnvNumber("GLP_RATE_LIMIT_MAX", float64(ratelimit.DefaultMax))),
+	}
+}
+
+func main() {
+	cfg := configFromEnv()
+
+	handler, sqlDB, err := buildApp(context.Background(), cfg)
 	if err != nil {
-		log.Fatalf("opening database at %s: %v", dbPath, err)
+		log.Fatal(err)
 	}
 	defer sqlDB.Close()
 
+	addr := ":" + cfg.port
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("listening on %s: %v", addr, err)
+	}
+
+	log.Printf("GLP Go server listening on port %s", cfg.port)
+	srv := &http.Server{Handler: handler}
+	if err := srv.Serve(tcpNoDelayListener{ln}); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("server error: %v", err)
+	}
+}
+
+// buildApp wires every internal/* domain into the full net/http handler
+// chain server.js registers, exactly as main() did inline before Phase 3
+// (#901) split it out so cmd/server's HA-ingress smoke test can exercise
+// the real middleware stack + real handlers end to end. ctx bounds the
+// background poller's tickers — cancelling it shuts the poller (and its
+// live-poll goroutine) down cleanly. The returned *sql.DB is the caller's
+// to Close.
+func buildApp(ctx context.Context, cfg appConfig) (http.Handler, *sql.DB, error) {
+	dbPath := cfg.dbPath
+	tokenPath := cfg.tokenPath
+	rateLimitWindow := cfg.rateLimitWindow
+	rateLimitMax := cfg.rateLimitMax
+
+	sqlDB, err := db.Open(dbPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("opening database at %s: %w", dbPath, err)
+	}
+
 	token, err := auth.LoadOrCreateToken(tokenPath)
 	if err != nil {
-		log.Fatalf("loading API token from %s: %v", tokenPath, err)
+		sqlDB.Close()
+		return nil, nil, fmt.Errorf("loading API token from %s: %w", tokenPath, err)
 	}
 
 	hub := sse.NewHub()
@@ -251,7 +302,7 @@ func main() {
 	poller.SetLiveTransport(mqttTransport)
 	mqtt.NewHandlers(mqttRepo, mqttTransport, registry, machinesHandlers, haClient).RegisterRoutes(mux)
 
-	poller.Start(context.Background())
+	poller.Start(ctx)
 	// Closes internal/orders' shop-broadcast deferral (see
 	// internal/orders/doc.go and internal/system/doc.go's "internal/orders'
 	// shop-broadcast" section for why this is a callback, not an import).
@@ -402,17 +453,7 @@ func main() {
 		),
 	)
 
-	addr := ":" + port
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		log.Fatalf("listening on %s: %v", addr, err)
-	}
-
-	log.Printf("GLP Go server listening on port %s", port)
-	srv := &http.Server{Handler: handler}
-	if err := srv.Serve(tcpNoDelayListener{ln}); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("server error: %v", err)
-	}
+	return handler, sqlDB, nil
 }
 
 func getEnv(name, def string) string {

@@ -266,6 +266,15 @@ func (p *Poller) Start(ctx context.Context) {
 		}
 	})
 	go p.runTicker(ctx, preheatWatchInterval, func() { p.preheatWatchTick(ctx) })
+	// ctx cancellation also tears the live-poll ticker down (its goroutine
+	// is otherwise only stopped by stopLivePolling on a machine-off
+	// transition). Node's process just exits; this gives the Go binary —
+	// and, load-bearing here, cmd/server's smoke test — a clean shutdown
+	// with no leaked poll goroutine.
+	go func() {
+		<-ctx.Done()
+		p.stopLivePolling()
+	}()
 }
 
 func (p *Poller) runTicker(ctx context.Context, interval time.Duration, fn func()) {
