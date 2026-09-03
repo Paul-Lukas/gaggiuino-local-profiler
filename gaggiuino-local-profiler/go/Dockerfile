@@ -100,6 +100,17 @@ FROM alpine:3.22
 ARG GLP_DEV_BUILD=""
 ENV GLP_DEV_BUILD=${GLP_DEV_BUILD}
 
+# #956 W3: cap the Go heap so the GC returns memory to the OS aggressively
+# instead of the throughput-tuned default of letting RSS drift up and stay
+# there. Soft limit — the runtime still exceeds it if the live heap genuinely
+# needs to (it won't OOM the add-on), it just collects harder as it nears
+# this. Governs the Go heap only (goccy decode buffers, json.RawMessage
+# retention, the score cache); resvg's wasm linear memory is off-heap and is
+# bounded separately by resvgPoolSize. 160 MiB leaves headroom over the
+# steady-state working set while pulling the ~190 MB warm RSS back toward
+# Node's ~90 MB.
+ENV GOMEMLIMIT=160MiB
+
 # /data is created (not just relied on as a bind-mount point) so the image
 # also runs standalone without an explicit `-v` — matching the HA add-on's
 # real usage, where Supervisor always provides the mount, but keeping local

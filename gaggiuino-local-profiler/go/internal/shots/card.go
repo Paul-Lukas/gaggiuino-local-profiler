@@ -108,7 +108,15 @@ func InstallCodeFor(uuid string) string {
 // requests each pay the ~1-2 s wasm instantiation, everything after is
 // warm. A render that returns a wasm-level error drops its slot so the
 // next user rebuilds it rather than inheriting a wedged module.
-const resvgPoolSize = 3
+//
+// Sized 2, not 3 (#956 W3): each warm slot holds an independent wazero
+// runtime + linear memory (~30-50 MB resident), and three of them was the
+// single biggest contributor to the Go build's ~190 MB warm RSS vs Node's
+// ~90 MB. Two still lets a second card render while the first is in flight
+// (card p95 had headroom under the c=10 bench at pool 3); a third slot only
+// helped a burst of 3+ simultaneous card requests, which the live traffic
+// never showed.
+const resvgPoolSize = 2
 
 type resvgSlot struct {
 	ctx *resvg.Context
