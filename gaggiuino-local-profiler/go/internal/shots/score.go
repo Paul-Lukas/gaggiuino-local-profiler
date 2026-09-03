@@ -213,17 +213,28 @@ func isJSONNull(r stdjson.RawMessage) bool {
 	return len(t) == 0 || string(t) == "null"
 }
 
-// decodeFloatArray parses a JSON number array. It first tries a direct
-// []float64 decode (fast, no boxing) and falls back to a lenient []any
-// decode filtered through floatSlice — matching floatSlice's original
-// "skip anything that isn't a number" tolerance for a stray null in the
-// series.
+// decodeFloatArray parses a JSON number array, dropping any null element —
+// byte-for-byte matching the map/[]any path's floatSlice, which skips
+// anything that isn't a float64 (a JSON null decodes to a nil interface and
+// is skipped there). Decoding straight into []float64 would instead turn a
+// null into a 0, so a shot with a stray null in a series would score
+// differently on /shots.json (this path) than in the detail view
+// (DatapointsMap -> floatSlice). Decoding into []*float64 keeps the fast,
+// unboxed path while preserving the drop-null semantics; a non-numeric
+// element (string/bool) still errors and falls back to the lenient []any
+// parse.
 func decodeFloatArray(r stdjson.RawMessage) []float64 {
 	if len(r) == 0 {
 		return nil
 	}
-	var out []float64
-	if err := json.Unmarshal(r, &out); err == nil {
+	var ptrs []*float64
+	if err := json.Unmarshal(r, &ptrs); err == nil {
+		out := make([]float64, 0, len(ptrs))
+		for _, p := range ptrs {
+			if p != nil {
+				out = append(out, *p)
+			}
+		}
 		return out
 	}
 	var anyArr []any

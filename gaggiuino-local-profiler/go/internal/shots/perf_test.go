@@ -83,34 +83,50 @@ func TestListShots_KeepsDatapointsInResponse(t *testing.T) {
 // gets the same score as the identical shot built as a map[string]any and
 // scored directly (scoreSeriesFromMap) — the two paths must not diverge.
 func TestListShots_ScoreMatchesRawAndMapDatapoints(t *testing.T) {
-	h, _, sqlDB := newTestHandlers(t)
-	mux := newMux(h)
-
-	dp := bigDatapoints(400)
 	ann := map[string]any{"dose": 18.0, "tds": 9.0}
-	dur := int64(300)
-	insertShot(t, sqlDB, 1, 1000, &dur, "V60", map[string]any{"datapoints": dp}, ann)
 
-	rec := doJSON(t, mux, http.MethodGet, "/shots.json", nil)
-	var list []map[string]any
-	if err := stdjson.Unmarshal(rec.Body.Bytes(), &list); err != nil {
-		t.Fatalf("decoding response: %v", err)
+	cases := map[string]map[string]any{
+		"clean series": bigDatapoints(400),
+		// A stray null in a series: the map path (floatSlice) drops it, so
+		// the raw path (decodeFloatArray) must too — decoding straight into
+		// []float64 would turn it into a 0 and diverge (#951 review C).
+		"null in temperature / timeInShot / pressure": func() map[string]any {
+			dp := bigDatapoints(400)
+			for _, key := range []string{"temperature", "timeInShot", "pressure", "shotWeight", "targetTemperature"} {
+				s := dp[key].([]any)
+				s[10], s[50], s[len(s)-1] = nil, nil, nil
+			}
+			return dp
+		}(),
 	}
-	rawScore := list[0]["score"]
 
-	mapShot := Shot{
-		"datapoints": dp,
-		"duration":   int64(300),
-		"annotation": ann,
-	}
-	want := CalcShotScoreDetail(mapShot, nil).Score
-	switch {
-	case rawScore == nil && want == nil:
-		// both unscored — fine
-	case rawScore == nil || want == nil:
-		t.Fatalf("score mismatch: raw-path = %v, map-path = %v", rawScore, want)
-	case int(rawScore.(float64)) != *want:
-		t.Fatalf("score mismatch: raw-path = %v, map-path = %d", rawScore, *want)
+	for name, dp := range cases {
+		t.Run(name, func(t *testing.T) {
+			h, _, sqlDB := newTestHandlers(t)
+			mux := newMux(h)
+			dur := int64(300)
+			insertShot(t, sqlDB, 1, 1000, &dur, "V60", map[string]any{"datapoints": dp}, ann)
+
+			rec := doJSON(t, mux, http.MethodGet, "/shots.json", nil)
+			var list []map[string]any
+			if err := stdjson.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+				t.Fatalf("decoding response: %v", err)
+			}
+			rawScore := list[0]["score"]
+
+			mapShot := Shot{"datapoints": dp, "duration": int64(300), "annotation": ann}
+			want := CalcShotScoreDetail(mapShot, nil).Score
+			switch {
+			case rawScore == nil && want == nil:
+			case rawScore == nil || want == nil:
+				t.Fatalf("score mismatch: raw-path = %v, map-path = %v", rawScore, want)
+			case int(rawScore.(float64)) != *want:
+				t.Fatalf("score mismatch: raw-path = %v, map-path = %d", rawScore, *want)
+			}
+			if want == nil {
+				t.Fatal("test dataset should produce a score — check the fixture")
+			}
+		})
 	}
 }
 

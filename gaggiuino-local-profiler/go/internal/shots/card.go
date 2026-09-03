@@ -174,10 +174,30 @@ func (p *resvgPool) render(svg []byte, w, h uint32) ([]byte, error) {
 			return nil, err
 		}
 	}
+
 	png, err := slot.r.RenderWithSize(svg, w, h)
+	if err == nil && len(png) == 0 {
+		// resvg ran but produced no image — an SVG it can't rasterise for
+		// this input (unexpected for this package's fixed-canvas, escaped,
+		// truncated template, but not impossible). The wasm module is
+		// intact: keep the warm slot, only this one request fails. Do NOT
+		// drop() here — that would make one bad card cost an unrelated
+		// later request the ~1-2s wasm re-init.
+		return nil, fmt.Errorf("resvg render: empty output for shot card SVG")
+	}
 	if err != nil {
-		slot.drop()
-		return nil, fmt.Errorf("resvg render: %w", err)
+		// A RenderWithSize error is a wasm-runtime failure (a guest trap, a
+		// missing export, an allocation the module refused). One retry on
+		// the same slot rides out a transient hiccup; a genuinely wedged
+		// module fails again and only then is retired so the next caller
+		// rebuilds it rather than inheriting the broken one.
+		if png, err = slot.r.RenderWithSize(svg, w, h); err != nil {
+			slot.drop()
+			return nil, fmt.Errorf("resvg render: %w", err)
+		}
+		if len(png) == 0 {
+			return nil, fmt.Errorf("resvg render: empty output for shot card SVG")
+		}
 	}
 	return png, nil
 }
