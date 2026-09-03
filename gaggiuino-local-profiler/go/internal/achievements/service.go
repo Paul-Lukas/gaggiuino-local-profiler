@@ -1,8 +1,10 @@
 package achievements
 
 import (
+	"fmt"
 	"log"
 	"math"
+	"sync"
 )
 
 // This file ports lib/services/AchievementService.js: evaluate the registry
@@ -14,12 +16,17 @@ import (
 // Node wires evaluateAll() to six bus events (shot saved, bean changed,
 // maintenance acknowledged, order completed, profile saved, backup
 // exported) AND runs one boot sweep. This Go port has no event bus, so
-// EvaluateState() runs a full evaluateAll(nil) pass right before every
-// GetState() read instead — evaluateAll already early-returns the instant
-// no badge is still locked (evaluateAll's own optimization), so a
-// household whose history is mostly stamped pays almost nothing per read;
-// a fresh install after an update pays one retroactive scoring sweep on
-// its first GET /api/achievements, exactly what Node's boot sweep does.
+// GetState() reconstructs the same "evaluate on change, not on a schedule"
+// signal from the data: it calls Repository.ChangeFingerprint() (a handful
+// of cheap COUNT/MAX aggregates, no datapoints blobs) on every read and
+// only runs the full evaluateAll(nil) pass — buildContext scans every
+// shot's datapoints and re-scores it, ~200ms on a real history (#956) —
+// when that digest, or the cached GitHub-version result, moved since the
+// last pass. A fresh install after an update still pays one retroactive
+// scoring sweep on its first GET /api/achievements, exactly what Node's
+// boot sweep does; steady-state reads with no new shot/bean/order/
+// maintenance activity pay only the fingerprint query.
+//
 // The four live-moment badges (first_profile/profile_edit/backup/restock)
 // only ever unlock on their specific event and have no retroactive path in
 // Node either — those stay permanently locked in this port until an event
@@ -34,6 +41,13 @@ var supportedLangs = map[string]bool{
 type Service struct {
 	repo *Repository
 	deps Deps
+
+	// evalMu guards the fingerprint gate below and serialises the full
+	// evaluateAll pass so a burst of GET /api/achievements right after a
+	// data change triggers one scan, not one per request.
+	evalMu      sync.Mutex
+	lastFP      string
+	fpEvaluated bool
 }
 
 // NewService wires the achievements Repository + the cross-domain Deps
@@ -47,7 +61,51 @@ func NewService(repo *Repository, deps Deps) *Service {
 // file header); kept exported so an event bus / explicit hooks can drive it
 // without touching this package.
 func (s *Service) EvaluateEvent(event *Event) ([]string, error) {
-	return s.evaluateAll(event)
+	out, err := s.evaluateAll(event)
+	// Force the next GetState() to re-sync its fingerprint against the DB
+	// this pass may have mutated.
+	s.evalMu.Lock()
+	s.fpEvaluated = false
+	s.evalMu.Unlock()
+	return out, err
+}
+
+// maybeEvaluate runs evaluateAll(nil) only when the DB change fingerprint
+// (or the cached version-check result) has moved since the last pass, or no
+// pass has run yet this process. See the file header.
+func (s *Service) maybeEvaluate() error {
+	fp, err := s.repo.ChangeFingerprint()
+	if err != nil {
+		return err
+	}
+	fp += " v=" + versionFingerprint(s.deps.VersionFn)
+
+	s.evalMu.Lock()
+	defer s.evalMu.Unlock()
+	if s.fpEvaluated && fp == s.lastFP {
+		return nil
+	}
+	if _, err := s.evaluateAll(nil); err != nil {
+		return err
+	}
+	s.lastFP = fp
+	s.fpEvaluated = true
+	return nil
+}
+
+// versionFingerprint folds the in-memory GitHub-release check result into
+// the change signal so the up_to_date badge still unlocks the read after a
+// version check completes, without that check being a DB write.
+func versionFingerprint(fn func() VersionCache) string {
+	if fn == nil {
+		return ""
+	}
+	vc := fn()
+	latest := ""
+	if vc.Latest != nil {
+		latest = *vc.Latest
+	}
+	return fmt.Sprintf("%s/%t", latest, vc.UpdateAvailable)
 }
 
 // evaluateAll ports AchievementService.evaluateAll(event).
@@ -130,10 +188,11 @@ func safeProgress(b badge, ctx *Context) (result int) {
 }
 
 // GetState ports getState(lang): the full catalogue + DB state. Runs a
-// fresh evaluateAll(nil) pass first (see the file header for why — no event
-// bus). lang is assumed already validated by the handler.
+// fresh evaluateAll(nil) pass first when the change fingerprint moved (see
+// the file header for why — no event bus). lang is assumed already
+// validated by the handler.
 func (s *Service) GetState(lang string) ([]map[string]any, error) {
-	if _, err := s.evaluateAll(nil); err != nil {
+	if err := s.maybeEvaluate(); err != nil {
 		return nil, err
 	}
 	existing, err := s.repo.GetAll()

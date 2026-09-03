@@ -60,6 +60,66 @@ func (r *Repository) GetAll() (map[string]Row, error) {
 	return out, rows.Err()
 }
 
+// ChangeFingerprint is a cheap digest of the tables buildContext's context
+// snapshot reads (shots/annotations/trash/orders/library/kv/maintenance/
+// machines). It is built only from COUNT / MAX / SUM(LENGTH) aggregates, so
+// it never reads a shot's datapoints blob — the whole point is that
+// Service.GetState can call this on every GET /api/achievements and only
+// pay the ~200ms full-context scan (evaluateAll -> buildContext ->
+// FindAllExcludingTrash over every datapoints blob + per-shot scoring) when
+// the digest actually changed since the last pass. lib/db.js's Node
+// counterpart gets "evaluate on change, not on every read" for free from
+// its event bus; this port has none (see doc.go), so it derives the same
+// signal from the data. #956.
+func (r *Repository) ChangeFingerprint() (string, error) {
+	var (
+		shotCount, shotMaxID, shotMaxTS int64
+		trashCount                      int64
+		annCount, annBytes              int64
+		orderCount, orderBytes          int64
+		libBytes, kvBytes               int64
+		maintLogCount, maintBytes       int64
+		machineCount, machineBytes      int64
+	)
+	err := r.db.QueryRow(`
+		SELECT
+			(SELECT COUNT(*) FROM shots),
+			(SELECT COALESCE(MAX(id), 0) FROM shots),
+			(SELECT COALESCE(MAX(timestamp), 0) FROM shots),
+			(SELECT COUNT(*) FROM trash),
+			(SELECT COUNT(*) FROM annotations),
+			(SELECT COALESCE(SUM(LENGTH(data)), 0) FROM annotations),
+			(SELECT COUNT(*) FROM orders),
+			(SELECT COALESCE(SUM(LENGTH(data)), 0) FROM orders),
+			(SELECT COALESCE(SUM(LENGTH(data)), 0) FROM library),
+			(SELECT COALESCE(SUM(LENGTH(value)), 0) FROM kv),
+			(SELECT COUNT(*) FROM maintenance_log),
+			(SELECT COALESCE(SUM(LENGTH(data)), 0) FROM maintenance),
+			(SELECT COUNT(*) FROM machines),
+			(SELECT COALESCE(SUM(LENGTH(COALESCE(theme, ''))), 0) FROM machines)
+	`).Scan(
+		&shotCount, &shotMaxID, &shotMaxTS,
+		&trashCount,
+		&annCount, &annBytes,
+		&orderCount, &orderBytes,
+		&libBytes, &kvBytes,
+		&maintLogCount, &maintBytes,
+		&machineCount, &machineBytes,
+	)
+	if err != nil {
+		return "", fmt.Errorf("achievements: building change fingerprint: %w", err)
+	}
+	return fmt.Sprintf("s%d.%d.%d t%d a%d.%d o%d.%d l%d k%d m%d.%d M%d.%d",
+		shotCount, shotMaxID, shotMaxTS,
+		trashCount,
+		annCount, annBytes,
+		orderCount, orderBytes,
+		libBytes, kvBytes,
+		maintLogCount, maintBytes,
+		machineCount, machineBytes,
+	), nil
+}
+
 // Unlock ports unlock(id, unlockedAt, progress): idempotent via INSERT OR
 // IGNORE — a badge already unlocked keeps its original unlocked_at forever,
 // even if evaluateAll runs again.

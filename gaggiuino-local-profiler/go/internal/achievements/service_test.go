@@ -140,6 +140,95 @@ func TestSecretsTableDecodes(t *testing.T) {
 	}
 }
 
+// TestGetState_SkipsFullEvaluateWhenNothingChanged pins the #956
+// fingerprint gate: GET /api/achievements must not re-run the full
+// evaluateAll(nil) context scan when no shot/annotation/order/bean/
+// maintenance state moved since the last pass, and must run it again the
+// moment one does. The probe: unlock a badge via a read, delete its row
+// behind the service's back, then read again — an unchanged fingerprint
+// means no re-evaluation, so the row stays gone; a new shot moves the
+// fingerprint and the badge comes back.
+func TestGetState_SkipsFullEvaluateWhenNothingChanged(t *testing.T) {
+	env := newTestEnv(t)
+
+	env.insertShot(t, 5, time.Now().Unix(), map[string]any{"datapoints": map[string]any{}}, nil)
+	if badgeByID(env.get(t, "en"))["first_shot"]["unlocked"] != true {
+		t.Fatalf("first_shot should unlock after the first read")
+	}
+
+	// Erase the persisted unlock. If GetState re-evaluated unconditionally
+	// (pre-#956 behaviour) the next read would immediately re-unlock it.
+	if _, err := env.db.Exec(`DELETE FROM achievements WHERE id = 'first_shot'`); err != nil {
+		t.Fatalf("deleting achievement row: %v", err)
+	}
+
+	if got := badgeByID(env.get(t, "en"))["first_shot"]["unlocked"]; got != false {
+		t.Fatalf("first_shot re-unlocked with no data change — fingerprint gate not skipping evaluateAll (got unlocked=%v)", got)
+	}
+
+	// A new shot moves the fingerprint -> evaluateAll runs again.
+	env.insertShot(t, 6, time.Now().Unix(), map[string]any{"datapoints": map[string]any{}}, nil)
+	if badgeByID(env.get(t, "en"))["first_shot"]["unlocked"] != true {
+		t.Fatalf("first_shot should re-unlock after a new shot changes the fingerprint")
+	}
+}
+
+// TestChangeFingerprint_MovesOnEachRelevantWrite guards the aggregate set
+// ChangeFingerprint digests — every table buildContext reads must shift it.
+func TestChangeFingerprint_MovesOnEachRelevantWrite(t *testing.T) {
+	env := newTestEnv(t)
+	repo := NewRepository(env.db)
+
+	last, err := repo.ChangeFingerprint()
+	if err != nil {
+		t.Fatalf("ChangeFingerprint: %v", err)
+	}
+	moved := func(what string) {
+		t.Helper()
+		fp, err := repo.ChangeFingerprint()
+		if err != nil {
+			t.Fatalf("ChangeFingerprint after %s: %v", what, err)
+		}
+		if fp == last {
+			t.Fatalf("fingerprint did not move after %s (%q)", what, fp)
+		}
+		last = fp
+	}
+
+	env.insertShot(t, 5, time.Now().Unix(), map[string]any{"datapoints": map[string]any{}}, nil)
+	moved("shot insert")
+
+	if _, err := env.db.Exec(`INSERT INTO annotations (shot_id, data) VALUES (5, '{"dose":18}')`); err != nil {
+		t.Fatalf("annotation insert: %v", err)
+	}
+	moved("annotation insert")
+
+	if _, err := env.db.Exec(`UPDATE annotations SET data = '{"dose":18,"note":"edited"}' WHERE shot_id = 5`); err != nil {
+		t.Fatalf("annotation edit: %v", err)
+	}
+	moved("annotation edit")
+
+	if _, err := env.db.Exec(`INSERT INTO trash (shot_id, deleted_at) VALUES (5, 1)`); err != nil {
+		t.Fatalf("trash insert: %v", err)
+	}
+	moved("trash insert")
+
+	if _, err := env.db.Exec(`INSERT INTO library (key, data) VALUES ('beans', '[{"id":1}]')`); err != nil {
+		t.Fatalf("library write: %v", err)
+	}
+	moved("library write")
+
+	if _, err := env.db.Exec(`INSERT INTO kv (key, value) VALUES ('menu', '[]')`); err != nil {
+		t.Fatalf("kv write: %v", err)
+	}
+	moved("kv write")
+
+	if _, err := env.db.Exec(`INSERT INTO orders (id, data, machine_id) VALUES ('o1', '{}', 1)`); err != nil {
+		t.Fatalf("order write: %v", err)
+	}
+	moved("order write")
+}
+
 func toStringSlice(v any) []string {
 	arr, _ := v.([]any)
 	out := make([]string, 0, len(arr))
