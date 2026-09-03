@@ -187,12 +187,13 @@ type LogEntry struct {
 // value scopes to that one machine.
 func (r *Repository) GetMaintenanceLog(machineID int64) ([]LogEntry, error) {
 	// Resolve grinder names BEFORE opening the maintenance_log cursor
-	// below: internal/db.Open pins this *sql.DB to a single physical
-	// SQLite connection (SetMaxOpenConns(1)), so a second query started
-	// while an earlier *sql.Rows is still open (not yet fully consumed or
-	// Close()'d) deadlocks waiting for a connection the first query's
-	// still holding — this bug was caught live by
-	// handlers_test.go's TestTaskDone_MarksLastDateAndLogs hanging.
+	// below, and keep it that way: a second query issued while an earlier
+	// *sql.Rows is still open borrows a second pooled connection, and under
+	// the pre-#956 single-connection pool that deadlocked outright (caught
+	// live by handlers_test.go's TestTaskDone_MarksLastDateAndLogs
+	// hanging). The pool is wider now, but nesting an unrelated query
+	// inside an open cursor is still a connection-lifetime footgun worth
+	// not reintroducing.
 	lib, err := r.libRepo.GetLibrary()
 	if err != nil {
 		return nil, err

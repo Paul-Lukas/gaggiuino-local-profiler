@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -26,14 +27,27 @@ const DefaultPath = "/data/glp.db"
 // possibly run against is already on SQLite.
 //
 // modernc.org/sqlite is a database/sql driver, so unlike better-sqlite3
-// (Node's single synchronous connection) database/sql normally pools
-// multiple connections — which would make "PRAGMA journal_mode/foreign_keys"
-// apply inconsistently depending on which pooled connection later ran a
-// query. SetMaxOpenConns(1) below pins this handle to one physical
-// connection, matching better-sqlite3's single-connection semantics exactly
-// (SQLite is a single-writer embedded database anyway, so this costs nothing
-// in practice) and keeps pragmas reliably in effect for the process
-// lifetime.
+// (Node's single synchronous connection) database/sql pools multiple
+// connections. The pragmas this database needs on every connection
+// (journal_mode, foreign_keys, busy_timeout, synchronous) are therefore set
+// through the connection URL — modernc.org/sqlite applies each `_pragma=`
+// query parameter to every physical connection it opens, so a pooled
+// connection can never end up with a stale pragma state.
+//
+// With WAL + per-connection busy_timeout that lets the pool run several
+// concurrent readers: SQLite/WAL allows readers to proceed while another
+// connection reads or writes, so a slow full-table scan on one connection
+// (the periodic sync loop, achievements, a big list response) no longer
+// head-of-line-blocks every other HTTP request behind the one shared
+// handle (#956). Writes are still serialised by SQLite itself; a writer
+// that meets a brief WAL lock retries internally for up to busy_timeout
+// rather than erroring with SQLITE_BUSY.
+//
+// Schema creation and the additive migrations below run before the pool is
+// opened up — on a single connection (SetMaxOpenConns(1)) — so a
+// multi-statement ALTER never races a concurrent reader, matching
+// lib/db.js's single better-sqlite3 handle exactly for the one phase where
+// it matters.
 func Open(path string) (*sql.DB, error) {
 	if dir := filepath.Dir(path); dir != "." && dir != "/" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -41,18 +55,24 @@ func Open(path string) (*sql.DB, error) {
 		}
 	}
 
-	sqlDB, err := sql.Open("sqlite", path)
+	// getDb(): _db.pragma('journal_mode = WAL') + initSchema()'s
+	// `foreign_keys = ON`, plus busy_timeout/synchronous(NORMAL) WAL tuning
+	// (#956). Applied per connection by the driver, so every pooled
+	// connection is identical.
+	dsn := "file:" + path +
+		"?_pragma=busy_timeout(5000)" +
+		"&_pragma=journal_mode(WAL)" +
+		"&_pragma=foreign_keys(ON)" +
+		"&_pragma=synchronous(NORMAL)"
+
+	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("db: opening %s: %w", path, err)
 	}
+
+	// Serial phase: schema + migrations on one connection (see doc comment).
 	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
-
-	// getDb(): _db.pragma('journal_mode = WAL') runs before initSchema.
-	if _, err := sqlDB.Exec(`PRAGMA journal_mode = WAL`); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("db: setting WAL mode: %w", err)
-	}
 
 	if err := InitSchema(sqlDB); err != nil {
 		sqlDB.Close()
@@ -76,6 +96,15 @@ func Open(path string) (*sql.DB, error) {
 		sqlDB.Close()
 		return nil, err
 	}
+
+	// Migrations done — open the pool for concurrent reads.
+	poolSize := runtime.NumCPU()
+	if poolSize < 4 {
+		poolSize = 4
+	}
+	sqlDB.SetMaxOpenConns(poolSize)
+	sqlDB.SetMaxIdleConns(4)
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 
 	return sqlDB, nil
 }
@@ -191,6 +220,12 @@ const schemaSQL = `
 // exist and turns on foreign-key enforcement — the Go port of lib/db.js's
 // initSchema(db). Extracted, like the Node original, so tests can stand up
 // an isolated database with the same schema instead of duplicating this SQL.
+//
+// Open() also sets foreign_keys via the connection DSN (per pooled
+// connection); the Exec here is kept so callers that open a raw *sql.DB
+// without that DSN (a custom driver in tests, an in-memory probe) still get
+// enforcement. It runs during Open()'s single-connection migration phase,
+// so it is not the "pragma on one random pooled connection" anti-pattern.
 func InitSchema(sqlDB *sql.DB) error {
 	if _, err := sqlDB.Exec(`PRAGMA foreign_keys = ON`); err != nil {
 		return fmt.Errorf("db: enabling foreign_keys: %w", err)

@@ -8,12 +8,15 @@
 // JSON_FILES) is deliberately NOT ported — every install this binary can
 // run against is already on SQLite.
 //
-// database/sql normally pools connections, which would make SQLite pragmas
-// (journal_mode, foreign_keys) apply inconsistently depending on which
-// connection later runs a query; Open pins the returned *sql.DB to a single
-// connection (SetMaxOpenConns(1)) to match better-sqlite3's single-connection
-// semantics exactly, which costs nothing since SQLite is a single-writer
-// database anyway.
+// database/sql pools connections, which would make SQLite pragmas
+// (journal_mode, foreign_keys, busy_timeout, synchronous) apply
+// inconsistently depending on which connection later runs a query; Open
+// sets them through the connection DSN instead (modernc.org/sqlite's
+// `_pragma=` query parameters, applied to every physical connection it
+// opens). The pool then runs concurrent WAL readers so a slow full scan on
+// one connection no longer head-of-line-blocks every other HTTP request
+// (#956); schema creation and migrations still run on a single connection
+// before the pool opens up.
 //
 // Schema fidelity against the Node original is enforced by
 // db_schema_test.go, which compares this package's schema (column names,
