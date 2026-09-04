@@ -367,3 +367,4 @@ func (h *Handlers) machineLive(w http.ResponseWriter, r *http.Request) {
 		"sysState":   sysState,
 	})
 }
+
