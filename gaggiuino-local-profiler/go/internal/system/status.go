@@ -21,13 +21,13 @@ import (
 // describe the default machine" convention the rest of this endpoint's
 // top-level fields also follow.
 type statusMachine struct {
-	ID           int64                  `json:"id"`
-	Name         string                 `json:"name"`
-	Type         string                 `json:"type"`
-	IsDefault    bool                   `json:"isDefault"`
-	Enabled      bool                   `json:"enabled"`
-	Reachable    *bool                  `json:"reachable"`
-	On           *bool                  `json:"on"`
+	ID        int64           `json:"id"`
+	Name      string          `json:"name"`
+	Type      string          `json:"type"`
+	IsDefault bool            `json:"isDefault"`
+	Enabled   bool            `json:"enabled"`
+	Reachable *bool           `json:"reachable"`
+	On        *bool           `json:"on"`
 	Theme     *machines.Theme `json:"theme"`
 }
 

@@ -62,22 +62,22 @@ type gaggiMateSlogResult struct {
 }
 
 type gaggiMateSample struct {
-	tickMs             float64
-	tt, ct             float64
-	tp, cp             float64
-	fl, tf             float64
-	pf, vf             float64
-	v, ev              float64
-	pr                 float64
-	bleScaleConnected  bool
-	hasTickMs          bool
-	hasTT, hasCT       bool
-	hasTP, hasCP       bool
-	hasFL, hasTF       bool
-	hasPF, hasVF       bool
-	hasV, hasEV        bool
-	hasPR              bool
-	hasSystemInfo      bool
+	tickMs            float64
+	tt, ct            float64
+	tp, cp            float64
+	fl, tf            float64
+	pf, vf            float64
+	v, ev             float64
+	pr                float64
+	bleScaleConnected bool
+	hasTickMs         bool
+	hasTT, hasCT      bool
+	hasTP, hasCP      bool
+	hasFL, hasTF      bool
+	hasPF, hasVF      bool
+	hasV, hasEV       bool
+	hasPR             bool
+	hasSystemInfo     bool
 }
 
 // gaggiMateCString reads a null-terminated UTF-8 string from data[offset:offset+maxLen].
