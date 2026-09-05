@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines/proto"
@@ -79,15 +80,16 @@ func (a *GaggiuinoAdapter) ListProfiles(ctx context.Context, m *Machine) ([]Prof
 // GET /api/profile/{id} first (cheaper — one HTTP request vs a WS
 // handshake), fall back to the WebSocket path on any failure, the known-
 // working baseline for every firmware version.
-func (a *GaggiuinoAdapter) GetProfile(ctx context.Context, m *Machine, id int) (json.RawMessage, error) {
+func (a *GaggiuinoAdapter) GetProfile(ctx context.Context, m *Machine, id string) (json.RawMessage, error) {
 	baseURL, err := BaseURLFor(ctx, m)
 	if err != nil {
 		return nil, err
 	}
-	if raw, err := httpGetBytes(ctx, fmt.Sprintf("%s/api/profile/%d", baseURL, id), 5*time.Second); err == nil {
+	intID, _ := strconv.Atoi(id)
+	if raw, err := httpGetBytes(ctx, fmt.Sprintf("%s/api/profile/%s", baseURL, id), 5*time.Second); err == nil {
 		return json.RawMessage(raw), nil
 	}
-	profile, err := wsGetProfileByID(ctx, baseURL, id)
+	profile, err := wsGetProfileByID(ctx, baseURL, intID)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +117,7 @@ func (a *GaggiuinoAdapter) CreateProfile(ctx context.Context, m *Machine, profil
 	if err != nil {
 		return ProfileSummary{}, err
 	}
-	return ProfileSummary{ID: int(saved.ID), Name: saved.Name}, nil
+	return ProfileSummary{ID: strconv.Itoa(int(saved.ID)), Name: saved.Name}, nil
 }
 
 // UpdateProfile ports updateProfile(machine, profile) — WebSocket-only
@@ -129,32 +131,33 @@ func (a *GaggiuinoAdapter) UpdateProfile(ctx context.Context, m *Machine, profil
 	if err != nil {
 		return ProfileSummary{}, err
 	}
-	return ProfileSummary{ID: int(saved.ID), Name: saved.Name}, nil
+	return ProfileSummary{ID: strconv.Itoa(int(saved.ID)), Name: saved.Name}, nil
 }
 
 // DeleteProfile ports deleteProfile(machine, id) — WebSocket-only.
-func (a *GaggiuinoAdapter) DeleteProfile(ctx context.Context, m *Machine, id int) ([]ProfileSummary, error) {
+func (a *GaggiuinoAdapter) DeleteProfile(ctx context.Context, m *Machine, id string) ([]ProfileSummary, error) {
 	baseURL, err := BaseURLFor(ctx, m)
 	if err != nil {
 		return nil, err
 	}
-	remaining, err := wsDeleteProfile(ctx, baseURL, id)
+	intID, _ := strconv.Atoi(id)
+	remaining, err := wsDeleteProfile(ctx, baseURL, intID)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]ProfileSummary, len(remaining))
 	for i, p := range remaining {
-		out[i] = ProfileSummary{ID: int(p.ID), Name: p.Name}
+		out[i] = ProfileSummary{ID: strconv.Itoa(int(p.ID)), Name: p.Name}
 	}
 	return out, nil
 }
 
-func (a *GaggiuinoAdapter) SelectProfile(ctx context.Context, m *Machine, id int) error {
+func (a *GaggiuinoAdapter) SelectProfile(ctx context.Context, m *Machine, id string) error {
 	baseURL, err := BaseURLFor(ctx, m)
 	if err != nil {
 		return err
 	}
-	_, err = httpPostBytes(ctx, fmt.Sprintf("%s/api/profile-select/%d", baseURL, id), nil, 5*time.Second)
+	_, err = httpPostBytes(ctx, fmt.Sprintf("%s/api/profile-select/%s", baseURL, id), nil, 5*time.Second)
 	return err
 }
 
