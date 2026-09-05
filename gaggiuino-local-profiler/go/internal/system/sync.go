@@ -245,8 +245,12 @@ func (p *Poller) syncGaggiMateShots(ctx context.Context, machine *machines.Machi
 	if err != nil {
 		// HTTP unreachable — machine may still be live via WS (e.g. only HTTP
 		// is blocked). Not a hard error: return nil so the caller doesn't stamp
-		// a sync failure and the next tick retries.
+		// a sync failure and the poll loop doesn't back off, but still record
+		// it via recordSyncError (like the Gaggiuino path above) so
+		// lastSyncError/lastSyncTime reflect a stuck sync instead of silently
+		// freezing at whatever they were before the outage.
 		log.Printf("system: gaggimate sync: history unreachable: %v", err)
+		p.recordSyncError(err)
 		return nil
 	}
 	if latestMachineID == 0 {

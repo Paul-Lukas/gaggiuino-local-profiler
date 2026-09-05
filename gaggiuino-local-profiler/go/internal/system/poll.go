@@ -694,11 +694,14 @@ func rawStatusFrom(s machines.Status, hasWaterSensor bool) RawStatus {
 		if len(raw) == 0 || string(raw) == "null" {
 			return nil
 		}
-		var n int64
-		if json.Unmarshal(raw, &n) != nil {
+		// Parse as float64 first (not int64 directly): if firmware ever
+		// serializes this field as "72.0" instead of "72", a strict int64
+		// unmarshal fails and silently drops a valid reading.
+		var f float64
+		if json.Unmarshal(raw, &f) != nil {
 			return nil
 		}
-		v := int(n)
+		v := int(f)
 		return &v
 	}
 
