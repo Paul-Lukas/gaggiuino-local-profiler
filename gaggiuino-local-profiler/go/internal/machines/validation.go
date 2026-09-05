@@ -76,6 +76,11 @@ type BrewRecipeInput struct {
 // POST/PUT /api/machine/profile[/{id}]. MachineID is read directly off the
 // decoded body by handlers.go (mirrors req.body?.machineId), not part of
 // the wire conversion.
+//
+// RawBody is set by handlers_profiles.go from the original request bytes —
+// not decoded from JSON — so GaggiMate's CreateProfile/UpdateProfile can
+// pass the profile through unmodified (GaggiMate has its own JSON shape,
+// unrelated to Gaggiuino's Phases/GlobalStopConditions structure).
 type ProfileInput struct {
 	ID                   *int64                     `json:"id"`
 	Name                 string                     `json:"name"`
@@ -84,6 +89,7 @@ type ProfileInput struct {
 	WaterTemperature     *float64                   `json:"waterTemperature"`
 	Recipe               *BrewRecipeInput           `json:"recipe"`
 	MachineID            *int64                     `json:"machineId"`
+	RawBody              json.RawMessage            `json:"-"`
 }
 
 const maxProfileNameLen = 200
