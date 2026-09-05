@@ -44,7 +44,7 @@ func (r machineRow) toMachine() Machine {
 	m := Machine{
 		ID: r.ID, Name: r.Name, Type: r.Type, Host: r.Host,
 		HasWaterSensor: r.HasWaterSensor,
-		IsDefault: r.IsDefault, Enabled: r.Enabled, CreatedAt: r.CreatedAt,
+		IsDefault:      r.IsDefault, Enabled: r.Enabled, CreatedAt: r.CreatedAt,
 	}
 	if r.SwitchEntity.Valid {
 		s := r.SwitchEntity.String
