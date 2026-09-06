@@ -24,6 +24,20 @@ const (
 	gaggiMateSlogHdrV4     = 128
 	gaggiMateSlogHdrV5     = 512
 	gaggiMateReqTimeout    = 10 * time.Second
+
+	// gaggiMateIndexMaxEntries generously bounds how many shots a real
+	// device's onboard flash storage would ever legitimately hold --
+	// 20,000 espresso shots is already far beyond any home machine's
+	// realistic lifetime history. Used only to cap the index.bin fetch
+	// (#991); gaggiMateIndexMax's own entryCount/maxByLen math still
+	// governs how many entries actually get parsed out of whatever bytes
+	// come back.
+	gaggiMateIndexMaxEntries = 20_000
+	// gaggiMateIndexMaxBytes caps the index.bin response well below the
+	// general 8MB .slog cap: header + entries, at the fixed 128-byte
+	// entry size (~2.44MB) -- an index that size dwarfs anything
+	// gaggiMateIndexMaxEntries above would ever legitimately produce.
+	gaggiMateIndexMaxBytes = gaggiMateIndexHdrBytes + gaggiMateIndexMaxEntries*gaggiMateIndexEntBytes
 )
 
 // Field slots in the slog fieldsMask — bit order matches history.js FIELD_BITS.
@@ -180,8 +194,18 @@ func gaggiMateParseSlog(data []byte) (*gaggiMateSlogResult, error) {
 		}
 	}
 	computedSampleSize := len(active) * 2
+	// deviceSampleSize is a single attacker-controlled byte (data[5]).
+	// Trusting a value smaller than what the active fieldsMask actually
+	// needs turns available/maxSamples below into a huge, disproportionate
+	// preallocation (#992: data[5]=1 on an 8MB body preallocates ~1GB).
+	// There's no legitimate reason for the device to report less than
+	// computedSampleSize -- that many bytes are the minimum needed to hold
+	// one sample of every active field -- so floor at computedSampleSize
+	// rather than trusting anything under it; 0 (unset) and any larger,
+	// legitimately-padded value both pass through unchanged, exactly as
+	// before.
 	sampleSize := deviceSampleSize
-	if sampleSize == 0 {
+	if sampleSize < computedSampleSize {
 		sampleSize = computedSampleSize
 	}
 
@@ -382,7 +406,7 @@ func gaggiMateSlogToShot(slog *gaggiMateSlogResult, nativeID int64) map[string]a
 
 // FetchGaggiMateIndex fetches /api/history/index.bin and returns the highest shot ID.
 func FetchGaggiMateIndex(ctx context.Context, baseURL string) (int64, error) {
-	data, err := httpGetBytes(ctx, baseURL+"/api/history/index.bin", gaggiMateReqTimeout)
+	data, err := httpGetBytesCapped(ctx, baseURL+"/api/history/index.bin", gaggiMateReqTimeout, gaggiMateIndexMaxBytes)
 	if err != nil {
 		return 0, err
 	}
