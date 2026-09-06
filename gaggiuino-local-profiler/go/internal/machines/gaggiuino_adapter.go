@@ -85,7 +85,10 @@ func (a *GaggiuinoAdapter) GetProfile(ctx context.Context, m *Machine, id string
 	if err != nil {
 		return nil, err
 	}
-	u64, _ := strconv.ParseUint(id, 10, 32)
+	u64, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Gaggiuino profile id %q: expected non-negative integer", id)
+	}
 	if raw, err := httpGetBytes(ctx, fmt.Sprintf("%s/api/profile/%s", baseURL, id), 5*time.Second); err == nil {
 		return json.RawMessage(raw), nil
 	}

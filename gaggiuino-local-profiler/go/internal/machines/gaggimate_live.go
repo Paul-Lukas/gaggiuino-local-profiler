@@ -146,10 +146,18 @@ func (c *gaggiMateLiveClient) connectOnce(ctx context.Context, baseURL string, s
 		for {
 			_, data, err := conn.Read(ctx)
 			if err != nil {
-				readErrCh <- err
+				// Non-blocking: select loop may have already exited.
+				select {
+				case readErrCh <- err:
+				default:
+				}
 				return
 			}
-			readCh <- data
+			select {
+			case readCh <- data:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
@@ -206,6 +214,11 @@ func (s *gaggiMateLiveSession) dispatchResponse(msg map[string]any) {
 	msgRID := fmt.Sprint(msg["rid"])
 	s.inflightMu.Lock()
 	defer s.inflightMu.Unlock()
+	// TODO: rid-less frames match the first inflight of that resType (FIFO).
+	// DeleteProfile sends req:profiles:delete then req:profiles:list; a
+	// concurrent ListProfiles can race a rid-less list response to the wrong
+	// waiter. Fix: correlate by send-order within the same resType and add a
+	// test for two concurrent req:profiles:list calls.
 	for _, req := range s.inflight {
 		if req.resType == tp && (msg["rid"] == nil || req.rid == msgRID) {
 			select {

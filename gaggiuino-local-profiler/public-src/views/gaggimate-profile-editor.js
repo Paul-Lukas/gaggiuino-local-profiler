@@ -163,7 +163,8 @@ function _renderBody(isPro) {
 
 // ── Profile chart (Chart.js) ───────────────────────────────────────────────
 
-function _phaseDur(ph) { return ph.duration || 5; }
+const MAX_PHASE_DUR = 300; // s — chart preview cap; prevents multi-million-point arrays on typos
+function _phaseDur(ph) { return Math.min(ph.duration || 5, MAX_PHASE_DUR); }
 
 function _easeLinear(x) { return x; }
 function _easeIn(x) { return x * x; }
@@ -417,7 +418,7 @@ function _phaseTypeSelect(ph, i, action) {
 function _durationField(ph, i, action) {
   return `<div class="lib-form-field">
       <label>${t('gm_field_duration')}</label>
-      <input type="number" class="lib-input" value="${ph.duration ?? 0}" min="1" step="1"
+      <input type="number" class="lib-input" value="${ph.duration ?? 0}" min="1" max="${MAX_PHASE_DUR}" step="1"
         data-action="${action}" data-idx="${i}">
     </div>`;
 }
@@ -616,18 +617,16 @@ function _renderProPhase(ph, i) {
 
       ${(mode === 'pressure' || mode === 'flow') ? `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.5rem">
-          ${mode !== 'hold-pressure' ? `
-            <div class="lib-form-field">
-              <label>${mode === 'pressure' ? t('gm_field_pressure_target') : t('gm_field_pressure_max')} (bar)</label>
-              <input type="number" class="lib-input" value="${pressure}" min="0.1" step="0.01"
-                data-action="gm-pro-pressure" data-idx="${i}">
-            </div>` : ''}
-          ${mode !== 'hold-flow' ? `
-            <div class="lib-form-field">
-              <label>${mode === 'flow' ? t('gm_field_flow_target') : t('gm_field_flow_max')} (ml/s)</label>
-              <input type="number" class="lib-input" value="${flow}" min="0.1" step="0.01"
-                data-action="gm-pro-flow" data-idx="${i}">
-            </div>` : ''}
+          <div class="lib-form-field">
+            <label>${mode === 'pressure' ? t('gm_field_pressure_target') : t('gm_field_pressure_max')} (bar)</label>
+            <input type="number" class="lib-input" value="${pressure}" min="0.1" step="0.01"
+              data-action="gm-pro-pressure" data-idx="${i}">
+          </div>
+          <div class="lib-form-field">
+            <label>${mode === 'flow' ? t('gm_field_flow_target') : t('gm_field_flow_max')} (ml/s)</label>
+            <input type="number" class="lib-input" value="${flow}" min="0.1" step="0.01"
+              data-action="gm-pro-flow" data-idx="${i}">
+          </div>
         </div>` : ''}
 
       <div class="lib-form-field" style="margin-bottom:.5rem">

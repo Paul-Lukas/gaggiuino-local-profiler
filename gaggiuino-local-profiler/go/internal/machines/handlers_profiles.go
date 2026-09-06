@@ -175,6 +175,10 @@ func (h *Handlers) createMachineProfile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if machine.Type == "gaggimate" {
+		if err := validateGaggiMateProfileBody(rawBody); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid profile: "+err.Error())
+			return
+		}
 		created, err := adapter.CreateProfile(r.Context(), machine, ProfileInput{RawBody: rawBody})
 		if err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
@@ -217,8 +221,13 @@ func (h *Handlers) updateMachineProfile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if machine.Type == "gaggimate" {
-		// GaggiMate: ID comes from body (RawBody pass-through); path ID is a
-		// string like "lever" and unused by gaggimateSaveProfile.
+		if err := validateGaggiMateProfileBody(rawBody); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid profile: "+err.Error())
+			return
+		}
+		// Inject the path {id} into the body when the client omitted it —
+		// without an id GaggiMate's save creates a duplicate instead of updating.
+		rawBody = injectIDIfAbsent(rawBody, pathIDStr(r))
 		updated, err := adapter.UpdateProfile(r.Context(), machine, ProfileInput{RawBody: rawBody})
 		if err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
