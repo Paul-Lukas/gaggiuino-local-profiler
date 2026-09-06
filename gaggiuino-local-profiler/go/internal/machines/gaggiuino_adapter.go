@@ -85,11 +85,11 @@ func (a *GaggiuinoAdapter) GetProfile(ctx context.Context, m *Machine, id string
 	if err != nil {
 		return nil, err
 	}
-	intID, _ := strconv.Atoi(id)
+	u64, _ := strconv.ParseUint(id, 10, 32)
 	if raw, err := httpGetBytes(ctx, fmt.Sprintf("%s/api/profile/%s", baseURL, id), 5*time.Second); err == nil {
 		return json.RawMessage(raw), nil
 	}
-	profile, err := wsGetProfileByID(ctx, baseURL, intID)
+	profile, err := wsGetProfileByID(ctx, baseURL, uint32(u64))
 	if err != nil {
 		return nil, err
 	}
@@ -140,8 +140,8 @@ func (a *GaggiuinoAdapter) DeleteProfile(ctx context.Context, m *Machine, id str
 	if err != nil {
 		return nil, err
 	}
-	intID, _ := strconv.Atoi(id)
-	remaining, err := wsDeleteProfile(ctx, baseURL, intID)
+	u64, _ := strconv.ParseUint(id, 10, 32)
+	remaining, err := wsDeleteProfile(ctx, baseURL, uint32(u64))
 	if err != nil {
 		return nil, err
 	}
