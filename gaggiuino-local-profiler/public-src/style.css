@@ -1249,7 +1249,7 @@
         .lib-stock-bar-fill { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
         .lib-stock-bar-fill.low { background: var(--err); }
         .lib-inv-reorder { background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.3); color: var(--err); border-radius:var(--radius); padding: 1px var(--sp-1); font-size: var(--fs-1); font-weight: 600; }
-        .lib-inv-total { color: var(--gray-700); font-size: var(--fs-1); }
+        .lib-inv-total { color: var(--gray-500); font-size: var(--fs-1); }
         .lib-decaf-badge { display: inline-block; background: rgba(34,197,94,.12); border: 1px solid rgba(34,197,94,.3); color: #22c55e; border-radius:var(--radius); padding: 1px var(--sp-1); font-size: var(--fs-1); font-weight: 700; vertical-align: middle; margin-left: var(--sp-1); }
         .lib-fresh-badge { display: inline-block; border-radius:var(--radius); padding: 1px var(--sp-1); font-size: var(--fs-1); font-weight: 700; vertical-align: middle; margin-left: var(--sp-1); border: 1px solid; }
         .lib-fresh-badge.fresh-degassing { color: #a1a1aa; border-color: rgba(161,161,170,.35); background: rgba(161,161,170,.1); }

@@ -16,17 +16,14 @@ import (
 // for the same reason ComputeGrinderWearStats lives in service.go: only
 // this package has direct Repository access to the `library` table.
 
-// ComputeBeanRemaining ports LibraryService.js's computeBeanRemaining:
-// remaining grams for a stock-tracked bean, matching doseRows against the
-// bean by stable beanId first (#456), falling back to case-insensitive name
-// matching for rows that predate it or whose beanId no longer resolves to
-// any existing bean. Returns (0, false) for a bean with no tracked stock
-// (bean.stock_g not set/positive), matching the Node original's `null`.
+// ComputeBeanRemaining ports bean-math.js's computeBeanRemaining: per-bag
+// clamped remainders summed across all bags — max(0, bag.stock_g −
+// round(doses_attributed_to_bag)) — so unfinished older bags contribute their
+// remaining stock to the total. The active bag (last in the slice) falls back
+// to bean.stock_g when its own stock_g is unset (bags predating per-bag stock
+// tracking). With no bags at all, all matching doses count against bean.stock_g.
+// Returns (0, false) when no bag carries a positive stock_g.
 func ComputeBeanRemaining(bean Entity, doseRows []shots.AnnotatedDose, allBeans []Entity) (int64, bool) {
-	stockG, hasStock := jsParseFloat(bean["stock_g"])
-	if !hasStock || !(stockG > 0) {
-		return 0, false
-	}
 	bags := bagsOf(bean)
 	name := lowerOrEmpty(strOf(bean["name"]))
 	beanID, hasBeanID := idOf(bean, "id")
@@ -38,39 +35,67 @@ func ComputeBeanRemaining(bean Entity, doseRows []shots.AnnotatedDose, allBeans 
 		}
 	}
 
-	var activeBagEntity Entity
-	if len(bags) > 0 {
-		if m, ok := bags[len(bags)-1].(Entity); ok {
-			activeBagEntity = m
+	matchesBean := func(row shots.AnnotatedDose) bool {
+		if row.BeanID != nil && idExists[*row.BeanID] {
+			return hasBeanID && *row.BeanID == beanID
 		}
+		return lowerOrEmpty(row.Coffee) == name
 	}
 
-	var consumed float64
-	for _, row := range doseRows {
-		if row.Dose == nil || *row.Dose == 0 {
+	if len(bags) == 0 {
+		stockG, hasStock := jsParseFloat(bean["stock_g"])
+		if !hasStock || !(stockG > 0) {
+			return 0, false
+		}
+		var consumed float64
+		for _, row := range doseRows {
+			if row.Dose == nil || *row.Dose == 0 || !matchesBean(row) {
+				continue
+			}
+			consumed += *row.Dose
+		}
+		return mathRoundInt(stockG - float64(mathRoundInt(consumed))), true
+	}
+
+	var hasStock bool
+	var totalRemaining float64
+	for i, raw := range bags {
+		bagEntity, ok := raw.(Entity)
+		if !ok {
 			continue
 		}
-		var matches bool
-		if row.BeanID != nil && idExists[*row.BeanID] {
-			matches = hasBeanID && *row.BeanID == beanID
-		} else {
-			matches = lowerOrEmpty(row.Coffee) == name
-		}
-		if !matches {
-			continue
-		}
-		if activeBagEntity != nil {
-			shotMs := row.Timestamp * 1000
-			bagAtShotTime := bagAtTime(bags, shotMs)
-			if !sameBag(bagAtShotTime, activeBagEntity) {
+		stockG, hasStockG := jsParseFloat(bagEntity["stock_g"])
+		if !hasStockG || !(stockG > 0) {
+			if i == len(bags)-1 {
+				stockG, hasStockG = jsParseFloat(bean["stock_g"])
+			}
+			if !hasStockG || !(stockG > 0) {
 				continue
 			}
 		}
-		consumed += *row.Dose
+		hasStock = true
+
+		var bagConsumed float64
+		for _, row := range doseRows {
+			if row.Dose == nil || *row.Dose == 0 || !matchesBean(row) {
+				continue
+			}
+			if !sameBag(bagAtTime(bags, row.Timestamp*1000), bagEntity) {
+				continue
+			}
+			bagConsumed += *row.Dose
+		}
+		remaining := stockG - float64(mathRoundInt(bagConsumed))
+		if remaining < 0 {
+			remaining = 0
+		}
+		totalRemaining += remaining
 	}
-	// Mirrors `Math.round(bean.stock_g - Math.round(consumed))` exactly —
-	// two separate rounds, not one round of the difference.
-	return mathRoundInt(stockG - float64(mathRoundInt(consumed))), true
+
+	if !hasStock {
+		return 0, false
+	}
+	return mathRoundInt(totalRemaining), true
 }
 
 // mathRoundInt ports JS's Math.round as an int64 result: round-half-up

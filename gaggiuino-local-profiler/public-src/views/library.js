@@ -164,6 +164,12 @@ export function renderBeanList() {
       : totalConsumed;
 
     const remaining = computeBeanRemaining(b, doseRows, beans);
+    // Total stock across all bags: sum bag.stock_g for bags that carry it,
+    // falling back to bean.stock_g for the active bag (pre-tracking bags).
+    const totalStockG = bags.reduce((sum, bg, i) => {
+      const s = parseFloat(bg.stock_g ?? (i === bags.length - 1 ? b.stock_g : null));
+      return sum + (isFinite(s) && s > 0 ? s : 0);
+    }, 0) || parseFloat(b.stock_g) || 0;
     let invHtml = '';
     if (b.stock_g) {
       const isLow = remaining < 100;
@@ -171,7 +177,7 @@ export function renderBeanList() {
       // #404: small proportional bar next to the gram figure — purely
       // supplementary, the exact gram number (lib-inv-remaining text) is
       // unchanged and stays the source of truth.
-      const stockPct = Math.max(0, Math.min(100, Math.round((remaining / b.stock_g) * 100)));
+      const stockPct = Math.max(0, Math.min(100, Math.round((remaining / totalStockG) * 100)));
       const stockBar = `<span class="lib-stock-bar" title="${stockPct}%"><span class="lib-stock-bar-fill${isLow ? ' low' : ''}" style="width:${stockPct}%"></span></span>`;
       invHtml = `<div class="lib-inv-stats">
         <span>${t('lib_inv_consumed', activeBagConsumed)}</span>
@@ -194,8 +200,10 @@ export function renderBeanList() {
       </div>`;
     }
 
-    // Bag history (collapsed)
+    // Bag history (collapsed). Button comes first so the reveal expands
+    // downward below it rather than overlapping content above.
     const bagHistoryHtml = bags.length > 1 ? `
+      <button class="lib-btn-sm lib-bag-history-btn" data-action="toggle-bag-history" data-id="${b.id}" id="bagHistoryBtn${b.id}">▸ ${t('lib_bag_history')}</button>
       <div class="lib-bag-history" id="bagHistory${b.id}" style="display:none">
         <div class="lib-bag-history-title">${t('lib_bag_history')}</div>
         ${bags.slice().reverse().map((bg, i) => `
@@ -203,10 +211,9 @@ export function renderBeanList() {
             <span>${bg.roastDate ? esc(bg.roastDate) : '–'}</span>
             <span>${bg.stock_g ? bg.stock_g + ' g' : '–'}</span>
             <span>${bg.batchNumber ? esc(bg.batchNumber) : '–'}</span>
-            <button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">${CLOSE_ICON_SVG}</button>
+            ${i === 0 ? `<button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">${CLOSE_ICON_SVG}</button>` : ''}
           </div>`).join('')}
-      </div>
-      <button class="lib-btn-sm lib-bag-history-btn" data-action="toggle-bag-history" data-id="${b.id}" id="bagHistoryBtn${b.id}">▸ ${t('lib_bag_history')}</button>` : '';
+      </div>` : '';
 
     // #477: the bag's own freshness badge is always the real calendar age —
     // freezing part of the bag must not make the coffee still in normal use

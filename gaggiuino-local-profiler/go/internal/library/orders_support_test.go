@@ -43,6 +43,69 @@ func TestComputeBeanRemaining_DistinctBagsWithoutOpenedAt_NotMisattributed(t *te
 	}
 }
 
+// TestComputeBeanRemaining_MultiBagWithStock_SumsAllBags verifies that the
+// new per-bag summation correctly adds remaining stock from older bags that
+// still carry positive stock_g (the pre-fix bug returned only the active
+// bag's remaining, silently ignoring partially-consumed older bags).
+func TestComputeBeanRemaining_MultiBagWithStock_SumsAllBags(t *testing.T) {
+	// bag1: 250g, no consumption → 250g remaining
+	// bag2: 250g (active), 70g consumed → 180g remaining
+	// expected total: 430g
+	dose := 70.0
+	beanID := int64(1)
+	bag1OpenedAt := int64(0)
+	bag2OpenedAt := int64(10000 * 1000)
+	bean := Entity{
+		"id": beanID, "name": "Brasil", "stock_g": float64(250),
+		"bags": []any{
+			Entity{"id": int64(1), "stock_g": float64(250), "openedAt": bag1OpenedAt},
+			Entity{"id": int64(2), "stock_g": float64(250), "openedAt": bag2OpenedAt},
+		},
+	}
+	// timestamp 11000 → shotMs = 11_000_000 > bag2OpenedAt → bag2
+	doseRows := []shots.AnnotatedDose{
+		{BeanID: &beanID, Dose: &dose, Timestamp: 11000},
+	}
+	remaining, ok := ComputeBeanRemaining(bean, doseRows, []Entity{bean})
+	if !ok {
+		t.Fatalf("ComputeBeanRemaining: ok = false")
+	}
+	if remaining != 430 {
+		t.Fatalf("remaining = %d, want 430 (250 from bag1 + 180 from bag2)", remaining)
+	}
+}
+
+// TestComputeBeanRemaining_MultiBagWithStock_ClampedAtZero verifies that a
+// bag whose consumed amount exceeds its stock_g contributes 0 (not negative)
+// to the total, so it cannot reduce another bag's reported remaining.
+func TestComputeBeanRemaining_MultiBagWithStock_ClampedAtZero(t *testing.T) {
+	// bag1: 100g, 120g consumed → clamped to 0
+	// bag2: 250g (active), 20g consumed → 230g remaining
+	// expected total: 230
+	beanID := int64(1)
+	bag1OpenedAt := int64(0)
+	bag2OpenedAt := int64(10000 * 1000)
+	bean := Entity{
+		"id": beanID, "name": "Brasil", "stock_g": float64(250),
+		"bags": []any{
+			Entity{"id": int64(1), "stock_g": float64(100), "openedAt": bag1OpenedAt},
+			Entity{"id": int64(2), "stock_g": float64(250), "openedAt": bag2OpenedAt},
+		},
+	}
+	dose1, dose2 := 120.0, 20.0
+	doseRows := []shots.AnnotatedDose{
+		{BeanID: &beanID, Dose: &dose1, Timestamp: 5000},  // bag1
+		{BeanID: &beanID, Dose: &dose2, Timestamp: 11000}, // bag2
+	}
+	remaining, ok := ComputeBeanRemaining(bean, doseRows, []Entity{bean})
+	if !ok {
+		t.Fatalf("ComputeBeanRemaining: ok = false")
+	}
+	if remaining != 230 {
+		t.Fatalf("remaining = %d, want 230 (bag1 clamped to 0 + 230 from bag2)", remaining)
+	}
+}
+
 // TestSameBag_DistinctMapsWithEqualFieldsAreNotSame is a narrower,
 // function-level companion to the ComputeBeanRemaining test above: two
 // distinct Entity maps with identical (empty) openedAt must not compare
