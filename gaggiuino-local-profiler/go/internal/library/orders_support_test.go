@@ -75,13 +75,13 @@ func TestComputeBeanRemaining_MultiBagWithStock_SumsAllBags(t *testing.T) {
 	}
 }
 
-// TestComputeBeanRemaining_MultiBagWithStock_ClampedAtZero verifies that a
-// bag whose consumed amount exceeds its stock_g contributes 0 (not negative)
-// to the total, so it cannot reduce another bag's reported remaining.
-func TestComputeBeanRemaining_MultiBagWithStock_ClampedAtZero(t *testing.T) {
-	// bag1: 100g, 120g consumed → clamped to 0
-	// bag2: 250g (active), 20g consumed → 230g remaining
-	// expected total: 230
+// TestComputeBeanRemaining_MultiBagWithStock_FIFOOverflow verifies that
+// overflow from one bag period carries to the next with no per-bag clamping
+// (FIFO model: totalStock − totalConsumed, clamped at 0 only at the end).
+func TestComputeBeanRemaining_MultiBagWithStock_FIFOOverflow(t *testing.T) {
+	// bag1: 100g, 120g consumed → 20g overflow into bag2 (FIFO)
+	// bag2: 250g (active), 20g consumed
+	// FIFO: totalStock=350, totalConsumed=140 → max(0, 350-140) = 210
 	beanID := int64(1)
 	bag1OpenedAt := int64(0)
 	bag2OpenedAt := int64(10000 * 1000)
@@ -101,8 +101,8 @@ func TestComputeBeanRemaining_MultiBagWithStock_ClampedAtZero(t *testing.T) {
 	if !ok {
 		t.Fatalf("ComputeBeanRemaining: ok = false")
 	}
-	if remaining != 230 {
-		t.Fatalf("remaining = %d, want 230 (bag1 clamped to 0 + 230 from bag2)", remaining)
+	if remaining != 210 {
+		t.Fatalf("remaining = %d, want 210 (FIFO: 350g total - 140g consumed)", remaining)
 	}
 }
 

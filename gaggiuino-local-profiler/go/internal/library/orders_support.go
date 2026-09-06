@@ -16,11 +16,15 @@ import (
 // for the same reason ComputeGrinderWearStats lives in service.go: only
 // this package has direct Repository access to the `library` table.
 
-// ComputeBeanRemaining ports bean-math.js's computeBeanRemaining: per-bag
-// clamped remainders summed across all bags — max(0, bag.stock_g −
-// round(doses_attributed_to_bag)) — so unfinished older bags contribute their
-// remaining stock to the total. The active bag (last in the slice) falls back
-// to bean.stock_g when its own stock_g is unset (bags predating per-bag stock
+// ComputeBeanRemaining ports bean-math.js's computeBeanRemaining: FIFO model —
+// max(0, totalStock − round(totalConsumedFromTrackedPeriods)). No per-bag
+// clamping; overflow from one bag's consumption period carries forward to the
+// next, matching JS's assumption that the user always drinks from the oldest
+// open bag first. "Tracked bags" are bags with positive stock_g (or the active
+// bag via bean.stock_g fallback); doses attributed to untracked bags are
+// excluded — we never recorded that bag's capacity, so we must not let it
+// reduce tracked stock. The active bag (last in slice) falls back to
+// bean.stock_g when its own stock_g is unset (bags predating per-bag stock
 // tracking). With no bags at all, all matching doses count against bean.stock_g.
 // Returns (0, false) when no bag carries a positive stock_g.
 func ComputeBeanRemaining(bean Entity, doseRows []shots.AnnotatedDose, allBeans []Entity) (int64, bool) {
@@ -57,8 +61,9 @@ func ComputeBeanRemaining(bean Entity, doseRows []shots.AnnotatedDose, allBeans 
 		return mathRoundInt(stockG - float64(mathRoundInt(consumed))), true
 	}
 
-	var hasStock bool
-	var totalRemaining float64
+	// Build tracked bags (have stock) and sum total stock.
+	var totalStock float64
+	trackedBags := make(map[uintptr]bool)
 	for i, raw := range bags {
 		bagEntity, ok := raw.(Entity)
 		if !ok {
@@ -73,29 +78,31 @@ func ComputeBeanRemaining(bean Entity, doseRows []shots.AnnotatedDose, allBeans 
 				continue
 			}
 		}
-		hasStock = true
-
-		var bagConsumed float64
-		for _, row := range doseRows {
-			if row.Dose == nil || *row.Dose == 0 || !matchesBean(row) {
-				continue
-			}
-			if !sameBag(bagAtTime(bags, row.Timestamp*1000), bagEntity) {
-				continue
-			}
-			bagConsumed += *row.Dose
-		}
-		remaining := stockG - float64(mathRoundInt(bagConsumed))
-		if remaining < 0 {
-			remaining = 0
-		}
-		totalRemaining += remaining
+		totalStock += stockG
+		trackedBags[reflect.ValueOf(bagEntity).Pointer()] = true
 	}
-
-	if !hasStock {
+	if !(totalStock > 0) {
 		return 0, false
 	}
-	return mathRoundInt(totalRemaining), true
+
+	// Sum doses resolved to tracked bags only (FIFO: no per-bag clamping).
+	var consumed float64
+	for _, row := range doseRows {
+		if row.Dose == nil || *row.Dose == 0 || !matchesBean(row) {
+			continue
+		}
+		resolved := bagAtTime(bags, row.Timestamp*1000)
+		if resolved == nil || !trackedBags[reflect.ValueOf(resolved).Pointer()] {
+			continue
+		}
+		consumed += *row.Dose
+	}
+
+	result := totalStock - float64(mathRoundInt(consumed))
+	if result < 0 {
+		result = 0
+	}
+	return mathRoundInt(result), true
 }
 
 // mathRoundInt ports JS's Math.round as an int64 result: round-half-up

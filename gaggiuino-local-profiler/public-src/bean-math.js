@@ -57,14 +57,23 @@ export function sumConsumedDoses(bean, doseRows, allBeans, bags = null) {
   }, 0);
 }
 
-// Remaining grams for a stock-tracked bean — sums per-bag clamped remainders
-// across ALL bags so that unfinished older bags contribute their remaining
-// stock to the total. Each bag's contribution is max(0, bag.stock_g −
-// round(doses_attributed_to_bag)); the final total is rounded once. The
-// active bag (last element) falls back to bean.stock_g when it has no
-// explicit stock_g field (bags created before per-bag stock tracking). With
-// no bags at all, all matching doses count against bean.stock_g. Returns null
-// when no bag carries a positive stock_g (mirrors backend's `> 0` guard).
+// Remaining grams for a stock-tracked bean — FIFO model: totalStock minus
+// all doses consumed during tracked-bag periods, clamped at 0.
+//
+// "Tracked bags" are bags that carry a positive stock_g (either explicitly
+// on the bag object, or via the bean.stock_g fallback for the active bag
+// when it predates per-bag stock tracking). Doses attributed by
+// resolveBagAtShotTime to an *untracked* bag are excluded — they came from a
+// bag whose capacity we never recorded, so they must not reduce tracked stock.
+//
+// No per-bag clamping: overflow from one bag's period carries forward to the
+// next (true FIFO), so a recorded dose cannot exceed the total remaining even
+// if it individually exceeds one bag's stock_g.
+//
+// The active bag (last element) falls back to bean.stock_g when it has no
+// explicit stock_g (bags created before per-bag stock tracking was added).
+// With no bags at all, all matching doses count against bean.stock_g.
+// Returns null when no tracked bag has positive stock_g.
 export function computeBeanRemaining(bean, doseRows, allBeans) {
   const bags     = Array.isArray(bean.bags) ? bean.bags : [];
   const idExists = new Set((allBeans || []).map(b => b.id));
@@ -78,22 +87,25 @@ export function computeBeanRemaining(bean, doseRows, allBeans) {
     return Math.round(bean.stock_g - Math.round(consumed));
   }
 
-  let hasStock = false;
-  let totalRemaining = 0;
+  // Build set of tracked bags (have stock) and sum their total stock.
+  let totalStock = 0;
+  const trackedBags = new Set();
   for (let i = 0; i < bags.length; i++) {
     const bg = bags[i];
-    const rawStock = bg.stock_g ?? (i === bags.length - 1 ? bean.stock_g : null);
-    const stockG = parseFloat(rawStock);
-    if (!isFinite(stockG) || !(stockG > 0)) continue;
-    hasStock = true;
-    const bagConsumed = (doseRows || []).reduce((sum, r) => {
-      const d = parseFloat(r.dose);
-      if (!d || !matchesBean(r, bean, idExists)) return sum;
-      return resolveBagAtShotTime(bags, r.timestamp * 1000) === bg ? sum + d : sum;
-    }, 0);
-    totalRemaining += Math.max(0, stockG - Math.round(bagConsumed));
+    const raw = bg.stock_g ?? (i === bags.length - 1 ? bean.stock_g : null);
+    const s = parseFloat(raw);
+    if (isFinite(s) && s > 0) { totalStock += s; trackedBags.add(bg); }
   }
-  return hasStock ? Math.round(totalRemaining) : null;
+  if (!(totalStock > 0)) return null;
+
+  // Sum doses resolved to tracked bags only (FIFO: no per-bag clamping).
+  const consumed = (doseRows || []).reduce((sum, r) => {
+    const d = parseFloat(r.dose);
+    if (!d || !matchesBean(r, bean, idExists)) return sum;
+    return trackedBags.has(resolveBagAtShotTime(bags, r.timestamp * 1000)) ? sum + d : sum;
+  }, 0);
+
+  return Math.round(Math.max(0, totalStock - Math.round(consumed)));
 }
 
 // Inverse of computeBeanRemaining (#930): the "Adjust stock" button lets a
