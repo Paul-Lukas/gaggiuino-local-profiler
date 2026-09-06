@@ -70,10 +70,10 @@ describe('computeBeanRemaining (#551, ported from #456 regression)', () => {
         expect(computeBeanRemaining(bean, doseRows, [bean])).toBe(430);
     });
 
-    it('multi-bag with explicit stock_g: bag overshot (consumed > stock) clamps to 0 for that bag', () => {
-        // bag1: 100g stock, 120g consumed → clamp to 0
-        // bag2: 250g stock (active), 20g consumed → 230g remaining
-        // expected total remaining = 0 + 230 = 230
+    it('multi-bag with explicit stock_g: overflow from one bag period carries to next (FIFO, no per-bag clamping)', () => {
+        // bag1: 100g stock, 120g consumed → 20g overflow into bag2
+        // bag2: 250g stock (active), 20g consumed
+        // FIFO: totalStock=350, totalConsumed=140 → max(0, 350-140) = 210
         const bean = {
             id: 1, name: 'Brasil', stock_g: 250,
             bags: [
@@ -82,10 +82,10 @@ describe('computeBeanRemaining (#551, ported from #456 regression)', () => {
             ],
         };
         const doseRows = [
-            { coffee: 'Brasil', beanId: 1, dose: '120', timestamp: 5000 }, // bag1 → 100-120 clamped to 0
-            { coffee: 'Brasil', beanId: 1, dose: '20',  timestamp: 11000 }, // bag2 → 250-20=230
+            { coffee: 'Brasil', beanId: 1, dose: '120', timestamp: 5000 }, // bag1 → overflow
+            { coffee: 'Brasil', beanId: 1, dose: '20',  timestamp: 11000 }, // bag2
         ];
-        expect(computeBeanRemaining(bean, doseRows, [bean])).toBe(230);
+        expect(computeBeanRemaining(bean, doseRows, [bean])).toBe(210);
     });
 
     it('multi-bag: returns null when no bag has a positive stock_g', () => {
