@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/netguard"
 )
 
 // This file ports routes/import.js's safeGet(startUrl, opts): a bounded,
@@ -63,10 +65,20 @@ func (r fetchResult) dataObject() map[string]any {
 // canned responses without a real socket.
 type fetcher struct{ client *http.Client }
 
+// importDialer pins safeGet's actual TCP connection to the IP
+// assertPublicHostResolved just approved for the current hop, instead of
+// letting net/http's transport re-resolve the hostname independently at
+// connect time (#987) — via the shared netguard.GuardedDialer (also used
+// by internal/machines/http.go and internal/mqtt/client.go). safeGet's
+// assertPublicHost call (per hop, before doOnce) is the fast-fail check;
+// this is the one that's actually atomic with the connection.
+var importDialer = netguard.NewGuardedDialer(assertPublicHostResolved)
+
 func newFetcher() *fetcher {
 	return &fetcher{client: &http.Client{
 		Timeout:       fetchTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Transport:     &http.Transport{DialContext: importDialer.DialContext},
 	}}
 }
 

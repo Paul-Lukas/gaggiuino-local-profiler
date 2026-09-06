@@ -4,16 +4,35 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/netguard"
 )
 
+// machinesDialer pins every real connection httpClient (and, via
+// websocket.DialOptions, every WS dial in this package — ws.go/live.go/
+// gaggimate_live.go/gaggimate_ws.go all pass HTTPClient: httpClient) opens
+// to the exact IP machineHostGuardResolved just approved (#987), via the
+// shared netguard.GuardedDialer (also used by internal/importer/fetch.go
+// and internal/mqtt/client.go — one implementation, not three copies).
+// The resolve closure reads machineHostGuardResolved.get() on every call
+// so allowLoopbackMachineHost's test-time override is honored.
+var machinesDialer = netguard.NewGuardedDialer(func(ctx context.Context, hostname string) (net.IP, error) {
+	return machineHostGuardResolved.get()(ctx, hostname)
+})
+
 // httpClient is package-level (not http.DefaultClient directly) so tests
-// can point it at an httptest.Server's transport if ever needed; kept as
-// the zero-value *http.Client (Go's own sane defaults) otherwise.
-var httpClient = &http.Client{}
+// can point it at an httptest.Server's transport if ever needed. Its
+// Transport is deliberately a minimal custom one (not http.DefaultTransport)
+// so machinesDialer is the only dialer in play — no environment-driven
+// proxy that could route guarded traffic somewhere the guard never saw.
+var httpClient = &http.Client{
+	Transport: &http.Transport{DialContext: machinesDialer.DialContext},
+}
 
 // httpGetBytes issues a GET request and returns the raw response body
 // bytes — deliberately not JSON-decoded-then-re-encoded anywhere along

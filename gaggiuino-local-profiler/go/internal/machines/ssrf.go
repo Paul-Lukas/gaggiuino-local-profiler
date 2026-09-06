@@ -70,8 +70,38 @@ func assertMachineHost(ctx context.Context, hostname string) error {
 	return netguard.AssertHost(ctx, hostname, isLoopbackOrMetadataAddress, lookupIPAddr)
 }
 
+// assertMachineHostResolved is assertMachineHost's pin-friendly counterpart
+// (#987): returns the resolved (or literal) IP that passed the guard, so
+// guardedDialContext (http.go) can dial that literal address instead of
+// letting net/http's own dialer re-resolve the hostname independently at
+// connect time — closing the DNS-rebinding window between this check and
+// the actual TCP connection.
+func assertMachineHostResolved(ctx context.Context, hostname string) (net.IP, error) {
+	return netguard.AssertHostResolved(ctx, hostname, isLoopbackOrMetadataAddress, lookupIPAddr)
+}
+
 // isSSRFBlocked reports whether err is (or wraps) an ErrBlocked from a
 // failed assertMachineHost call.
 func isSSRFBlocked(err error) bool {
 	return netguard.IsBlocked(err)
+}
+
+// AssertMachineHost exports assertMachineHost's exact loopback/link-local/
+// cloud-metadata guard for other packages that validate a user-supplied LAN
+// host under the same threat model as a machine's own host (#988: an MQTT
+// broker host is exactly this — a real LAN broker legitimately lives in
+// RFC1918 space, same as a real machine). Reuses the guard directly (not
+// the machineHostGuard test seam) so an external caller always gets the
+// real check.
+func AssertMachineHost(ctx context.Context, hostname string) error {
+	return assertMachineHost(ctx, hostname)
+}
+
+// AssertMachineHostResolved exports assertMachineHostResolved for the same
+// reason AssertMachineHost exports assertMachineHost — mqtt/client.go's
+// guarded MQTT dialer (#988 code review: paho's own auto-reconnect needs
+// the pin-friendly resolved-IP variant, not just the pass/fail check) uses
+// this rather than reimplementing the resolve-then-check plumbing.
+func AssertMachineHostResolved(ctx context.Context, hostname string) (net.IP, error) {
+	return assertMachineHostResolved(ctx, hostname)
 }
