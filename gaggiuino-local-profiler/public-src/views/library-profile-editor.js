@@ -45,6 +45,7 @@ export async function loadMachineProfileList() {
   const data = await r.json();
   if (token !== _profileListReqToken) return;
   S.machineProfiles = Array.isArray(data.optionsRaw) ? data.optionsRaw : [];
+  S.machineProfilesStale = !!data.stale;
   renderProfileList();
   updateProfileDatalist();
 }
@@ -60,13 +61,16 @@ export function renderProfileList() {
   const el = document.getElementById('profileListUI');
   if (!el) return;
   if (!S.machineProfiles.length) {
-    el.innerHTML = `<div class="lib-empty">${t('lib_empty_profiles')}</div>`;
+    el.innerHTML = `<div class="lib-empty">${t(S.machineProfilesStale ? 'lib_profiles_offline' : 'lib_empty_profiles')}</div>`;
     return;
   }
   // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
-  el.innerHTML = S.machineProfiles.map(p => `<div class="lib-item">
+  el.innerHTML = S.machineProfiles.map(p => `<div class="lib-item${p.utility ? ' lib-item-utility' : ''}">
       <div class="lib-item-info">
-        <div class="lib-item-name">${esc(p.name)}</div>
+        <div class="lib-item-name-row">
+          <span class="lib-item-name">${esc(p.name)}</span>
+          ${p.utility ? `<span class="lib-utility-badge">${t('profile_utility_badge')}</span>` : ''}
+        </div>
       </div>
       <div class="lib-item-actions">
         <button class="lib-btn-sm" data-action="start-profile-dialin" data-id="${p.id}" title="${t('profile_dialin_start')}">${TARGET_ICON_SVG}</button>
