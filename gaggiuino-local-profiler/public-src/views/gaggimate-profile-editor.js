@@ -15,6 +15,7 @@ let _profile = null;
 let _currentPhaseIdx = 0; // active phase for pro editor
 let _saving = false;
 let _chart = null;
+let _inputsBound = false; // guards against accumulating body change-listeners across renders
 
 // ── Entry points ──────────────────────────────────────────────────────────
 
@@ -42,6 +43,7 @@ export function closeGaggiMateEditor() {
   document.getElementById('gmProfileEditorModal').style.display = 'none';
   _profile = null;
   _saving = false;
+  _inputsBound = false;
   if (_chart) { _chart.destroy(); _chart = null; }
 }
 
@@ -85,6 +87,7 @@ function _openEditor(profile) {
   _profile = profile;
   _currentPhaseIdx = 0;
   _saving = false;
+  _inputsBound = false;
   const modal = document.getElementById('gmProfileEditorModal');
   modal.style.display = 'flex';
   document.getElementById('gmEditorTitle').textContent =
@@ -712,6 +715,10 @@ function _bindInputs() {
   _bind('gmUtility', 'change', e => _set({ utility: e.target.checked }));
 
   // One delegated `change` listener for every phase field, keyed by data-action.
+  // #gmEditorBody itself is never replaced (only its innerHTML), so guard against
+  // accumulating a new listener on every render call.
+  if (_inputsBound) return;
+  _inputsBound = true;
   const body = document.getElementById('gmEditorBody');
   body?.addEventListener('change', e => {
     const el = e.target;

@@ -48,8 +48,12 @@ export function invalidateGmPhaseCache(machineId) {
 // Retries up to 3x; a real 4xx/other 5xx returns immediately.
 async function _fetchWithRetry(url, signal) {
   for (let attempt = 1; attempt <= 3; attempt++) {
-    const r = await apiFetch(url, { signal });
-    if (r.ok || r.status < 500 || attempt === 3) return r;
+    try {
+      const r = await apiFetch(url, { signal });
+      if (r.ok || r.status < 500 || attempt === 3) return r;
+    } catch (e) {
+      if (attempt === 3 || signal?.aborted) throw e;
+    }
     await new Promise(res => setTimeout(res, 400 * attempt));
   }
 }
