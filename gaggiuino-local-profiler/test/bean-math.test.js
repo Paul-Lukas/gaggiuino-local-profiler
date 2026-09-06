@@ -53,6 +53,49 @@ describe('computeBeanRemaining (#551, ported from #456 regression)', () => {
         expect(computeBeanRemaining(bean, [], [bean])).toBeNull();
     });
 
+    it('multi-bag with explicit stock_g: sums all bags remaining (oldest bag still has stock)', () => {
+        // bag1: 250g stock, 0g consumed (all of bag1 still available)
+        // bag2: 250g stock (active), 70g consumed
+        // expected total remaining = 250 + (250 - 70) = 430
+        const bean = {
+            id: 1, name: 'Brasil', stock_g: 250,
+            bags: [
+                { id: 1, stock_g: 250, openedAt: 0 },
+                { id: 2, stock_g: 250, openedAt: 10000 * 1000 },
+            ],
+        };
+        const doseRows = [
+            { coffee: 'Brasil', beanId: 1, dose: '70', timestamp: 11000 }, // bag2
+        ];
+        expect(computeBeanRemaining(bean, doseRows, [bean])).toBe(430);
+    });
+
+    it('multi-bag with explicit stock_g: bag overshot (consumed > stock) clamps to 0 for that bag', () => {
+        // bag1: 100g stock, 120g consumed → clamp to 0
+        // bag2: 250g stock (active), 20g consumed → 230g remaining
+        // expected total remaining = 0 + 230 = 230
+        const bean = {
+            id: 1, name: 'Brasil', stock_g: 250,
+            bags: [
+                { id: 1, stock_g: 100, openedAt: 0 },
+                { id: 2, stock_g: 250, openedAt: 10000 * 1000 },
+            ],
+        };
+        const doseRows = [
+            { coffee: 'Brasil', beanId: 1, dose: '120', timestamp: 5000 }, // bag1 → 100-120 clamped to 0
+            { coffee: 'Brasil', beanId: 1, dose: '20',  timestamp: 11000 }, // bag2 → 250-20=230
+        ];
+        expect(computeBeanRemaining(bean, doseRows, [bean])).toBe(230);
+    });
+
+    it('multi-bag: returns null when no bag has a positive stock_g', () => {
+        const bean = {
+            id: 1, name: 'NoStock', stock_g: 0,
+            bags: [{ id: 1 }, { id: 2 }], // no stock_g on bags, bean.stock_g = 0
+        };
+        expect(computeBeanRemaining(bean, [], [bean])).toBeNull();
+    });
+
     it('matchesBean: beanId beats a coincidentally-matching name', () => {
         const bean = { id: 1, name: 'Kiraz' };
         const idExists = new Set([1, 2]);

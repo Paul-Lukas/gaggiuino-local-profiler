@@ -57,35 +57,57 @@ export function sumConsumedDoses(bean, doseRows, allBeans, bags = null) {
   }, 0);
 }
 
-// Remaining grams for a stock-tracked bean — consumed = sum of annotated
-// doses of shots matching this bean and belonging to the active bag; without
-// bags, all matching shots count. Returns null when stock is untracked
-// (mirrors the backend's `bean.stock_g > 0` guard).
+// Remaining grams for a stock-tracked bean — sums per-bag clamped remainders
+// across ALL bags so that unfinished older bags contribute their remaining
+// stock to the total. Each bag's contribution is max(0, bag.stock_g −
+// round(doses_attributed_to_bag)); the final total is rounded once. The
+// active bag (last element) falls back to bean.stock_g when it has no
+// explicit stock_g field (bags created before per-bag stock tracking). With
+// no bags at all, all matching doses count against bean.stock_g. Returns null
+// when no bag carries a positive stock_g (mirrors backend's `> 0` guard).
 export function computeBeanRemaining(bean, doseRows, allBeans) {
-  if (!(bean.stock_g > 0)) return null;
-  const bags      = Array.isArray(bean.bags) ? bean.bags : [];
-  const activeBag = bags.length ? bags[bags.length - 1] : null;
-  const idExists  = new Set((allBeans || []).map(b => b.id));
-  const consumed  = (doseRows || []).reduce((sum, r) => {
-    const d = parseFloat(r.dose);
-    if (!d) return sum;
-    if (!matchesBean(r, bean, idExists)) return sum;
-    if (activeBag && resolveBagAtShotTime(bags, r.timestamp * 1000) !== activeBag) return sum;
-    return sum + d;
-  }, 0);
-  return Math.round(bean.stock_g - Math.round(consumed));
+  const bags     = Array.isArray(bean.bags) ? bean.bags : [];
+  const idExists = new Set((allBeans || []).map(b => b.id));
+
+  if (bags.length === 0) {
+    if (!(bean.stock_g > 0)) return null;
+    const consumed = (doseRows || []).reduce((sum, r) => {
+      const d = parseFloat(r.dose);
+      return d && matchesBean(r, bean, idExists) ? sum + d : sum;
+    }, 0);
+    return Math.round(bean.stock_g - Math.round(consumed));
+  }
+
+  let hasStock = false;
+  let totalRemaining = 0;
+  for (let i = 0; i < bags.length; i++) {
+    const bg = bags[i];
+    const rawStock = bg.stock_g ?? (i === bags.length - 1 ? bean.stock_g : null);
+    const stockG = parseFloat(rawStock);
+    if (!isFinite(stockG) || !(stockG > 0)) continue;
+    hasStock = true;
+    const bagConsumed = (doseRows || []).reduce((sum, r) => {
+      const d = parseFloat(r.dose);
+      if (!d || !matchesBean(r, bean, idExists)) return sum;
+      return resolveBagAtShotTime(bags, r.timestamp * 1000) === bg ? sum + d : sum;
+    }, 0);
+    totalRemaining += Math.max(0, stockG - Math.round(bagConsumed));
+  }
+  return hasStock ? Math.round(totalRemaining) : null;
 }
 
-// Inverse of computeBeanRemaining (#930): stock-editing UI (the bean edit form's "Stock
-// (g)" field and the "Adjust stock" button) lets a user type in how much coffee is
-// actually left, not the bag's original weight. Since stock_g is the source of truth and
-// remaining is always derived from it, that entered value has to be translated into the
-// stock_g that makes computeBeanRemaining() report it back — i.e. the desired remaining
-// plus whatever the active bag has already consumed. For a bag with nothing consumed yet
-// this is a no-op (desiredRemaining in, same value out), so it's also safe to use
-// unconditionally for the bean-creation form.
-export function remainingToStockG(bean, doseRows, allBeans, desiredRemaining) {
-  const bags     = Array.isArray(bean.bags) ? bean.bags : [];
-  const consumed = sumConsumedDoses(bean, doseRows, allBeans, bags);
-  return Math.round(desiredRemaining + consumed);
+// Inverse of computeBeanRemaining (#930): the "Adjust stock" button lets a
+// user enter the TOTAL remaining across all bags; this translates that back
+// into the active bag's stock_g so that computeBeanRemaining() reports the
+// entered value again. Formula: new_active_stock_g = desired_total_remaining
+// + total_consumed_all_bags − other_bags_stock_g. With a single bag (or no
+// bags) other_bags_stock_g is 0, so this reduces to the pre-multi-bag form.
+export function remainingToStockG(bean, doseRows, allBeans, desiredTotalRemaining) {
+  const bags = Array.isArray(bean.bags) ? bean.bags : [];
+  const totalConsumed = sumConsumedDoses(bean, doseRows, allBeans);
+  const otherBagsStock = bags.slice(0, -1).reduce((sum, bg) => {
+    const s = parseFloat(bg.stock_g);
+    return sum + (isFinite(s) && s > 0 ? s : 0);
+  }, 0);
+  return Math.round(desiredTotalRemaining + totalConsumed - otherBagsStock);
 }
