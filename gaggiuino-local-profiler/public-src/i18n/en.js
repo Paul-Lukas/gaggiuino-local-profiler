@@ -309,6 +309,7 @@ export default {
     lib_bag_roast_date:'Roast date',
     lib_bag_stock:'Initial weight (g)', lib_stock_adjust_ph:'Remaining (g)',
     lib_bag_batch_number:'Batch number',
+    lib_bag_price:'Price (€)', lib_bag_section_label:'Current bag', lib_bag_active:'Active', lib_bag_edit:'Edit bag', lib_bag_consumed:'Consumed', lib_bag_save:'Save bag',
     lib_stock_edit_btn:'Adjust stock',
     bag_freeze_btn:'Freeze', bag_freeze_save:'Freeze portions',
     bag_freeze_count:'Portion count', bag_freeze_weight:'Grams per portion',

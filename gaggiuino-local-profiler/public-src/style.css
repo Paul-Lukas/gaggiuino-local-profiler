@@ -1240,16 +1240,26 @@
         .lib-grinder-wear { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; white-space: normal; }
         .lib-grinder-wear > span:first-child { display: inline-flex; align-items: center; gap: var(--sp-1); }
         .lib-grinder-reset-burrs { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); border-radius:var(--radius); font-size: var(--fs-1); padding: 2px var(--sp-2); }
-        .lib-inv-stats { font-size: var(--fs-1); color: var(--gray-600); margin-top: var(--sp-1); display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-        .lib-inv-remaining { color: var(--gray-500); }
+        /* ── Inventory block (Material Design) ─────────────────────────────── */
+        .lib-inv-block { margin-top: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-1); }
+        .lib-inv-bar-row { display: flex; align-items: center; gap: var(--sp-2); }
+        .lib-stock-bar-md { flex: 1; height: 8px; border-radius: 4px; background: var(--gray-700); overflow: hidden; }
+        .lib-stock-bar-fill-md { height: 100%; border-radius: 4px; background: var(--accent); transition: width .3s ease; }
+        .lib-stock-bar-fill-md.low { background: var(--err); }
+        .lib-inv-pct { font-size: var(--fs-1); color: var(--gray-500); min-width: 3ch; text-align: right; }
+        .lib-inv-pct.low { color: var(--err); }
+        .lib-inv-nums { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; font-size: var(--fs-1); }
+        .lib-inv-remaining { color: var(--gray-300); font-weight: 600; }
         .lib-inv-remaining.low { color: var(--err); }
-        /* #404: supplementary proportional bar next to the gram figure —
-           the number itself (.lib-inv-remaining) stays the source of truth. */
+        .lib-inv-consumed { color: var(--gray-500); }
+        .lib-inv-sep { color: var(--gray-700); }
+        .lib-inv-total { color: var(--gray-600); }
+        /* legacy compat */
+        .lib-inv-stats { font-size: var(--fs-1); color: var(--gray-600); margin-top: var(--sp-1); display: flex; gap: var(--sp-2); flex-wrap: wrap; }
         .lib-stock-bar { display: inline-block; width: 42px; height: 5px; border-radius: 3px; background: var(--gray-700); overflow: hidden; vertical-align: middle; margin-left: var(--sp-2); }
         .lib-stock-bar-fill { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
         .lib-stock-bar-fill.low { background: var(--err); }
         .lib-inv-reorder { background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.3); color: var(--err); border-radius:var(--radius); padding: 1px var(--sp-1); font-size: var(--fs-1); font-weight: 600; }
-        .lib-inv-total { color: var(--gray-500); font-size: var(--fs-1); }
         .lib-decaf-badge { display: inline-block; background: rgba(34,197,94,.12); border: 1px solid rgba(34,197,94,.3); color: #22c55e; border-radius:var(--radius); padding: 1px var(--sp-1); font-size: var(--fs-1); font-weight: 700; vertical-align: middle; margin-left: var(--sp-1); }
         .lib-fresh-badge { display: inline-block; border-radius:var(--radius); padding: 1px var(--sp-1); font-size: var(--fs-1); font-weight: 700; vertical-align: middle; margin-left: var(--sp-1); border: 1px solid; }
         .lib-fresh-badge.fresh-degassing { color: #a1a1aa; border-color: rgba(161,161,170,.35); background: rgba(161,161,170,.1); }
@@ -1323,13 +1333,38 @@
         .lib-new-bag-fields { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-2); flex-wrap: wrap; }
         .lib-new-bag-input { background: var(--gray-900); border: 1px solid var(--gray-700); border-radius:var(--radius); color: var(--gray-200); font-size: var(--fs-1); padding: var(--sp-1) var(--sp-2); outline: none; flex: 1; min-width: 120px; }
         .lib-new-bag-input:focus { border-color: var(--gray-600); }
-        .lib-bag-history { margin-top: var(--sp-2); font-size: var(--fs-1); }
+        /* ── Bag history cards (Material Design) ──────────────────────────── */
+        .lib-bag-history { margin-top: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-2); }
+        .lib-bag-history-single { margin-top: var(--sp-2); }
+        .lib-bag-card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); border-radius: 8px; padding: var(--sp-2) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }
+        .lib-bag-card.active { border-color: rgba(var(--accent-rgb, 99,102,241),.3); background: rgba(var(--accent-rgb, 99,102,241),.06); }
+        .lib-bag-card-header { display: flex; align-items: center; gap: var(--sp-2); }
+        .lib-bag-date { font-size: var(--fs-1); font-weight: 600; color: var(--gray-300); }
+        .lib-bag-active-badge { font-size: 10px; font-weight: 700; background: rgba(var(--accent-rgb,99,102,241),.2); color: var(--accent); border: 1px solid rgba(var(--accent-rgb,99,102,241),.4); border-radius: 4px; padding: 0 var(--sp-1); letter-spacing: .03em; text-transform: uppercase; }
+        .lib-bag-card-actions { margin-left: auto; display: flex; gap: var(--sp-1); }
+        .lib-bag-edit-btn { background: none; border: none; color: var(--gray-600); cursor: pointer; padding: 2px; line-height: 1; transition: color .15s; display: flex; align-items: center; }
+        .lib-bag-edit-btn:hover { color: var(--gray-300); }
+        .lib-bag-del { background: none; border: none; color: var(--gray-700); cursor: pointer; font-size: var(--fs-1); padding: 2px; line-height: 1; transition: color .15s; display: flex; align-items: center; }
+        .lib-bag-del:hover { color: var(--err); }
+        .lib-bag-card-details { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); font-size: var(--fs-1); }
+        .lib-bag-detail { display: flex; flex-direction: column; gap: 1px; }
+        .lib-bag-detail-label { font-size: 10px; color: var(--gray-600); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+        .lib-bag-detail-val { color: var(--gray-300); font-weight: 500; }
+        .lib-bag-history-btn { font-size: var(--fs-1); color: var(--gray-500); margin-top: var(--sp-1); }
+        /* ── Bean form bag section divider ────────────────────────────────── */
+        .lib-bag-section-divider { display: flex; align-items: center; gap: var(--sp-3); margin: var(--sp-4) 0 var(--sp-2); }
+        .lib-bag-section-divider::before, .lib-bag-section-divider::after { content: ''; flex: 1; height: 1px; background: var(--gray-800); }
+        .lib-bag-section-label { font-size: var(--fs-1); font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+        /* ── Bag dialog overlay ────────────────────────────────────────────── */
+        .bag-dialog-modal { max-width: 380px; width: 100%; }
+        .bag-dialog-fields { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2) var(--sp-3); align-items: start; }
+        .bag-dialog-label { font-size: var(--fs-1); color: var(--gray-500); font-weight: 600; margin-bottom: 2px; }
+        .bag-dialog-input { background: var(--gray-900); border: 1px solid var(--gray-700); border-radius:var(--radius); color: var(--gray-200); font-size: var(--fs-2); padding: var(--sp-2) var(--sp-3); outline: none; width: 100%; box-sizing: border-box; }
+        .bag-dialog-input:focus { border-color: var(--accent); }
+        /* ── legacy bag row compat ─────────────────────────────────────────── */
         .lib-bag-history-title { color: var(--gray-500); font-weight: 600; margin-bottom: var(--sp-1); }
         .lib-bag-row { display: flex; gap: var(--sp-4); align-items: center; color: var(--gray-600); padding: 2px 0; }
         .lib-bag-row.active { color: var(--gray-400); }
-        .lib-bag-del { background: none; border: none; color: var(--gray-700); cursor: pointer; font-size: var(--fs-1); padding: 0 2px; line-height: 1; transition: color .15s; margin-left: auto; }
-        .lib-bag-del:hover { color: var(--err); }
-        .lib-bag-history-btn { font-size: var(--fs-1); color: var(--gray-600); margin-top: var(--sp-1); }
         /* Recipe workflow */
         .lib-form-grid select { background: var(--gray-900); border: 1px solid var(--gray-700); border-radius:var(--radius); color: var(--gray-200); font-size: var(--fs-2); padding: var(--sp-2) var(--sp-3); outline: none; width: 100%; }
         .lib-form-grid select:focus { border-color: var(--gray-600); }

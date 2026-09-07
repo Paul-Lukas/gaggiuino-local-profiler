@@ -13,7 +13,7 @@ import { openLightbox } from '../components/lightbox.js';
 import { generateBeanQR, parseGlpQrParams } from '../glp-qr.js';
 import { calcBestGrindCombosForBean } from './shots/grind.js';
 import { renderShotDefaultsSettingsCard } from '../components/shot-defaults-settings.js';
-import { sumConsumedDoses, computeBeanRemaining, remainingToStockG } from '../bean-math.js';
+import { matchesBean, sumConsumedDoses, computeBeanRemaining, remainingToStockG, resolveBagAtShotTime } from '../bean-math.js';
 import { TARGET_ICON_SVG, SLIDERS_ICON_SVG, FLAVOR_WHEEL_ICON_SVG, COFFEE_ICON_SVG, WATER_DROP_ICON_SVG, SNOWFLAKE_ICON_SVG, LINK_ICON_SVG, WRENCH_ICON_SVG, STAR_ICON_SVG, WARNING_ICON_SVG, CLOSE_ICON_SVG, EDIT_ICON_SVG } from '../icons.js';
 
 const ICON_PENCIL = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"/></svg>`;
@@ -164,29 +164,44 @@ export function renderBeanList() {
       : totalConsumed;
 
     const remaining = computeBeanRemaining(b, doseRows, beans);
-    // Total stock across all bags: sum bag.stock_g for bags that carry it,
-    // falling back to bean.stock_g for the active bag (pre-tracking bags).
+
+    // Total stock across all tracked bags (for correct % bar denominator)
     const totalStockG = bags.reduce((sum, bg, i) => {
       const s = parseFloat(bg.stock_g ?? (i === bags.length - 1 ? b.stock_g : null));
       return sum + (isFinite(s) && s > 0 ? s : 0);
     }, 0) || parseFloat(b.stock_g) || 0;
+
+    // Per-bag consumed (for bag history display)
+    const beanIdExists = new Set(beans.map(x => x.id));
+    function bagConsumedG(bg) {
+      return Math.round((doseRows || []).reduce((sum, r) => {
+        const d = parseFloat(r.dose);
+        if (!d || !matchesBean(r, b, beanIdExists)) return sum;
+        return resolveBagAtShotTime(bags, r.timestamp * 1000) === bg ? sum + d : sum;
+      }, 0));
+    }
+
     let invHtml = '';
-    if (b.stock_g) {
-      const isLow = remaining < 100;
+    if (b.stock_g || bags.some(bg => bg.stock_g > 0)) {
+      const isLow = remaining != null && remaining < 100;
       const editingStock = S._beanStockEditId === b.id;
-      // #404: small proportional bar next to the gram figure — purely
-      // supplementary, the exact gram number (lib-inv-remaining text) is
-      // unchanged and stays the source of truth.
-      const stockPct = Math.max(0, Math.min(100, Math.round((remaining / totalStockG) * 100)));
-      const stockBar = `<span class="lib-stock-bar" title="${stockPct}%"><span class="lib-stock-bar-fill${isLow ? ' low' : ''}" style="width:${stockPct}%"></span></span>`;
-      invHtml = `<div class="lib-inv-stats">
-        <span>${t('lib_inv_consumed', activeBagConsumed)}</span>
-        <span class="lib-inv-remaining${isLow ? ' low' : ''}">${t('lib_inv_remaining', Math.max(0, remaining))}</span>${stockBar}
-        ${isLow ? `<span class="lib-inv-reorder">${t('lib_inv_reorder')}</span>` : ''}
-        ${bags.length > 1 ? `<span class="lib-inv-total">${t('lib_inv_total_consumed', totalConsumed)} · ${t('lib_inv_bags', bags.length)}</span>` : ''}
+      const rem = Math.max(0, remaining ?? 0);
+      const stockPct = totalStockG > 0 ? Math.max(0, Math.min(100, Math.round((rem / totalStockG) * 100))) : 0;
+      invHtml = `<div class="lib-inv-block">
+        <div class="lib-inv-bar-row">
+          <div class="lib-stock-bar-md" title="${stockPct}%"><div class="lib-stock-bar-fill-md${isLow ? ' low' : ''}" style="width:${stockPct}%"></div></div>
+          <span class="lib-inv-pct${isLow ? ' low' : ''}">${stockPct}%</span>
+        </div>
+        <div class="lib-inv-nums">
+          <span class="lib-inv-remaining${isLow ? ' low' : ''}">${t('lib_inv_remaining', rem)} g</span>
+          <span class="lib-inv-sep">·</span>
+          <span class="lib-inv-consumed">${t('lib_inv_consumed', activeBagConsumed)} g</span>
+          ${bags.length > 1 ? `<span class="lib-inv-sep">·</span><span class="lib-inv-total">${t('lib_inv_bags', bags.length)}</span>` : ''}
+          ${isLow ? `<span class="lib-inv-reorder">${t('lib_inv_reorder')}</span>` : ''}
+        </div>
         ${editingStock
           ? `<div class="lib-stock-edit-row">
-               <input type="number" class="lib-new-bag-input" id="stockEditInput${b.id}" value="${Math.max(0, remaining)}" min="0" step="1" placeholder="${t('lib_stock_adjust_ph')}">
+               <input type="number" class="lib-new-bag-input" id="stockEditInput${b.id}" value="${rem}" min="0" step="1" placeholder="${t('lib_stock_adjust_ph')}">
                <button class="lib-save-btn" data-action="save-stock-edit" data-id="${b.id}">${t('lib_save')}</button>
                <button class="lib-btn-sm" data-action="close-stock-edit" data-id="${b.id}">${t('lib_cancel')}</button>
              </div>`
@@ -194,26 +209,44 @@ export function renderBeanList() {
         }
       </div>`;
     } else if (totalConsumed > 0) {
-      invHtml = `<div class="lib-inv-stats">
-        <span>${t('lib_inv_total_consumed', totalConsumed)}</span>
-        ${bags.length > 1 ? `<span>${t('lib_inv_bags', bags.length)}</span>` : ''}
+      invHtml = `<div class="lib-inv-block">
+        <div class="lib-inv-nums"><span class="lib-inv-consumed">${t('lib_inv_total_consumed', totalConsumed)} g</span>${bags.length > 1 ? `<span class="lib-inv-sep">·</span><span class="lib-inv-total">${t('lib_inv_bags', bags.length)}</span>` : ''}</div>
       </div>`;
     }
 
-    // Bag history (collapsed). Button comes first so the reveal expands
-    // downward below it rather than overlapping content above.
-    const bagHistoryHtml = bags.length > 1 ? `
-      <button class="lib-btn-sm lib-bag-history-btn" data-action="toggle-bag-history" data-id="${b.id}" id="bagHistoryBtn${b.id}">▸ ${t('lib_bag_history')}</button>
-      <div class="lib-bag-history" id="bagHistory${b.id}" style="display:none">
-        <div class="lib-bag-history-title">${t('lib_bag_history')}</div>
-        ${bags.slice().reverse().map((bg, i) => `
-          <div class="lib-bag-row${i === 0 ? ' active' : ''}">
-            <span>${bg.roastDate ? esc(bg.roastDate) : '–'}</span>
-            <span>${bg.stock_g ? bg.stock_g + ' g' : '–'}</span>
-            <span>${bg.batchNumber ? esc(bg.batchNumber) : '–'}</span>
-            ${i === 0 ? `<button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">${CLOSE_ICON_SVG}</button>` : ''}
-          </div>`).join('')}
-      </div>` : '';
+    // Bag history — always shown when ≥1 bag exists
+    const bagHistoryHtml = bags.length >= 1 ? (() => {
+      const reversedBags = bags.slice().reverse();
+      const rows = reversedBags.map((bg, i) => {
+        const isActive = i === 0;
+        const bgConsumed = bagConsumedG(bg);
+        const bgStockG = parseFloat(bg.stock_g ?? (isActive ? b.stock_g : null));
+        const bgRemaining = isFinite(bgStockG) && bgStockG > 0 ? Math.max(0, bgStockG - bgConsumed) : null;
+        const bgPct = bgRemaining != null && bgStockG > 0 ? Math.round((bgRemaining / bgStockG) * 100) : null;
+        return `<div class="lib-bag-card${isActive ? ' active' : ''}">
+          <div class="lib-bag-card-header">
+            <span class="lib-bag-date">${bg.roastDate ? esc(bg.roastDate) : '–'}</span>
+            ${isActive ? `<span class="lib-bag-active-badge">${t('lib_bag_active') || 'Aktiv'}</span>` : ''}
+            <div class="lib-bag-card-actions">
+              <button class="lib-bag-edit-btn" data-action="open-edit-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_edit')}">${ICON_PENCIL}</button>
+              ${bags.length > 1 ? `<button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">${CLOSE_ICON_SVG}</button>` : ''}
+            </div>
+          </div>
+          <div class="lib-bag-card-details">
+            ${bgStockG > 0 ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">Gewicht</span><span class="lib-bag-detail-val">${bgStockG} g</span></span>` : ''}
+            ${bgConsumed > 0 ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_consumed')}</span><span class="lib-bag-detail-val">${bgConsumed} g</span></span>` : ''}
+            ${bgRemaining != null ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">Verbleibend</span><span class="lib-bag-detail-val">${bgRemaining} g${bgPct != null ? ` (${bgPct}%)` : ''}</span></span>` : ''}
+            ${bg.price_eur ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_price')}</span><span class="lib-bag-detail-val">${parseFloat(bg.price_eur).toFixed(2)} €</span></span>` : ''}
+            ${bg.batchNumber ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_batch_number')}</span><span class="lib-bag-detail-val">${esc(bg.batchNumber)}</span></span>` : ''}
+          </div>
+        </div>`;
+      });
+      const historySection = bags.length > 1
+        ? `<div class="lib-bag-history" id="bagHistory${b.id}" style="display:none">${rows.join('')}</div>
+           <button class="lib-btn-sm lib-bag-history-btn" data-action="toggle-bag-history" data-id="${b.id}" id="bagHistoryBtn${b.id}">▸ ${t('lib_bag_history')} (${bags.length})</button>`
+        : `<div class="lib-bag-history lib-bag-history-single">${rows.join('')}</div>`;
+      return historySection;
+    })() : '';
 
     // #477: the bag's own freshness badge is always the real calendar age —
     // freezing part of the bag must not make the coffee still in normal use
@@ -356,17 +389,7 @@ export function renderBeanList() {
         <button class="lib-btn-sm lib-btn-icon" data-action="edit-bean" data-id="${b.id}" title="${t('lib_btn_edit')}">${ICON_PENCIL}</button>
         <button class="lib-btn-sm del lib-btn-icon" data-action="delete-bean" data-id="${b.id}" title="${t('lib_btn_delete')}">${ICON_TRASH}</button>
       </div>
-      <div id="newBagForm${b.id}" class="lib-new-bag-form" style="display:none">
-        <div class="lib-new-bag-fields">
-          <input type="date" class="lib-new-bag-input" id="newBagRoastDate${b.id}" title="${t('lib_bag_roast_date')}" max="${todayIsoDate()}">
-          <input type="number" class="lib-new-bag-input" id="newBagStock${b.id}" placeholder="${t('lib_bag_stock')}" min="0" step="1">
-          <input type="text" class="lib-new-bag-input" id="newBagBatchNumber${b.id}" placeholder="${t('lib_bag_batch_number')}" maxlength="50">
-        </div>
-        <div class="lib-form-actions">
-          <button class="lib-btn-sm" data-action="close-new-bag" data-id="${b.id}">${t('lib_cancel')}</button>
-          <button class="lib-save-btn" data-action="save-new-bag" data-id="${b.id}">${t('lib_new_bag_save')}</button>
-        </div>
-      </div>
+      <!-- new bag now uses overlay dialog, no inline form -->
       <div id="freezeForm${b.id}" class="lib-new-bag-form" style="display:none">
         <div class="lib-new-bag-fields">
           <input type="number" class="lib-new-bag-input" id="freezePortionCount${b.id}" placeholder="${t('bag_freeze_count')}" min="1" step="1">
@@ -473,6 +496,90 @@ export async function saveBeanStock(id) {
   const idx = S.coffeeLibrary.beans.findIndex(b => b.id === id);
   if (idx !== -1) S.coffeeLibrary.beans[idx] = saved;
   S._beanStockEditId = null;
+  renderBeanList();
+}
+
+// ── Bag dialog (new / edit) ───────────────────────────────────────────────
+// State: which bean + bag we're editing (null = new bag)
+let _bagDialogBeanId = null;
+let _bagDialogBagId  = null; // null = new bag
+
+export function openNewBagDialog(beanId) {
+  _bagDialogBeanId = beanId;
+  _bagDialogBagId  = null;
+  const overlay = document.getElementById('bagDialogOverlay');
+  if (!overlay) return;
+  document.getElementById('bagDialogTitle').textContent = t('lib_new_bag_title');
+  document.getElementById('bagDialogRoastDate').value = '';
+  document.getElementById('bagDialogStock').value = '';
+  document.getElementById('bagDialogPrice').value = '';
+  document.getElementById('bagDialogBatch').value = '';
+  document.getElementById('bagDialogRoastDateLabel').textContent = t('lib_bag_roast_date');
+  document.getElementById('bagDialogStockLabel').textContent = t('lib_bag_stock');
+  document.getElementById('bagDialogPriceLabel').textContent = t('lib_bag_price');
+  document.getElementById('bagDialogBatchLabel').textContent = t('lib_bag_batch_number');
+  overlay.querySelector('[data-action="close-bag-dialog"]').textContent = t('lib_cancel');
+  overlay.querySelector('[data-action="save-bag-dialog"]').textContent = t('lib_new_bag_save');
+  overlay.style.display = 'flex';
+  document.getElementById('bagDialogRoastDate').focus();
+}
+
+export function openEditBagDialog(beanId, bagId) {
+  const bean = S.coffeeLibrary.beans.find(b => b.id === beanId);
+  if (!bean) return;
+  const bags = Array.isArray(bean.bags) ? bean.bags : [];
+  const bag = bags.find(bg => bg.id === bagId);
+  if (!bag) return;
+  _bagDialogBeanId = beanId;
+  _bagDialogBagId  = bagId;
+  const overlay = document.getElementById('bagDialogOverlay');
+  if (!overlay) return;
+  document.getElementById('bagDialogTitle').textContent = t('lib_bag_edit');
+  document.getElementById('bagDialogRoastDate').value = bag.roastDate || '';
+  document.getElementById('bagDialogStock').value = bag.stock_g ?? '';
+  document.getElementById('bagDialogPrice').value = bag.price_eur ?? '';
+  document.getElementById('bagDialogBatch').value = bag.batchNumber || '';
+  document.getElementById('bagDialogRoastDateLabel').textContent = t('lib_bag_roast_date');
+  document.getElementById('bagDialogStockLabel').textContent = t('lib_bag_stock');
+  document.getElementById('bagDialogPriceLabel').textContent = t('lib_bag_price');
+  document.getElementById('bagDialogBatchLabel').textContent = t('lib_bag_batch_number');
+  overlay.querySelector('[data-action="close-bag-dialog"]').textContent = t('lib_cancel');
+  overlay.querySelector('[data-action="save-bag-dialog"]').textContent = t('lib_bag_save');
+  overlay.style.display = 'flex';
+}
+
+export function closeBagDialog() {
+  const overlay = document.getElementById('bagDialogOverlay');
+  if (overlay) overlay.style.display = 'none';
+  _bagDialogBeanId = null;
+  _bagDialogBagId  = null;
+}
+
+export async function saveBagDialog() {
+  if (_bagDialogBeanId == null) return;
+  const roastDate   = document.getElementById('bagDialogRoastDate')?.value.trim() || '';
+  const stock_g     = parseFloat(document.getElementById('bagDialogStock')?.value) || null;
+  const price_eur   = parseFloat(document.getElementById('bagDialogPrice')?.value) || null;
+  const batchNumber = document.getElementById('bagDialogBatch')?.value.trim() || '';
+  const body = { roastDate, stock_g, price_eur, batchNumber };
+
+  let r;
+  if (_bagDialogBagId == null) {
+    // new bag
+    r = await apiFetch(`api/library/bean/${_bagDialogBeanId}/new-bag`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+  } else {
+    // edit existing bag
+    r = await apiFetch(`api/library/bean/${_bagDialogBeanId}/bag/${_bagDialogBagId}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+  }
+  if (!r.ok) return;
+  const saved = await r.json();
+  const idx = S.coffeeLibrary.beans.findIndex(b => b.id === _bagDialogBeanId);
+  if (idx !== -1) S.coffeeLibrary.beans[idx] = saved;
+  closeBagDialog();
   renderBeanList();
 }
 

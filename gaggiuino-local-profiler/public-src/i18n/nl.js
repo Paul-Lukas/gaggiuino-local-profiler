@@ -309,6 +309,7 @@ export default {
     lib_bag_roast_date:'Roosdatum',
     lib_bag_stock:'Startgewicht (g)', lib_stock_adjust_ph:'Resterend (g)',
     lib_bag_batch_number:'Chargenummer',
+    lib_bag_price:'Prijs (€)', lib_bag_section_label:'Huidige verpakking', lib_bag_active:'Actief', lib_bag_edit:'Verpakking bewerken', lib_bag_consumed:'Verbruikt', lib_bag_save:'Verpakking opslaan',
     lib_stock_edit_btn:'Voorraad aanpassen',
     bag_freeze_btn:'Invriezen', bag_freeze_save:'Porties invriezen',
     bag_freeze_count:'Aantal porties', bag_freeze_weight:'Gram per portie',

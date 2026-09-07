@@ -92,7 +92,8 @@ func (h *Handlers) newBag(w http.ResponseWriter, r *http.Request) {
 	stockG := floatOrNilFalsy(body["stock_g"])
 	batchNumber := trimMax(body["batchNumber"], 50)
 
-	bag := Entity{"id": newID(), "roastDate": roastDate, "stock_g": stockG, "openedAt": newID(), "batchNumber": batchNumber}
+	priceEur := floatOrNilFalsy(body["price_eur"])
+	bag := Entity{"id": newID(), "roastDate": roastDate, "stock_g": stockG, "openedAt": newID(), "batchNumber": batchNumber, "price_eur": priceEur}
 	bags := bagsOf(bean)
 	bean["bags"] = append(bags, bag)
 	bean["roastDate"] = roastDate
@@ -349,6 +350,67 @@ func (h *Handlers) deleteBag(w http.ResponseWriter, r *http.Request) {
 	bean["stock_g"] = last["stock_g"]
 	lib.Beans[idx] = bean
 
+	if err := h.repo.SaveLibrary(lib); err != nil {
+		internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, bean)
+}
+
+// updateBag handles PUT /api/library/bean/{id}/bag/{bagId}: edit any bag's
+// mutable fields (roastDate, stock_g, batchNumber, price_eur). If the updated
+// bag is the active (last) bag, bean-level roastDate and stock_g are synced.
+func (h *Handlers) updateBag(w http.ResponseWriter, r *http.Request) {
+	id, idNoMatch := parseIDParam(r.PathValue("id"))
+	bagID, bagNoMatch := parseIDParam(r.PathValue("bagId"))
+	body, ok := decodeJSONBody(w, r)
+	if !ok {
+		return
+	}
+	lib, err := h.repo.GetLibrary()
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	idx := -1
+	if !idNoMatch {
+		idx = findBeanIndex(lib, id)
+	}
+	if idx == -1 {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	bean := lib.Beans[idx]
+	bags := bagsOf(bean)
+	bagIdx := -1
+	if !bagNoMatch {
+		for i, raw := range bags {
+			bag, ok := raw.(Entity)
+			if !ok {
+				continue
+			}
+			if bid, ok := idOf(bag, "id"); ok && bid == bagID {
+				bagIdx = i
+				break
+			}
+		}
+	}
+	if bagIdx == -1 {
+		writeError(w, http.StatusNotFound, "bag not found")
+		return
+	}
+	bag := bags[bagIdx].(Entity)
+	bag["roastDate"] = trimMax(body["roastDate"], 10)
+	bag["stock_g"] = floatOrNilFalsy(body["stock_g"])
+	bag["batchNumber"] = trimMax(body["batchNumber"], 50)
+	bag["price_eur"] = floatOrNilFalsy(body["price_eur"])
+	bags[bagIdx] = bag
+	bean["bags"] = bags
+	if bagIdx == len(bags)-1 {
+		bean["roastDate"] = bag["roastDate"]
+		bean["stock_g"] = bag["stock_g"]
+	}
+	lib.Beans[idx] = bean
 	if err := h.repo.SaveLibrary(lib); err != nil {
 		internalError(w, err)
 		return

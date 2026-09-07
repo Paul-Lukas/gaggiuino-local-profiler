@@ -659,6 +659,11 @@
                                 </div>
                                 <span class="lib-form-hint" data-i18n="bean_image_hint">Falls der automatische Import fehlschlägt</span>
                             </div>
+                        </div>
+                        <div class="lib-bag-section-divider">
+                            <span class="lib-bag-section-label" data-i18n="lib_bag_section_label">Aktuelle Packung</span>
+                        </div>
+                        <div class="lib-form-grid">
                             <div class="lib-form-field">
                                 <label data-i18n="lib_bean_stock">Vorrat (g)</label>
                                 <input type="number" id="beanFormStock" data-i18n-placeholder="lib_bean_stock_ph" placeholder="z.B. 500" step="1" min="0">
@@ -1543,6 +1548,30 @@
         <div class="lib-form-actions">
             <button class="lib-btn-sm" data-action="gm-editor-close">Abbrechen</button>
             <button class="lib-save-btn" data-action="gm-editor-save">Auf Maschine speichern</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Bag dialog (new bag / edit bag) ── -->
+<div id="bagDialogOverlay" class="guided-maint-overlay" style="display:none">
+    <div class="guided-maint-modal bag-dialog-modal">
+        <div class="fw-header">
+            <h3 class="maint-section-title" id="bagDialogTitle" style="margin:0"></h3>
+            <button type="button" class="fw-close-x" data-action="close-bag-dialog" aria-label="Close"><svg class="rail-icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        </div>
+        <div class="bag-dialog-fields">
+            <label class="bag-dialog-label" id="bagDialogRoastDateLabel"></label>
+            <input type="date" class="bag-dialog-input" id="bagDialogRoastDate">
+            <label class="bag-dialog-label" id="bagDialogStockLabel"></label>
+            <input type="number" class="bag-dialog-input" id="bagDialogStock" min="0" step="1" placeholder="g">
+            <label class="bag-dialog-label" id="bagDialogPriceLabel"></label>
+            <input type="number" class="bag-dialog-input" id="bagDialogPrice" min="0" step="0.01" placeholder="€">
+            <label class="bag-dialog-label" id="bagDialogBatchLabel"></label>
+            <input type="text" class="bag-dialog-input" id="bagDialogBatch" maxlength="50">
+        </div>
+        <div class="lib-form-actions">
+            <button class="lib-btn-sm" data-action="close-bag-dialog"></button>
+            <button class="lib-save-btn" data-action="save-bag-dialog"></button>
         </div>
     </div>
 </div>

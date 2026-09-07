@@ -31,7 +31,7 @@ export function matchesBean(doseRow, bean, idExists) {
 // be silently dropped from the sum. Shared by computeBeanRemaining and
 // sumConsumedDoses's bag-scoped total so the two can never resolve a dose's
 // bag differently again (#788).
-function resolveBagAtShotTime(bags, shotMs) {
+export function resolveBagAtShotTime(bags, shotMs) {
   return bags
     .filter(b => (b.openedAt || 0) <= shotMs)
     .sort((a, b) => b.openedAt - a.openedAt)[0] || bags[0];

@@ -309,6 +309,7 @@ export default {
     lib_bag_roast_date:'Date de torréfaction',
     lib_bag_stock:'Poids initial (g)', lib_stock_adjust_ph:'Restant (g)',
     lib_bag_batch_number:'Numéro de lot',
+    lib_bag_price:'Prix (€)', lib_bag_section_label:'Sachet actuel', lib_bag_active:'Actif', lib_bag_edit:'Modifier sachet', lib_bag_consumed:'Consommé', lib_bag_save:'Enregistrer sachet',
     lib_stock_edit_btn:'Ajuster le stock',
     bag_freeze_btn:'Congeler', bag_freeze_save:'Congeler des portions',
     bag_freeze_count:'Nombre de portions', bag_freeze_weight:'Grammes par portion',

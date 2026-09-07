@@ -99,6 +99,7 @@ import { loadLibrary, updateLibraryDatalist, switchLibTab, renderBeanList, rende
          openGrinderForm, closeGrinderForm, editGrinder, saveGrinder, deleteGrinder, uploadGrinderImage, resetGrinderBurrs,
          toggleBeanQR,
          toggleBagHistory, openNewBagForm, closeNewBagForm, saveNewBag, deleteBag,
+         openNewBagDialog, openEditBagDialog, closeBagDialog, saveBagDialog,
          openBeanStockEdit, closeBeanStockEdit, saveBeanStock,
          openFreezeForm, closeFreezeForm, saveFreezePortions, thawPortion, filterShotsByBean,
          openEditFrozenForm, closeEditFrozenForm, saveEditFrozenForm,
@@ -399,6 +400,10 @@ Object.assign(window, {
   openNewBagForm,
   closeNewBagForm,
   saveNewBag,
+  openNewBagDialog,
+  openEditBagDialog,
+  closeBagDialog,
+  saveBagDialog,
   deleteBag,
   openBeanStockEdit,
   closeBeanStockEdit,
@@ -880,9 +885,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // instead of listing all 18 action names as switch cases.
     if (action.startsWith('gm-')) { handleGmEditorAction(action, el); return; }
     switch (action) {
-      case 'open-new-bag':       openNewBagForm(numId()); break;
-      case 'close-new-bag':      closeNewBagForm(numId()); break;
-      case 'save-new-bag':       saveNewBag(numId()); break;
+      case 'open-new-bag':       openNewBagDialog(numId()); break;
+      case 'close-new-bag':      closeBagDialog(); break;
+      case 'save-new-bag':       saveBagDialog(); break;
+      case 'open-edit-bag':      openEditBagDialog(Number(el.dataset.beanId), Number(el.dataset.bagId)); break;
+      case 'close-bag-dialog':   closeBagDialog(); break;
+      case 'save-bag-dialog':    saveBagDialog(); break;
       case 'toggle-bag-history':   toggleBagHistory(numId()); break;
       case 'toggle-month-group':  toggleMonthGroup(strId()); break;
       case 'delete-bag':         deleteBag(Number(el.dataset.beanId), Number(el.dataset.bagId)); break;
