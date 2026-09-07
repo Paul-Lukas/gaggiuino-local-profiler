@@ -337,7 +337,8 @@ export function renderBeanList() {
       b.altitude_m ? t('bean_altitude_display', b.altitude_m) : '',
       b.producer, b.importer ? t('bean_importer_display', b.importer) : '',
       b.harvest ? t('bean_harvest_display', b.harvest) : '',
-      b.certification, b.price_eur ? `${b.price_eur.toFixed(2)} €` : '',
+      b.certification,
+      (() => { const p = activeBag?.price_eur ?? b.price_eur; return p ? `${parseFloat(p).toFixed(2)} €` : ''; })(),
       activeBag?.batchNumber ? t('bag_batch_number_display', activeBag.batchNumber) : '',
     ].filter(Boolean);
     const extraHtml = extraParts.length
@@ -511,6 +512,7 @@ export function openNewBagDialog(beanId) {
   if (!overlay) return;
   document.getElementById('bagDialogTitle').textContent = t('lib_new_bag_title');
   document.getElementById('bagDialogRoastDate').value = '';
+  document.getElementById('bagDialogRoastDate').max = new Date().toISOString().slice(0, 10);
   document.getElementById('bagDialogStock').value = '';
   document.getElementById('bagDialogPrice').value = '';
   document.getElementById('bagDialogBatch').value = '';
@@ -535,6 +537,7 @@ export function openEditBagDialog(beanId, bagId) {
   const overlay = document.getElementById('bagDialogOverlay');
   if (!overlay) return;
   document.getElementById('bagDialogTitle').textContent = t('lib_bag_edit');
+  document.getElementById('bagDialogRoastDate').max = new Date().toISOString().slice(0, 10);
   document.getElementById('bagDialogRoastDate').value = bag.roastDate || '';
   document.getElementById('bagDialogStock').value = bag.stock_g ?? '';
   document.getElementById('bagDialogPrice').value = bag.price_eur ?? '';
@@ -931,7 +934,8 @@ export function openBeanForm(bean) {
   document.getElementById('beanFormAltitude').value      = bean?.altitude_m ?? '';
   document.getElementById('beanFormImporter').value      = bean?.importer || '';
   document.getElementById('beanFormHarvest').value       = bean?.harvest || '';
-  document.getElementById('beanFormPrice').value         = bean?.price_eur ?? '';
+  const activeBagForPrice = Array.isArray(bean?.bags) && bean.bags.length ? bean.bags[bean.bags.length - 1] : null;
+  document.getElementById('beanFormPrice').value = activeBagForPrice?.price_eur ?? bean?.price_eur ?? '';
   document.getElementById('beanFormProducer').value      = bean?.producer || '';
   document.getElementById('beanFormCertification').value = bean?.certification || '';
   document.getElementById('beanFormBrewTemp').value  = bean?.brewTempC ?? '';
@@ -1028,6 +1032,25 @@ export async function saveBean() {
     if (rr.ok) {
       if (!S.coffeeLibrary.recipes) S.coffeeLibrary.recipes = [];
       S.coffeeLibrary.recipes.push(await rr.json());
+    }
+  }
+  // Also persist price_eur to the active bag so per-bag price stays in sync
+  if (S.beanEditId && price_eur) {
+    const activeBagForSave = Array.isArray(saved.bags) && saved.bags.length
+      ? saved.bags[saved.bags.length - 1] : null;
+    if (activeBagForSave) {
+      const rb = await apiFetch(`api/library/bean/${S.beanEditId}/bag/${activeBagForSave.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roastDate: activeBagForSave.roastDate || '', stock_g: activeBagForSave.stock_g ?? null,
+          batchNumber: activeBagForSave.batchNumber || '', price_eur: parseFloat(price_eur) || null,
+        }),
+      });
+      if (rb.ok) {
+        const savedWithBag = await rb.json();
+        const idx2 = S.coffeeLibrary.beans.findIndex(b => b.id === S.beanEditId);
+        if (idx2 !== -1) S.coffeeLibrary.beans[idx2] = savedWithBag;
+      }
     }
   }
   updateLibraryDatalist();
