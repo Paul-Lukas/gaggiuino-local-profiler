@@ -310,6 +310,7 @@ export default {
     lib_bag_stock:'Initial weight (g)', lib_stock_adjust_ph:'Remaining (g)',
     lib_bag_batch_number:'Batch number',
     lib_bag_price:'Price (€)', lib_bag_section_label:'Current bag', lib_bag_active:'Active', lib_bag_edit:'Edit bag', lib_bag_consumed:'Consumed', lib_bag_save:'Save bag',
+    lib_bag_weight:'Weight', lib_bag_remaining:'Remaining', lib_bag_empty:'No bag recorded yet.', lib_bag_stock_untracked:'Stock not tracked', lib_bag_no_roast_date:'No roast date', lib_bag_delete_confirm:'Delete this bag?', lib_bag_invalid_number:'Weight and price cannot be negative.', lib_bag_future_roast:'Roast date cannot be in the future.',
     lib_stock_edit_btn:'Adjust stock',
     bag_freeze_btn:'Freeze', bag_freeze_save:'Freeze portions',
     bag_freeze_count:'Portion count', bag_freeze_weight:'Grams per portion',

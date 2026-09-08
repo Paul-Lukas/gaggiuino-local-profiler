@@ -310,6 +310,7 @@ export default {
     lib_bag_stock:'Poids initial (g)', lib_stock_adjust_ph:'Restant (g)',
     lib_bag_batch_number:'Numéro de lot',
     lib_bag_price:'Prix (€)', lib_bag_section_label:'Sachet actuel', lib_bag_active:'Actif', lib_bag_edit:'Modifier sachet', lib_bag_consumed:'Consommé', lib_bag_save:'Enregistrer sachet',
+    lib_bag_weight:'Poids', lib_bag_remaining:'Restant', lib_bag_empty:'Aucun sachet enregistré.', lib_bag_stock_untracked:'Stock non suivi', lib_bag_no_roast_date:'Pas de date de torréfaction', lib_bag_delete_confirm:'Supprimer ce sachet ?', lib_bag_invalid_number:'Le poids et le prix ne peuvent pas être négatifs.', lib_bag_future_roast:'La date de torréfaction ne peut pas être dans le futur.',
     lib_stock_edit_btn:'Ajuster le stock',
     bag_freeze_btn:'Congeler', bag_freeze_save:'Congeler des portions',
     bag_freeze_count:'Nombre de portions', bag_freeze_weight:'Grammes par portion',

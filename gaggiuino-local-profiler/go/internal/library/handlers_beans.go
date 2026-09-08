@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/img"
 )
@@ -19,6 +20,34 @@ func findBeanIndex(lib Library, id int64) int {
 		}
 	}
 	return -1
+}
+
+func validateBagFloatField(body Entity, key string) (any, bool) {
+	v, present := body[key]
+	if !present || v == nil {
+		return nil, true
+	}
+	f, ok := jsParseFloat(v)
+	if !ok || f < 0 {
+		return nil, false
+	}
+	return floatOrNilFalsy(v), true
+}
+
+func validateBagRoastDate(body Entity) (string, bool) {
+	roastDate := trimMax(body["roastDate"], 10)
+	if roastDate == "" {
+		return "", true
+	}
+	d, err := time.Parse("2006-01-02", roastDate)
+	if err != nil {
+		return roastDate, true
+	}
+	today, _ := time.Parse("2006-01-02", time.Now().Format("2006-01-02"))
+	if d.After(today) {
+		return "", false
+	}
+	return roastDate, true
 }
 
 // createBean ports POST /api/library/bean — a thin wrapper around
@@ -88,11 +117,23 @@ func (h *Handlers) newBag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bean := lib.Beans[idx]
-	roastDate := trimMax(body["roastDate"], 10)
-	stockG := floatOrNilFalsy(body["stock_g"])
+	roastDate, ok := validateBagRoastDate(body)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "roastDate cannot be in the future")
+		return
+	}
+	stockG, ok := validateBagFloatField(body, "stock_g")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid stock_g")
+		return
+	}
 	batchNumber := trimMax(body["batchNumber"], 50)
 
-	priceEur := floatOrNilFalsy(body["price_eur"])
+	priceEur, ok := validateBagFloatField(body, "price_eur")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid price_eur")
+		return
+	}
 	bag := Entity{"id": newID(), "roastDate": roastDate, "stock_g": stockG, "openedAt": newID(), "batchNumber": batchNumber, "price_eur": priceEur}
 	bags := bagsOf(bean)
 	bean["bags"] = append(bags, bag)
@@ -336,13 +377,19 @@ func (h *Handlers) deleteBag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filtered := make([]any, 0, len(bags))
+	foundBag := false
 	for _, b := range bags {
 		bag, _ := b.(Entity)
 		bgID, ok := idOf(bag, "id")
 		if !bagNoMatch && ok && bgID == bagID {
+			foundBag = true
 			continue
 		}
 		filtered = append(filtered, b)
+	}
+	if !foundBag {
+		writeError(w, http.StatusNotFound, "bag not found")
+		return
 	}
 	bean["bags"] = filtered
 	last, _ := filtered[len(filtered)-1].(Entity)
@@ -399,11 +446,26 @@ func (h *Handlers) updateBag(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "bag not found")
 		return
 	}
+	roastDate, ok := validateBagRoastDate(body)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "roastDate cannot be in the future")
+		return
+	}
+	stockG, ok := validateBagFloatField(body, "stock_g")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid stock_g")
+		return
+	}
+	priceEur, ok := validateBagFloatField(body, "price_eur")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid price_eur")
+		return
+	}
 	bag := bags[bagIdx].(Entity)
-	bag["roastDate"] = trimMax(body["roastDate"], 10)
-	bag["stock_g"] = floatOrNilFalsy(body["stock_g"])
+	bag["roastDate"] = roastDate
+	bag["stock_g"] = stockG
 	bag["batchNumber"] = trimMax(body["batchNumber"], 50)
-	bag["price_eur"] = floatOrNilFalsy(body["price_eur"])
+	bag["price_eur"] = priceEur
 	bags[bagIdx] = bag
 	bean["bags"] = bags
 	if bagIdx == len(bags)-1 {

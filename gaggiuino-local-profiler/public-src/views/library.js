@@ -214,7 +214,6 @@ export function renderBeanList() {
       </div>`;
     }
 
-    // Bag history — always shown when ≥1 bag exists
     const bagHistoryHtml = bags.length >= 1 ? (() => {
       const reversedBags = bags.slice().reverse();
       const rows = reversedBags.map((bg, i) => {
@@ -223,21 +222,24 @@ export function renderBeanList() {
         const bgStockG = parseFloat(bg.stock_g ?? (isActive ? b.stock_g : null));
         const bgRemaining = isFinite(bgStockG) && bgStockG > 0 ? Math.max(0, bgStockG - bgConsumed) : null;
         const bgPct = bgRemaining != null && bgStockG > 0 ? Math.round((bgRemaining / bgStockG) * 100) : null;
+        const details = [
+          bgStockG > 0 ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_weight')}</span><span class="lib-bag-detail-val">${bgStockG} g</span></span>` : '',
+          bgConsumed > 0 ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_consumed')}</span><span class="lib-bag-detail-val">${bgConsumed} g</span></span>` : '',
+          bgRemaining != null ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_remaining')}</span><span class="lib-bag-detail-val">${bgRemaining} g${bgPct != null ? ` (${bgPct}%)` : ''}</span></span>` : '',
+          bg.price_eur ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_price')}</span><span class="lib-bag-detail-val">${parseFloat(bg.price_eur).toFixed(2)} €</span></span>` : '',
+          bg.batchNumber ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_batch_number')}</span><span class="lib-bag-detail-val">${esc(bg.batchNumber)}</span></span>` : '',
+        ].filter(Boolean);
         return `<div class="lib-bag-card${isActive ? ' active' : ''}">
           <div class="lib-bag-card-header">
-            <span class="lib-bag-date">${bg.roastDate ? esc(bg.roastDate) : '–'}</span>
+            <span class="lib-bag-date">${bg.roastDate ? esc(bg.roastDate) : t('lib_bag_no_roast_date')}</span>
             ${isActive ? `<span class="lib-bag-active-badge">${t('lib_bag_active') || 'Aktiv'}</span>` : ''}
             <div class="lib-bag-card-actions">
               <button class="lib-bag-edit-btn" data-action="open-edit-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_edit')}">${ICON_PENCIL}</button>
-              ${bags.length > 1 ? `<button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">${CLOSE_ICON_SVG}</button>` : ''}
+              ${!isActive && bags.length > 1 ? `<button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">${ICON_TRASH}</button>` : ''}
             </div>
           </div>
           <div class="lib-bag-card-details">
-            ${bgStockG > 0 ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">Gewicht</span><span class="lib-bag-detail-val">${bgStockG} g</span></span>` : ''}
-            ${bgConsumed > 0 ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_consumed')}</span><span class="lib-bag-detail-val">${bgConsumed} g</span></span>` : ''}
-            ${bgRemaining != null ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">Verbleibend</span><span class="lib-bag-detail-val">${bgRemaining} g${bgPct != null ? ` (${bgPct}%)` : ''}</span></span>` : ''}
-            ${bg.price_eur ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_price')}</span><span class="lib-bag-detail-val">${parseFloat(bg.price_eur).toFixed(2)} €</span></span>` : ''}
-            ${bg.batchNumber ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_batch_number')}</span><span class="lib-bag-detail-val">${esc(bg.batchNumber)}</span></span>` : ''}
+            ${details.length ? details.join('') : `<span class="lib-bag-empty-note">${t('lib_bag_stock_untracked')}</span>`}
           </div>
         </div>`;
       });
@@ -246,7 +248,7 @@ export function renderBeanList() {
            <button class="lib-btn-sm lib-bag-history-btn" data-action="toggle-bag-history" data-id="${b.id}" id="bagHistoryBtn${b.id}">▸ ${t('lib_bag_history')} (${bags.length})</button>`
         : `<div class="lib-bag-history lib-bag-history-single">${rows.join('')}</div>`;
       return historySection;
-    })() : '';
+    })() : `<div class="lib-bag-empty-note">${t('lib_bag_empty')}</div>`;
 
     // #477: the bag's own freshness badge is always the real calendar age —
     // freezing part of the bag must not make the coffee still in normal use
@@ -446,7 +448,11 @@ export function closeNewBagForm(id) {
 }
 
 export async function deleteBag(beanId, bagId) {
-  if (!confirm(t('lib_bag_delete') + '?')) return;
+  const bean = S.coffeeLibrary.beans.find(b => b.id === beanId);
+  const bags = Array.isArray(bean?.bags) ? bean.bags : [];
+  const bagIdx = bags.findIndex(bg => bg.id === bagId);
+  if (!bean || bagIdx === -1 || bagIdx === bags.length - 1 || bags.length <= 1) return;
+  if (!confirm(t('lib_bag_delete_confirm'))) return;
   const r = await apiFetch(`api/library/bean/${beanId}/bag/${bagId}`, { method: 'DELETE' });
   if (!r.ok) return;
   const saved = await r.json();
@@ -561,9 +567,21 @@ export function closeBagDialog() {
 export async function saveBagDialog() {
   if (_bagDialogBeanId == null) return;
   const roastDate   = document.getElementById('bagDialogRoastDate')?.value.trim() || '';
-  const stock_g     = parseFloat(document.getElementById('bagDialogStock')?.value) || null;
-  const price_eur   = parseFloat(document.getElementById('bagDialogPrice')?.value) || null;
+  const stockRaw    = document.getElementById('bagDialogStock')?.value.trim() || '';
+  const priceRaw    = document.getElementById('bagDialogPrice')?.value.trim() || '';
+  const stock_g     = stockRaw === '' ? null : parseFloat(stockRaw);
+  const price_eur   = priceRaw === '' ? null : parseFloat(priceRaw);
   const batchNumber = document.getElementById('bagDialogBatch')?.value.trim() || '';
+  if ((stock_g != null && (!Number.isFinite(stock_g) || stock_g < 0)) ||
+      (price_eur != null && (!Number.isFinite(price_eur) || price_eur < 0))) {
+    alert(t('lib_bag_invalid_number'));
+    return;
+  }
+  if (roastDate && roastDate > todayIsoDate()) {
+    alert(t('lib_bag_future_roast'));
+    document.getElementById('bagDialogRoastDate')?.focus();
+    return;
+  }
   const body = { roastDate, stock_g, price_eur, batchNumber };
 
   let r;

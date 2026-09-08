@@ -310,6 +310,7 @@ export default {
     lib_bag_stock:'Startgewicht (g)', lib_stock_adjust_ph:'Resterend (g)',
     lib_bag_batch_number:'Chargenummer',
     lib_bag_price:'Prijs (€)', lib_bag_section_label:'Huidige verpakking', lib_bag_active:'Actief', lib_bag_edit:'Verpakking bewerken', lib_bag_consumed:'Verbruikt', lib_bag_save:'Verpakking opslaan',
+    lib_bag_weight:'Gewicht', lib_bag_remaining:'Resterend', lib_bag_empty:'Nog geen zak geregistreerd.', lib_bag_stock_untracked:'Voorraad niet bijgehouden', lib_bag_no_roast_date:'Geen branddatum', lib_bag_delete_confirm:'Deze zak verwijderen?', lib_bag_invalid_number:'Gewicht en prijs mogen niet negatief zijn.', lib_bag_future_roast:'De branddatum mag niet in de toekomst liggen.',
     lib_stock_edit_btn:'Voorraad aanpassen',
     bag_freeze_btn:'Invriezen', bag_freeze_save:'Porties invriezen',
     bag_freeze_count:'Aantal porties', bag_freeze_weight:'Gram per portie',

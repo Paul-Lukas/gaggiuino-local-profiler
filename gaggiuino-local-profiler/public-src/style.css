@@ -1350,6 +1350,7 @@
         .lib-bag-detail { display: flex; flex-direction: column; gap: 1px; }
         .lib-bag-detail-label { font-size: 10px; color: var(--gray-600); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
         .lib-bag-detail-val { color: var(--gray-300); font-weight: 500; }
+        .lib-bag-empty-note { display: inline-flex; color: var(--gray-500); font-size: var(--fs-1); margin-top: var(--sp-1); }
         .lib-bag-history-btn { font-size: var(--fs-1); color: var(--gray-500); margin-top: var(--sp-1); }
         /* ── Bean form bag section divider ────────────────────────────────── */
         .lib-bag-section-divider { display: flex; align-items: center; gap: var(--sp-3); margin: var(--sp-4) 0 var(--sp-2); }

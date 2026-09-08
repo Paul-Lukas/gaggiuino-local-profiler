@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func doJSON(t *testing.T, mux *http.ServeMux, method, path string, body []byte) *httptest.ResponseRecorder {
@@ -285,6 +286,23 @@ func TestBean_BagFreezeThawAdjustLifecycle(t *testing.T) {
 	if len(bags) != 2 {
 		t.Fatalf("expected 2 bags after new-bag, got %d", len(bags))
 	}
+	rec = doJSON(t, mux, http.MethodPost, "/api/library/bean/"+itoa(id)+"/new-bag",
+		mustMarshal(t, map[string]any{"roastDate": time.Now().AddDate(0, 0, 1).Format("2006-01-02"), "stock_g": 250}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("future roastDate new-bag status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, mux, http.MethodPost, "/api/library/bean/"+itoa(id)+"/new-bag",
+		mustMarshal(t, map[string]any{"stock_g": -1}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("negative stock_g new-bag status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	secondBag, _ := bags[1].(map[string]any)
+	secondBagID := int64(secondBag["id"].(float64))
+	rec = doJSON(t, mux, http.MethodPut, "/api/library/bean/"+itoa(id)+"/bag/"+itoa(secondBagID),
+		mustMarshal(t, map[string]any{"roastDate": "2026-08-15", "stock_g": 250, "price_eur": -2}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("negative price_eur update-bag status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
 
 	// freeze-portions
 	rec = doJSON(t, mux, http.MethodPost, "/api/library/bean/"+itoa(id)+"/freeze-portions",
@@ -341,8 +359,12 @@ func TestBean_BagFreezeThawAdjustLifecycle(t *testing.T) {
 	// delete-bag: cannot delete the last remaining bag
 	firstBag, _ := bags[0].(map[string]any)
 	firstBagID := int64(firstBag["id"].(float64))
-	secondBag, _ := bags[1].(map[string]any)
-	secondBagID := int64(secondBag["id"].(float64))
+	secondBag, _ = bags[1].(map[string]any)
+	secondBagID = int64(secondBag["id"].(float64))
+	rec = doJSON(t, mux, http.MethodDelete, "/api/library/bean/"+itoa(id)+"/bag/"+itoa(secondBagID+999), nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("delete missing bag status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
 	rec = doJSON(t, mux, http.MethodDelete, "/api/library/bean/"+itoa(id)+"/bag/"+itoa(firstBagID), nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete-bag status = %d; body=%s", rec.Code, rec.Body.String())
