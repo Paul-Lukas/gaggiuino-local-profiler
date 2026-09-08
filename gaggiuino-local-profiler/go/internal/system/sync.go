@@ -327,6 +327,17 @@ func (p *Poller) syncGaggiMateShots(ctx context.Context, machine *machines.Machi
 // resolve, so an already-renamed/deleted profile just leaves that shot as
 // it was, exactly like the live sync path's own graceful-degradation rule.
 func (p *Poller) BackfillGaggiMatePhases(ctx context.Context) (updated int, err error) {
+	// Bounded independent of the caller's context (postBackfillGaggiMatePhases
+	// hands in r.Context(), which has no deadline of its own): observed live
+	// on stage (2026-09-08) hanging the whole request past 60s when the
+	// machine's WS session was in a bad state mid-request — a.live.Request's
+	// own wait only unblocks on ctx.Done()/s.done/a response, so with no
+	// deadline on ctx and s.done never closing, it can wait forever. This
+	// is a maintenance action run by hand occasionally, not a hot path;
+	// generous but finite is the right tradeoff over no bound at all.
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
 	machine, err := p.registry.GetDefaultMachine()
 	if err != nil {
 		return 0, err
