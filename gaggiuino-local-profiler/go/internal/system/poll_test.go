@@ -501,3 +501,44 @@ func TestCheckGaggiMateModeTransition_IgnoredWhenSwitchEntityConfigured(t *testi
 		t.Fatalf("SwitchOnAt = %v, want nil — mode-based trigger must stay inert when a switch_entity is configured", *snap.SwitchOnAt)
 	}
 }
+
+// TestCheckGaggiMateModeTransition_ReconcilesStaleStateOnFirstTickAfterRestart
+// is the regression test for the 2026-09-08 bug report: after a redeploy
+// (fresh process, RuntimeState.machineStatus starts nil), a machine already
+// sitting on its standby screen the whole time never produced a "detected
+// transition" on the first tick — nothing to diff prev against — so a
+// SwitchOnAt restored from a stale preheat_state.json (mid-heating before
+// the restart) just kept counting forever, and the Live tab kept showing
+// an active countdown against a machine that had already returned to
+// standby minutes earlier.
+func TestCheckGaggiMateModeTransition_ReconcilesStaleStateOnFirstTickAfterRestart(t *testing.T) {
+	fake := &fakeAdapter{}
+	p, sqlDB := newTestPoller(t, fake)
+	gm := "gaggimate"
+	if _, err := machines.NewRegistry(sqlDB).UpdateMachine(1, machines.MachineInput{Type: &gm}, nil); err != nil {
+		t.Fatalf("set machine type: %v", err)
+	}
+
+	// Simulate a stale "on" state restored from disk by a prior process,
+	// as if the machine had been left on the brew screen and the server
+	// then restarted (RuntimeState.machineStatus is NOT persisted/restored
+	// — only these two timestamps are, via preheat_state.json).
+	staleOnAt := time.Now().Add(-30 * time.Minute).UnixMilli()
+	p.runtime.SetSwitchOnAt(&staleOnAt)
+
+	// First tick this process ever sees: the real machine is actually
+	// sitting in standby right now.
+	fake.setStatus(gaggiMateStatusAtMode(0, 25.5, 0), nil)
+	p.pollViaGaggiuinoStatus(context.Background())
+
+	snap := p.runtime.Get()
+	if snap.SwitchOffAt == nil {
+		t.Fatal("SwitchOffAt still nil after first tick found the machine already in standby, want set")
+	}
+	if *snap.SwitchOffAt < staleOnAt {
+		t.Fatalf("SwitchOffAt = %d, want >= staleOnAt (%d) so preheatCurrentlyOff reads this as off", *snap.SwitchOffAt, staleOnAt)
+	}
+	if !preheatCurrentlyOff(snap, false) {
+		t.Fatal("preheatCurrentlyOff = false after reconciliation, want true")
+	}
+}

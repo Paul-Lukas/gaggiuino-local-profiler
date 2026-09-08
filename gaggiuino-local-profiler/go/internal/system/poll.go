@@ -739,8 +739,30 @@ func (p *Poller) checkGaggiMateModeTransition(machine *machines.Machine, prev, c
 	if cur == nil || cur.ScreenMode == nil {
 		return
 	}
-	prevOff := prev == nil || prev.ScreenMode == nil || *prev.ScreenMode == 0
 	curOff := *cur.ScreenMode == 0
+
+	var prevOff bool
+	if prev != nil && prev.ScreenMode != nil {
+		prevOff = *prev.ScreenMode == 0
+	} else {
+		// No cached reading yet this process — most commonly the very
+		// first tick after a restart, when RuntimeState.machineStatus
+		// starts nil even though preheat_state.json just restored a
+		// possibly-stale SwitchOnAt/SwitchOffAt pair from before the
+		// restart. Falling back to "prevOff = true" here (the original
+		// version of this check) meant a machine that was switched to
+		// standby while the server was down never got reconciled: no
+		// transition ever looked like it happened, so the restored
+		// SwitchOnAt just kept counting forever (2026-09-08 bug report —
+		// the Live tab still showed an active countdown against a
+		// machine sitting on its standby screen, minutes after a
+		// redeploy). Deriving prevOff from what's already persisted
+		// instead means a real mismatch on this first tick — machine is
+		// off now but the restored state still says on, or vice versa —
+		// gets reconciled immediately instead of silently kept forever.
+		snap := p.runtime.Get()
+		prevOff = snap.SwitchOffAt != nil && (snap.SwitchOnAt == nil || *snap.SwitchOffAt >= *snap.SwitchOnAt)
+	}
 	if prevOff == curOff {
 		return
 	}
