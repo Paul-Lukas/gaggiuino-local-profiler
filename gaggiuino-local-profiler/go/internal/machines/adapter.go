@@ -28,7 +28,21 @@ type Status struct {
 	ProfileID         *int            `json:"profileId"`
 	ProfileName       *string         `json:"profileName"`
 	PumpFlow          *float64        `json:"pumpFlow,omitempty"`
+	Warnings          []WarningState  `json:"warnings,omitempty"`
+	System            *SystemState    `json:"system,omitempty"`
 	Raw               json.RawMessage `json:"raw"`
+}
+
+type WarningState struct {
+	Key    string `json:"key"`
+	Level  int    `json:"level"`
+	Active *bool  `json:"active,omitempty"`
+}
+
+type SystemState struct {
+	State   string `json:"state"`
+	Message string `json:"message,omitempty"`
+	Code    int    `json:"code"`
 }
 
 // ProfileSummary ports the {id, name} shape SavedProfileDto and the
@@ -80,6 +94,7 @@ type Capabilities struct {
 	History              bool  `json:"history"`
 	NativeMaintenanceLog bool  `json:"nativeMaintenanceLog,omitempty"`
 	SettingsProxy        bool  `json:"settingsProxy,omitempty"`
+	OtaUpdate            bool  `json:"otaUpdate,omitempty"`
 }
 
 // Adapter is the Go port of adapter-base.js's documented per-machine-type
@@ -138,3 +153,5 @@ func (h *Handlers) GetAdapter(m *Machine) (Adapter, error) {
 // GaggiMate adapter's stubs from silently succeeding if that gate is ever
 // bypassed by a future bug.
 var errSettingsProxyUnsupported = fmt.Errorf("gaggimate machines do not support the settings/control proxy")
+
+var errBrewControlUnsupported = fmt.Errorf("this machine type does not support brew start/stop control")

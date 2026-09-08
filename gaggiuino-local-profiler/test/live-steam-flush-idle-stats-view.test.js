@@ -148,4 +148,31 @@ describe('handleLiveData() steam/flush live-content branches (#902)', () => {
     expect(doc.getElementById('liveIdlePressure').textContent).toBe('–');
     expect(doc.getElementById('liveIdleWaterLevel').textContent).toBe('–');
   });
+
+  it('shows GaggiMate warning/system banner when active warnings are present', () => {
+    handleLiveData({
+      machineReachable: true, isLive: false, isSteaming: false, isFlushing: false,
+      datapoints: null, temperature: 91.5, targetTemperature: 93, pressure: 0.1,
+      warnings: [{ key: 'water', level: 1, active: true }],
+      system: { state: 'error', message: 'Controller fault', code: 12 },
+    });
+
+    const banner = doc.getElementById('liveMachineWarningBanner');
+    expect(banner.style.display).toBe('');
+    expect(banner.textContent).toContain('System error: Controller fault');
+    expect(banner.textContent).toContain('water warning');
+  });
+
+  it('hides GaggiMate warning/system banner when warnings clear', () => {
+    handleLiveData({
+      machineReachable: true, isLive: false, isSteaming: false, isFlushing: false,
+      datapoints: null, temperature: 91.5, targetTemperature: 93, pressure: 0.1,
+      warnings: [{ key: 'water', level: 1, active: false }],
+      system: { state: 'ready', message: '', code: 0 },
+    });
+
+    const banner = doc.getElementById('liveMachineWarningBanner');
+    expect(banner.style.display).toBe('none');
+    expect(banner.textContent).toBe('');
+  });
 });

@@ -94,6 +94,60 @@ func gaggimateRequest(ctx context.Context, baseURL, reqType string, payload map[
 	}
 }
 
+func gaggimateSend(ctx context.Context, baseURL, reqType string, payload map[string]any) error {
+	if len(reqType) < 4 || reqType[:4] != "req:" {
+		return fmt.Errorf("not a request type: %s", reqType)
+	}
+	conn, ctx, cancel, err := wsConnect(ctx, baseURL, gaggimateWSURL, gaggimateWSTimeout)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	defer conn.CloseNow()
+
+	frame := map[string]any{"tp": reqType}
+	for k, v := range payload {
+		frame[k] = v
+	}
+	body, err := json.Marshal(frame)
+	if err != nil {
+		return err
+	}
+	if err := conn.Write(ctx, websocket.MessageText, body); err != nil {
+		return fmt.Errorf("sending request: %w", err)
+	}
+	conn.Close(websocket.StatusNormalClosure, "")
+	return nil
+}
+
+func gaggimateStartProcess(ctx context.Context, baseURL string, ignoreWarnings bool) error {
+	return gaggimateSend(ctx, baseURL, "req:process:activate", map[string]any{"ignoreWarnings": ignoreWarnings})
+}
+
+func gaggimateCancelBrewConfirm(ctx context.Context, baseURL string) error {
+	return gaggimateSend(ctx, baseURL, "req:brew:confirm:cancel", nil)
+}
+
+func gaggimateStartFlush(ctx context.Context, baseURL string) (map[string]any, error) {
+	return gaggimateRequest(ctx, baseURL, "req:flush:start", nil)
+}
+
+func gaggimateStopFlush(ctx context.Context, baseURL string) (map[string]any, error) {
+	return gaggimateRequest(ctx, baseURL, "req:flush:stop", nil)
+}
+
+func gaggimateOtaSettings(ctx context.Context, baseURL string, update bool, channel string) (map[string]any, error) {
+	payload := map[string]any{"update": update}
+	if channel != "" {
+		payload["channel"] = channel
+	}
+	return gaggimateRequest(ctx, baseURL, "req:ota-settings", payload)
+}
+
+func gaggimateStartOta(ctx context.Context, baseURL, cp string) error {
+	return gaggimateSend(ctx, baseURL, "req:ota-start", map[string]any{"cp": cp})
+}
+
 // gaggimateWaitForStatus ports waitForStatus(baseUrl): connects, waits for
 // the first evt:status broadcast (unsolicited telemetry, not a
 // request/response), resolves with its fields.

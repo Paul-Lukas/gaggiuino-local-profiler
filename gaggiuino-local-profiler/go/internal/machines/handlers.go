@@ -210,3 +210,26 @@ func requireSettingsProxySupport(w http.ResponseWriter, adapter Adapter, m *Mach
 	})
 	return false
 }
+
+func requireOtaUpdateSupport(w http.ResponseWriter, adapter Adapter, m *Machine) bool {
+	caps := adapter.Capabilities()
+	if caps.SettingsProxy || caps.OtaUpdate {
+		return true
+	}
+	writeJSON(w, http.StatusNotImplemented, map[string]string{
+		"error":  "not supported",
+		"reason": m.Type + " machines do not support firmware updates",
+	})
+	return false
+}
+
+func requireBrewStartSupport(w http.ResponseWriter, adapter Adapter, m *Machine) bool {
+	if adapter.Capabilities().BrewStart {
+		return true
+	}
+	writeJSON(w, http.StatusNotImplemented, map[string]string{
+		"error":  "not supported",
+		"reason": m.Type + " machines do not support brew start/stop",
+	})
+	return false
+}

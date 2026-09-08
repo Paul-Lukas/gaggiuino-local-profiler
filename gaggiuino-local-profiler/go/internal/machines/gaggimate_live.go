@@ -36,6 +36,11 @@ type gaggimateInflightReq struct {
 	result  chan map[string]any
 }
 
+type gaggimateOutgoingFrame struct {
+	body []byte
+	sent chan error
+}
+
 type gaggiMateLiveSession struct {
 	mu       sync.Mutex
 	status   map[string]any
@@ -50,8 +55,10 @@ type gaggiMateLiveSession struct {
 	inflightMu sync.Mutex
 	inflight   []*gaggimateInflightReq
 
-	// outgoing carries frames to send; connectOnce drains it in its select loop.
-	outgoing chan []byte
+	// outgoing carries frames to send; connectOnce acknowledges each one only
+	// after conn.Write has returned, so command-only Send calls cannot report
+	// success while a lazy session is still handshaking.
+	outgoing chan gaggimateOutgoingFrame
 }
 
 // gaggiMateLiveClient mirrors gaggiuinoLiveClient's sessions-map shape.
@@ -77,7 +84,7 @@ func (c *gaggiMateLiveClient) session(baseURL string) *gaggiMateLiveSession {
 	s := &gaggiMateLiveSession{
 		cancel:   cancel,
 		done:     make(chan struct{}),
-		outgoing: make(chan []byte, 4),
+		outgoing: make(chan gaggimateOutgoingFrame, 4),
 	}
 	c.sessions[baseURL] = s
 	s.idleTimer = time.AfterFunc(c.idleTimeout, func() { c.evictIdle(baseURL, s) })
@@ -124,16 +131,19 @@ func (c *gaggiMateLiveClient) run(ctx context.Context, baseURL string, s *gaggiM
 // liveReconnectDelay, independent of any adapter call (#986 code review).
 func (c *gaggiMateLiveClient) connectOnce(ctx context.Context, baseURL string, s *gaggiMateLiveSession) {
 	if err := assertLiveHost(ctx, baseURL); err != nil {
+		s.failQueuedOutgoing(err)
 		return
 	}
 	wsURL, err := gaggimateWSURL(baseURL)
 	if err != nil {
+		s.failQueuedOutgoing(err)
 		return
 	}
 	// HTTPClient: httpClient pins the dial to the guard-resolved IP (#987) —
 	// see ws.go's wsConnect for the identical rationale.
 	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPClient: httpClient})
 	if err != nil {
+		s.failQueuedOutgoing(err)
 		return
 	}
 	defer conn.CloseNow()
@@ -179,7 +189,12 @@ func (c *gaggiMateLiveClient) connectOnce(ctx context.Context, baseURL string, s
 			}
 
 		case frame := <-s.outgoing:
-			if err := conn.Write(ctx, websocket.MessageText, frame); err != nil {
+			err := conn.Write(ctx, websocket.MessageText, frame.body)
+			select {
+			case frame.sent <- err:
+			default:
+			}
+			if err != nil {
 				return
 			}
 
@@ -187,6 +202,20 @@ func (c *gaggiMateLiveClient) connectOnce(ctx context.Context, baseURL string, s
 			return
 
 		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (s *gaggiMateLiveSession) failQueuedOutgoing(err error) {
+	for {
+		select {
+		case frame := <-s.outgoing:
+			select {
+			case frame.sent <- err:
+			default:
+			}
+		default:
 			return
 		}
 	}
@@ -255,8 +284,20 @@ func (c *gaggiMateLiveClient) Request(ctx context.Context, baseURL, reqType stri
 	s.addInflight(req)
 	defer s.removeInflight(req)
 
+	sent := make(chan error, 1)
 	select {
-	case s.outgoing <- body:
+	case s.outgoing <- gaggimateOutgoingFrame{body: body, sent: sent}:
+	case <-s.done:
+		return nil, fmt.Errorf("live session closed before sending %s request", reqType)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	select {
+	case err := <-sent:
+		if err != nil {
+			return nil, fmt.Errorf("sending %s request: %w", reqType, err)
+		}
 	case <-s.done:
 		return nil, fmt.Errorf("live session closed before sending %s request", reqType)
 	case <-ctx.Done():
@@ -270,6 +311,42 @@ func (c *gaggiMateLiveClient) Request(ctx context.Context, baseURL, reqType stri
 		return nil, fmt.Errorf("live session closed while waiting for %s", resType)
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+}
+
+// Send writes a req:* frame that the firmware documents as command-only
+// with no correlated res:* response, such as req:process:activate.
+func (c *gaggiMateLiveClient) Send(ctx context.Context, baseURL, reqType string, payload map[string]any) error {
+	if len(reqType) < 4 || reqType[:4] != "req:" {
+		return fmt.Errorf("not a request type: %s", reqType)
+	}
+	frame := map[string]any{"tp": reqType}
+	for k, v := range payload {
+		frame[k] = v
+	}
+	body, err := json.Marshal(frame)
+	if err != nil {
+		return err
+	}
+	s := c.session(baseURL)
+	sent := make(chan error, 1)
+	select {
+	case s.outgoing <- gaggimateOutgoingFrame{body: body, sent: sent}:
+	case <-s.done:
+		return fmt.Errorf("live session closed before sending %s request", reqType)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case err := <-sent:
+		if err != nil {
+			return fmt.Errorf("sending %s request: %w", reqType, err)
+		}
+		return nil
+	case <-s.done:
+		return fmt.Errorf("live session closed before sending %s request", reqType)
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

@@ -367,7 +367,29 @@ export function handlePreheatUpdateEvent(payload) {
   updatePreheatWidget(payload);
 }
 
+function renderMachineWarnings(msg) {
+  const el = document.getElementById('liveMachineWarningBanner');
+  if (!el) return;
+  const warnings = Array.isArray(msg.warnings)
+    ? msg.warnings.filter(w => w && (w.active !== false) && Number(w.level || 0) > 0)
+    : [];
+  const sys = msg.system || null;
+  const parts = warnings.map(w => `${w.key}${Number(w.level) >= 2 ? ' error' : ' warning'}`);
+  if (sys && (Number(sys.code || 0) !== 0 || sys.state === 'error' || sys.state === 'mismatch')) {
+    const detail = sys.message ? `: ${sys.message}` : '';
+    parts.unshift(`System ${sys.state || 'error'}${detail}`);
+  }
+  if (!parts.length) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  el.textContent = parts.join(' · ');
+  el.style.display = '';
+}
+
 export function handleLiveData(msg) {
+  renderMachineWarnings(msg);
   const dp      = msg.datapoints || {};
   const times   = dp.timeInShot  || [];
   const lastIdx = times.length - 1;

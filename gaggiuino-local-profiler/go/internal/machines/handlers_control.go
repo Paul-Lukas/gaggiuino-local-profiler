@@ -1,6 +1,7 @@
 package machines
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -33,6 +34,9 @@ func (h *Handlers) registerControlRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/machine/tare", h.tare)
 	mux.HandleFunc("POST /api/machine/service-test", h.serviceTest)
 
+	mux.HandleFunc("POST /api/machine/brew/start", h.startBrew)
+	mux.HandleFunc("POST /api/machine/brew/stop", h.stopBrew)
+
 	mux.HandleFunc("POST /api/machine/profile/save", h.saveActiveProfile)
 
 	mux.HandleFunc("GET /api/machine/firmware/progress", h.firmwareProgress)
@@ -40,6 +44,11 @@ func (h *Handlers) registerControlRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/machine/firmware/version", h.firmwareVersion)
 
 	mux.HandleFunc("GET /api/machine/live", h.machineLive)
+}
+
+type brewController interface {
+	StartBrew(ctx context.Context, m *Machine) error
+	StopBrew(ctx context.Context, m *Machine) error
 }
 
 // resolveWithAdapter ports the repeated `resolveMachine + getAdapter` pair
@@ -211,6 +220,58 @@ func (h *Handlers) serviceTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+func (h *Handlers) startBrew(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		MachineID *int64 `json:"machineId"`
+	}
+	if !decodeJSONBody(w, r, &body) {
+		return
+	}
+	machine, adapter, ok := h.resolveWithAdapter(w, body.MachineID)
+	if !ok {
+		return
+	}
+	if !requireBrewStartSupport(w, adapter, machine) {
+		return
+	}
+	ctrl, ok := adapter.(brewController)
+	if !ok {
+		writeError(w, http.StatusBadGateway, errBrewControlUnsupported.Error())
+		return
+	}
+	if err := ctrl.StartBrew(r.Context(), machine); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *Handlers) stopBrew(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		MachineID *int64 `json:"machineId"`
+	}
+	if !decodeJSONBody(w, r, &body) {
+		return
+	}
+	machine, adapter, ok := h.resolveWithAdapter(w, body.MachineID)
+	if !ok {
+		return
+	}
+	if !requireBrewStartSupport(w, adapter, machine) {
+		return
+	}
+	ctrl, ok := adapter.(brewController)
+	if !ok {
+		writeError(w, http.StatusBadGateway, errBrewControlUnsupported.Error())
+		return
+	}
+	if err := ctrl.StopBrew(r.Context(), machine); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (h *Handlers) saveActiveProfile(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		MachineID *int64 `json:"machineId"`
@@ -237,7 +298,7 @@ func (h *Handlers) firmwareProgress(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !requireSettingsProxySupport(w, adapter, machine) {
+	if !requireOtaUpdateSupport(w, adapter, machine) {
 		return
 	}
 	progress, err := adapter.GetFirmwareProgress(r.Context(), machine)
@@ -261,7 +322,7 @@ func (h *Handlers) triggerFirmwareUpdate(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	if !requireSettingsProxySupport(w, adapter, machine) {
+	if !requireOtaUpdateSupport(w, adapter, machine) {
 		return
 	}
 	result, err := adapter.TriggerFirmwareUpdate(r.Context(), machine)
@@ -280,7 +341,11 @@ func (h *Handlers) firmwareVersion(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !requireSettingsProxySupport(w, adapter, machine) {
+	if !requireOtaUpdateSupport(w, adapter, machine) {
+		return
+	}
+	if adapter.Capabilities().OtaUpdate && !adapter.Capabilities().SettingsProxy {
+		h.gaggimateFirmwareVersion(w, r, machine, adapter)
 		return
 	}
 	// Ports Node's Promise.all([getSettings('versions'), getSettings('system')])
@@ -349,6 +414,42 @@ func nullOr(s *string) any {
 		return nil
 	}
 	return *s
+}
+
+func (h *Handlers) gaggimateFirmwareVersion(w http.ResponseWriter, r *http.Request, machine *Machine, adapter Adapter) {
+	raw, err := adapter.GetFirmwareProgress(r.Context(), machine)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	var ota struct {
+		LatestVersion             string `json:"latestVersion"`
+		DisplayVersion            string `json:"displayVersion"`
+		ControllerVersion         string `json:"controllerVersion"`
+		DisplayUpdateAvailable    bool   `json:"displayUpdateAvailable"`
+		ControllerUpdateAvailable bool   `json:"controllerUpdateAvailable"`
+		Channel                   string `json:"channel"`
+	}
+	_ = json.Unmarshal(raw, &ota)
+	installed := ota.DisplayVersion
+	if installed == "" {
+		installed = ota.ControllerVersion
+	}
+	updateAvailable := ota.DisplayUpdateAvailable || ota.ControllerUpdateAvailable
+	writeJSON(w, http.StatusOK, map[string]any{
+		"installed":       emptyStringAsNil(installed),
+		"latest":          emptyStringAsNil(ota.LatestVersion),
+		"updateAvailable": updateAvailable,
+		"releaseUrl":      nil,
+		"channel":         emptyStringAsNil(ota.Channel),
+	})
+}
+
+func emptyStringAsNil(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // machineLive ports GET /api/machine/live: latest cached live sensor/

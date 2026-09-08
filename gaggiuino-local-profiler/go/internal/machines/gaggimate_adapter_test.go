@@ -2,6 +2,7 @@ package machines
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -27,6 +28,12 @@ func TestGaggiMateAdapter_GetStatus(t *testing.T) {
 	}
 	if status.ProfileName == nil || *status.ProfileName != "Espresso" {
 		t.Errorf("ProfileName = %v, want \"Espresso\"", status.ProfileName)
+	}
+	if len(status.Warnings) != 1 || status.Warnings[0].Key != "water" || status.Warnings[0].Active == nil || !*status.Warnings[0].Active {
+		t.Errorf("Warnings = %+v, want active water warning", status.Warnings)
+	}
+	if status.System == nil || status.System.State != "ready" || status.System.Code != 0 {
+		t.Errorf("System = %+v, want ready code 0", status.System)
 	}
 }
 
@@ -73,8 +80,63 @@ func TestGaggiMateAdapter_Capabilities(t *testing.T) {
 	if caps.SettingsProxy {
 		t.Error("GaggiMate Capabilities().SettingsProxy = true, want false")
 	}
-	if caps.BrewStart {
-		t.Error("GaggiMate Capabilities().BrewStart = true, want false")
+	if !caps.BrewStart {
+		t.Error("GaggiMate Capabilities().BrewStart = false, want true")
+	}
+	if !caps.OtaUpdate {
+		t.Error("GaggiMate Capabilities().OtaUpdate = false, want true")
+	}
+}
+
+func TestGaggiMateAdapter_BrewControl(t *testing.T) {
+	allowLoopbackMachineHost(t)
+	fake := newFakeGaggiMateMachine()
+	defer fake.Close()
+	a := newTestGaggiMateAdapter(t)
+	m := testGaggiMateMachine(fake.URL)
+
+	if err := a.StartBrew(context.Background(), m); err != nil {
+		t.Fatalf("StartBrew: %v", err)
+	}
+	if err := a.StopBrew(context.Background(), m); err != nil {
+		t.Fatalf("StopBrew: %v", err)
+	}
+	if !fake.sawEventually(t, "req:process:activate") {
+		t.Fatalf("StartBrew did not send req:process:activate; got %+v", fake.receivedTypes)
+	}
+	if !fake.sawEventually(t, "req:brew:confirm:cancel") {
+		t.Fatalf("StopBrew did not send req:brew:confirm:cancel; got %+v", fake.receivedTypes)
+	}
+}
+
+func TestGaggiMateAdapter_Firmware(t *testing.T) {
+	allowLoopbackMachineHost(t)
+	fake := newFakeGaggiMateMachine()
+	defer fake.Close()
+	a := newTestGaggiMateAdapter(t)
+	m := testGaggiMateMachine(fake.URL)
+
+	raw, err := a.GetFirmwareProgress(context.Background(), m)
+	if err != nil {
+		t.Fatalf("GetFirmwareProgress: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("firmware JSON: %v", err)
+	}
+	if got["latestVersion"] != "1.9.0" || got["displayUpdateAvailable"] != true {
+		t.Fatalf("unexpected OTA settings: %s", raw)
+	}
+
+	result, err := a.TriggerFirmwareUpdate(context.Background(), m)
+	if err != nil {
+		t.Fatalf("TriggerFirmwareUpdate: %v", err)
+	}
+	if !jsonContains(string(result), `"success":true`) {
+		t.Fatalf("unexpected update result: %s", result)
+	}
+	if !fake.sawEventually(t, "req:ota-start") {
+		t.Fatalf("TriggerFirmwareUpdate did not send req:ota-start; got %+v", fake.receivedTypes)
 	}
 }
 

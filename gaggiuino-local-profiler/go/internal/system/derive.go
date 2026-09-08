@@ -1,6 +1,7 @@
 package system
 
 import (
+	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines/proto"
 )
 
@@ -61,6 +62,9 @@ type MachineStatus struct {
 	ThermocoupleFaultReason   *string `json:"thermocoupleFaultReason,omitempty"`
 	PressureSensorFaulted     *bool   `json:"pressureSensorFaulted,omitempty"`
 	PressureSensorFaultReason *string `json:"pressureSensorFaultReason,omitempty"`
+
+	Warnings []machines.WarningState `json:"warnings,omitempty"`
+	System   *machines.SystemState   `json:"system,omitempty"`
 }
 
 // RawStatus is the subset of a raw /api/system/status poll's fields
@@ -79,6 +83,8 @@ type RawStatus struct {
 	ProfileID         *int
 	ProfileName       *string
 	SteamSwitchState  bool
+	Warnings          []machines.WarningState
+	System            *machines.SystemState
 }
 
 // DeriveInput bundles one poll tick's raw REST status plus whatever's
@@ -184,6 +190,8 @@ func deriveMachineState(in DeriveInput) DeriveResult {
 		IsDescaling:       isDescaling,
 		OpMode:            opMode,
 		UpdatedAt:         in.Now,
+		Warnings:          in.Status.Warnings,
+		System:            in.Status.System,
 	}
 
 	if in.Status.PumpFlow != nil && in.SensorSnap == nil {

@@ -3,6 +3,7 @@ package machines
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines/proto"
@@ -79,6 +80,8 @@ func (a *GaggiMateAdapter) GetStatus(ctx context.Context, m *Machine) (Status, e
 	}
 
 	profileName := looseStringPtr(evt["p"])
+	warnings := parseGaggiMateWarnings(evt["warn"])
+	systemState := parseGaggiMateSystem(evt["sys"])
 	return Status{
 		Reachable:         true,
 		Temperature:       looseFloat(evt["ct"]),
@@ -90,8 +93,45 @@ func (a *GaggiMateAdapter) GetStatus(ctx context.Context, m *Machine) (Status, e
 		ProfileID:         nil,
 		ProfileName:       profileName,
 		PumpFlow:          looseFloatOrNil(evt["fl"]),
+		Warnings:          warnings,
+		System:            systemState,
 		Raw:               raw,
 	}, nil
+}
+
+func parseGaggiMateWarnings(v any) []WarningState {
+	arr, ok := v.([]any)
+	if !ok || len(arr) == 0 {
+		return nil
+	}
+	out := make([]WarningState, 0, len(arr))
+	for _, item := range arr {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		w := WarningState{Key: fmt.Sprint(obj["k"]), Level: int(looseFloat(obj["l"]))}
+		if _, ok := obj["a"]; ok {
+			a := looseTruthy(obj["a"])
+			w.Active = &a
+		}
+		if w.Key != "" {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+func parseGaggiMateSystem(v any) *SystemState {
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return &SystemState{
+		State:   fmt.Sprint(obj["s"]),
+		Message: fmt.Sprint(obj["m"]),
+		Code:    int(looseFloat(obj["c"])),
+	}
 }
 
 // Shot-history sync (index.bin/.slog binary parsing) lives in
@@ -206,14 +246,37 @@ func (a *GaggiMateAdapter) SelectProfile(ctx context.Context, m *Machine, id str
 	return gaggimateSelectProfile(ctx, baseURL, id)
 }
 
+func (a *GaggiMateAdapter) StartBrew(ctx context.Context, m *Machine) error {
+	baseURL, err := BaseURLFor(ctx, m)
+	if err != nil {
+		return err
+	}
+	if a.live != nil {
+		return a.live.Send(ctx, baseURL, "req:process:activate", map[string]any{"ignoreWarnings": false})
+	}
+	return gaggimateStartProcess(ctx, baseURL, false)
+}
+
+func (a *GaggiMateAdapter) StopBrew(ctx context.Context, m *Machine) error {
+	baseURL, err := BaseURLFor(ctx, m)
+	if err != nil {
+		return err
+	}
+	if a.live != nil {
+		return a.live.Send(ctx, baseURL, "req:brew:confirm:cancel", nil)
+	}
+	return gaggimateCancelBrewConfirm(ctx, baseURL)
+}
+
 func (a *GaggiMateAdapter) Capabilities() Capabilities {
 	return Capabilities{
 		ProfileEdit:   true,
-		BrewStart:     false, // GaggiMate has no start/stop API at all
-		Preheat:       nil,   // not modeled yet — unknown until verified against hardware
-		Volumetric:    nil,   // determined per-shot from slog systemInfo.volumetricCapable, not a static capability
+		BrewStart:     true,
+		Preheat:       nil, // not modeled yet — unknown until verified against hardware
+		Volumetric:    nil, // determined per-shot from slog systemInfo.volumetricCapable, not a static capability
 		History:       true,
 		SettingsProxy: false,
+		OtaUpdate:     true,
 	}
 }
 
@@ -245,10 +308,43 @@ func (a *GaggiMateAdapter) SaveActiveProfile(ctx context.Context, m *Machine) er
 	return errSettingsProxyUnsupported
 }
 func (a *GaggiMateAdapter) GetFirmwareProgress(ctx context.Context, m *Machine) (json.RawMessage, error) {
-	return nil, errSettingsProxyUnsupported
+	baseURL, err := BaseURLFor(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	var res map[string]any
+	if a.live != nil {
+		res, err = a.live.Request(ctx, baseURL, "req:ota-settings", map[string]any{"update": false})
+	} else {
+		res, err = gaggimateOtaSettings(ctx, baseURL, false, "")
+	}
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(res)
+	return json.RawMessage(raw), err
 }
 func (a *GaggiMateAdapter) TriggerFirmwareUpdate(ctx context.Context, m *Machine) (json.RawMessage, error) {
-	return nil, errSettingsProxyUnsupported
+	baseURL, err := BaseURLFor(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	cp := "false"
+	if st, err := a.GetStatus(ctx, m); err == nil {
+		var obj map[string]any
+		if json.Unmarshal(st.Raw, &obj) == nil && looseTruthy(obj["cp"]) {
+			cp = "true"
+		}
+	}
+	if a.live != nil {
+		err = a.live.Send(ctx, baseURL, "req:ota-start", map[string]any{"cp": cp})
+	} else {
+		err = gaggimateStartOta(ctx, baseURL, cp)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(`{"message":"Update started","success":true}`), nil
 }
 func (a *GaggiMateAdapter) GetLiveSensorSnapshot(ctx context.Context, m *Machine) (*proto.SensorStateSnapshotDto, error) {
 	return nil, nil

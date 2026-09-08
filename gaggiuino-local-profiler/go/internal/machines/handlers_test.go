@@ -146,6 +146,35 @@ func TestHandlers_SettingsProxy_CapabilityGating(t *testing.T) {
 	}
 }
 
+func TestHandlers_GaggiMateBrewAndOtaAllowedWithoutSettingsProxy(t *testing.T) {
+	allowLoopbackMachineHost(t)
+	fake := newFakeGaggiMateMachine()
+	defer fake.Close()
+
+	h, registry, _ := newTestHandlers(t)
+	machine, err := registry.CreateMachine(MachineInput{
+		Name: strPtr("GM"), Type: strPtr("gaggimate"), Host: strPtr(fake.URL), Enabled: boolPtr(true),
+	})
+	if err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+	mux := newMux(h)
+	id := strconv.FormatInt(machine.ID, 10)
+
+	rec := doRequest(mux, httptest.NewRequest(http.MethodPost, "/api/machine/brew/start", strings.NewReader(`{"machineId":`+id+`}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GaggiMate brew start status = %d, body = %s", rec.Code, rec.Body)
+	}
+	rec = doRequest(mux, httptest.NewRequest(http.MethodPost, "/api/machine/firmware/update", strings.NewReader(`{"machineId":`+id+`}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GaggiMate firmware update status = %d, body = %s", rec.Code, rec.Body)
+	}
+	rec = doRequest(mux, httptest.NewRequest(http.MethodGet, "/api/machine/settings?machineId="+id, nil))
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("GaggiMate settings status = %d, want 501, body = %s", rec.Code, rec.Body)
+	}
+}
+
 func TestHandlers_SettingsQuirkPassthrough_EndToEnd(t *testing.T) {
 	allowLoopbackMachineHost(t)
 	fake := newFakeGaggiuinoMachine()

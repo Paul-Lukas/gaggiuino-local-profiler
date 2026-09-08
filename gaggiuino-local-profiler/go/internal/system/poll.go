@@ -111,10 +111,12 @@ type LiveData struct {
 	// Live tab can show current readings while nothing is running. Sourced
 	// from the already-populated per-tick machineStatus, no extra sensor
 	// calls. null (nil) until the first successful poll populates it.
-	Temperature       *float64 `json:"temperature"`
-	TargetTemperature *float64 `json:"targetTemperature"`
-	Pressure          *float64 `json:"pressure"`
-	WaterLevel        *int     `json:"waterLevel"`
+	Temperature       *float64                `json:"temperature"`
+	TargetTemperature *float64                `json:"targetTemperature"`
+	Pressure          *float64                `json:"pressure"`
+	WaterLevel        *int                    `json:"waterLevel"`
+	Warnings          []machines.WarningState `json:"warnings,omitempty"`
+	System            *machines.SystemState   `json:"system,omitempty"`
 }
 
 // pollGlobalState ports the subset of lib/state.js's module-level fields
@@ -759,6 +761,8 @@ func rawStatusFrom(s machines.Status, hasWaterSensor bool) RawStatus {
 		ProfileID:         s.ProfileID,
 		ProfileName:       s.ProfileName,
 		SteamSwitchState:  steamOn,
+		Warnings:          s.Warnings,
+		System:            s.System,
 	}
 }
 
@@ -848,12 +852,16 @@ func (p *Poller) buildLiveDataResponse() LiveData {
 	rt := p.runtime.Get()
 	var temp, targetTemp, pressure *float64
 	var waterLevel *int
+	var warnings []machines.WarningState
+	var sysState *machines.SystemState
 	if rt.MachineStatus != nil {
 		t := rt.MachineStatus.Temperature
 		tt := rt.MachineStatus.TargetTemperature
 		pr := rt.MachineStatus.Pressure
 		temp, targetTemp, pressure = &t, &tt, &pr
 		waterLevel = rt.MachineStatus.WaterLevel // already *int, nil when HasWaterSensor=false (wl field not parsed)
+		warnings = rt.MachineStatus.Warnings
+		sysState = rt.MachineStatus.System
 	}
 
 	p.state.mu.Lock()
@@ -897,6 +905,8 @@ func (p *Poller) buildLiveDataResponse() LiveData {
 		TargetTemperature: targetTemp,
 		Pressure:          pressure,
 		WaterLevel:        waterLevel,
+		Warnings:          warnings,
+		System:            sysState,
 	}
 }
 

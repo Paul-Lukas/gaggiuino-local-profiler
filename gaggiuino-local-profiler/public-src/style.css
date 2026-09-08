@@ -1657,6 +1657,16 @@
             transition: color .2s, border-color .2s;
         }
         #refClearBtn:hover { color: var(--gray-200); border-color: var(--gray-500); }
+        #liveMachineWarningBanner {
+            margin: var(--sp-3) 0;
+            padding: var(--sp-2) var(--sp-3);
+            border-radius: var(--radius);
+            background: rgba(239,68,68,.07);
+            border: 1px solid rgba(239,68,68,.25);
+            color: #fca5a5;
+            font-size: var(--fs-1);
+            line-height: 1.45;
+        }
 
         #live-idle {
             display: flex;

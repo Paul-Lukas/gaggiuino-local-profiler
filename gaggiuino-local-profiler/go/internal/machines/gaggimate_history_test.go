@@ -115,3 +115,26 @@ func TestGaggiMateParseSlog_AllowsLargerDevicePadding(t *testing.T) {
 		t.Fatalf("len(samples) = %d, want %d (device-reported %d-byte stride honored)", len(result.samples), want, paddedSampleSize)
 	}
 }
+
+func TestGaggiMateSlogToShot_IncludesTargetPressureAndFlow(t *testing.T) {
+	slog := &gaggiMateSlogResult{
+		durationMs:  200,
+		timestamp:   1234,
+		profileName: "Targets",
+		samples: []gaggiMateSample{
+			{hasTickMs: true, tickMs: 0, hasTT: true, tt: 93, hasTP: true, tp: 4.5, hasTF: true, tf: 1.2},
+			{hasTickMs: true, tickMs: 100, hasTT: true, tt: 94, hasTP: true, tp: 9.0, hasTF: true, tf: 2.4},
+		},
+	}
+	shot := gaggiMateSlogToShot(slog, 7)
+	dp := shot["datapoints"].(map[string]any)
+	targetPressure := dp["targetPressure"].([]int64)
+	targetPumpFlow := dp["targetPumpFlow"].([]int64)
+
+	if len(targetPressure) != 2 || targetPressure[0] != 45 || targetPressure[1] != 90 {
+		t.Fatalf("targetPressure = %+v, want [45 90]", targetPressure)
+	}
+	if len(targetPumpFlow) != 2 || targetPumpFlow[0] != 12 || targetPumpFlow[1] != 24 {
+		t.Fatalf("targetPumpFlow = %+v, want [12 24]", targetPumpFlow)
+	}
+}

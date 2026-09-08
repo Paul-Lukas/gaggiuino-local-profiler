@@ -19,8 +19,10 @@ import (
 type fakeGaggiMateMachine struct {
 	*httptest.Server
 
-	mu       sync.Mutex
-	profiles []map[string]any
+	mu            sync.Mutex
+	profiles      []map[string]any
+	receivedTypes []string
+	received      []map[string]any
 }
 
 func newFakeGaggiMateMachine() *fakeGaggiMateMachine {
@@ -41,7 +43,12 @@ func (f *fakeGaggiMateMachine) handleWS(w http.ResponseWriter, r *http.Request) 
 
 	// Push one evt:status frame immediately on connect — waitForStatus()
 	// (used by GetStatus) waits for exactly this, unsolicited.
-	statusFrame, _ := json.Marshal(map[string]any{"tp": "evt:status", "ct": 92.5, "tt": 93.0, "pr": 8.5, "m": 1, "p": "Espresso", "process": map[string]any{"a": 1, "s": "brew"}})
+	statusFrame, _ := json.Marshal(map[string]any{
+		"tp": "evt:status", "ct": 92.5, "tt": 93.0, "pr": 8.5, "m": 1, "p": "Espresso", "cp": true,
+		"process": map[string]any{"a": 1, "s": "brew"},
+		"warn":    []map[string]any{{"k": "water", "l": 1, "a": true}},
+		"sys":     map[string]any{"s": "ready", "m": "", "c": 0},
+	})
 	_ = conn.Write(ctx, websocket.MessageText, statusFrame)
 
 	for {
@@ -81,6 +88,31 @@ func (f *fakeGaggiMateMachine) respond(ctx context.Context, conn *websocket.Conn
 	}
 
 	switch tp {
+	case "req:process:activate":
+		f.record(req)
+
+	case "req:brew:confirm:cancel":
+		f.record(req)
+
+	case "req:ota-start":
+		f.record(req)
+
+	case "req:ota-settings":
+		f.record(req)
+		send("res:ota-settings", map[string]any{
+			"latestVersion": "1.9.0", "displayVersion": "1.8.1", "controllerVersion": "1.8.0",
+			"hardware": "pro", "displayUpdateAvailable": true, "controllerUpdateAvailable": false,
+			"channel": "stable", "updating": false,
+		})
+
+	case "req:flush:start":
+		f.record(req)
+		send("res:flush:start", map[string]any{"success": true})
+
+	case "req:flush:stop":
+		f.record(req)
+		send("res:flush:stop", map[string]any{"success": true})
+
 	case "req:profiles:list":
 		f.mu.Lock()
 		profiles := append([]map[string]any{}, f.profiles...)
@@ -131,6 +163,56 @@ func (f *fakeGaggiMateMachine) respond(ctx context.Context, conn *websocket.Conn
 
 	case "req:profiles:select":
 		send("res:profiles:select", nil)
+	}
+}
+
+func (f *fakeGaggiMateMachine) record(req map[string]any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	tp, _ := req["tp"].(string)
+	f.receivedTypes = append(f.receivedTypes, tp)
+	cp := make(map[string]any, len(req))
+	for k, v := range req {
+		cp[k] = v
+	}
+	f.received = append(f.received, cp)
+}
+
+func (f *fakeGaggiMateMachine) saw(tp string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, got := range f.receivedTypes {
+		if got == tp {
+			return true
+		}
+	}
+	return false
+}
+
+// sawEventually polls saw() for command-only frames (req:process:activate,
+// req:brew:confirm:cancel, req:ota-start, ...): these have no correlated
+// res:* the sender waits on (that's the whole point of Send() vs Request()
+// — see gaggimate_live.go's doc comments on both), so the adapter call
+// returning only proves the CLIENT's conn.Write() succeeded, not that this
+// fake's read loop — running in its own goroutine — has already read,
+// decoded, and record()'d the frame. A bare saw() call right after the
+// adapter call returns is a real, observed race (not hypothetical): it
+// reliably fails for req:ota-start while a Request()-backed call
+// immediately before it (req:ota-settings, which inherently waits for the
+// round trip) always passes. Same reasoning as Gaggiuino's own
+// eventually-consistent test helpers elsewhere in this package for
+// async server-side effects.
+func (f *fakeGaggiMateMachine) sawEventually(t *testing.T, tp string) bool {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if f.saw(tp) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
 }
 
