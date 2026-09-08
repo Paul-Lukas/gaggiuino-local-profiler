@@ -32,52 +32,10 @@ import { openLightbox }                                       from '../../compon
 // library-profile-editor.js (#521, #644).
 let _loadDataReqToken = 0;
 
-// GaggiMate phase-name lookup cache, keyed by `${machineId}:${profileName}`.
-// Invalidated by invalidateGmPhaseCache() after a profile save.
-const _gmPhaseCache = new Map();
-
 export function invalidateGmPhaseCache(machineId) {
-  const prefix = `${machineId}:`;
-  for (const key of _gmPhaseCache.keys()) {
-    if (key.startsWith(prefix)) _gmPhaseCache.delete(key);
-  }
-}
-
-// GaggiMate only serves one WS request at a time — an overlapping call
-// (e.g. the live-status poll) can 503 even though the machine is fine.
-// Retries up to 3x; a real 4xx/other 5xx returns immediately.
-async function _fetchWithRetry(url, signal) {
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const r = await apiFetch(url, { signal });
-      if (r.ok || r.status < 500 || attempt === 3) return r;
-    } catch (e) {
-      if (attempt === 3 || signal?.aborted) throw e;
-    }
-    await new Promise(res => setTimeout(res, 400 * attempt));
-  }
-}
-
-// Resolves shotA's named GaggiMate profile phases, cache-first. Null on any
-// miss/failure — callers treat that as "no enhancement", not an error.
-async function _loadGmPhases(shotA, token) {
-  const mid = shotA.machineId;
-  const cacheKey = `${mid}:${shotA.profileName}`;
-  if (_gmPhaseCache.has(cacheKey)) return _gmPhaseCache.get(cacheKey);
-
-  let gmPhases = null;
-  try {
-    const r1 = await _fetchWithRetry(`api/machine/profiles?machineId=${mid}`, AbortSignal.timeout(6000));
-    const { optionsRaw: profiles = [] } = r1.ok && token === _updateViewToken ? await r1.json() : {};
-    const match = profiles.find(p => p.name === shotA.profileName || p.id === shotA.profileName);
-    const r2 = match && await _fetchWithRetry(`api/machine/profile/${match.id}?machineId=${mid}`, AbortSignal.timeout(6000));
-    const prof = r2?.ok && await r2.json();
-    if (prof?.phases?.length) gmPhases = buildGmPhaseRanges(prof.phases);
-  } catch (e) {
-    console.warn('[GLP] GaggiMate phase-name lookup failed:', e);
-  }
-  if (gmPhases) _gmPhaseCache.set(cacheKey, gmPhases); // only cache a hit — don't stick a transient failure
-  return gmPhases;
+  // Kept as a no-op compatibility hook for the GaggiMate profile editor.
+  // Shot history charts now use the per-shot stored gmPhases snapshot.
+  void machineId;
 }
 
 // #635: baskets/puck screens are pure ID-based library selections (see
@@ -403,8 +361,7 @@ function _setDeltaChip(id, delta, decimals = 0, unit = '', colorClass = null, ti
 
 let _updateViewToken = 0;
 
-// Set per updateView() call — lets the async GaggiMate-phases callback
-// rebuild the chart once gmPhases lands (see below for why rebuild, not mutate).
+// Set per updateView() call for chart rebuilds.
 let _buildShotChart = null;
 
 export async function updateView() {
@@ -600,10 +557,15 @@ export async function updateView() {
   }
 
   // Phases -> a compact sub-line on the Recipe zone's duration card (#398).
-  // The GaggiMate named-phase lookup below upgrades this later if it lands.
+  // GaggiMate phase names come from stored shot data so history works offline.
   const phases    = !shotB ? detectPhases(pressureTimes, pressureVals) : null;
+  const storedGmPhases = !shotB && Array.isArray(shotA.gmPhases) && shotA.gmPhases.length
+    ? buildGmPhaseRanges(shotA.gmPhases)
+    : null;
   const phasesSub = document.getElementById('phasesSub');
-  phasesSub.textContent = phases
+  phasesSub.textContent = storedGmPhases
+    ? storedGmPhases.map(p => p.name).join(' · ')
+    : phases
     ? `${t('phase_preinfusion')} ${formatTimeLabel(phases.preinfusion)} · ${t('phase_extraction')} ${formatTimeLabel(phases.extraction)}`
     : '';
 
@@ -783,10 +745,12 @@ export async function updateView() {
   _buildShotChart = (phasesOpt) => {
     const existing = Chart.getChart(ctx);
     if (existing) existing.destroy();
+    const chartPlugins = [corsairPlugin];
+    if (phasesOpt?.gaggimatePhases?.length || phasesOpt?.preinfusion) chartPlugins.push(phasePlugin);
     try {
       S.chart = new Chart(ctx, {
         type: 'line',
-        plugins: [corsairPlugin, phasePlugin],
+        plugins: chartPlugins,
         data: { datasets },
         options: {
           responsive: true,
@@ -826,20 +790,9 @@ export async function updateView() {
     }
   };
   S.chart = null;
-  _buildShotChart(phases ? { preinfusion: phases.preinfusion, extraction: phases.extraction } : {});
-
-  // GaggiMate: upgrade sub-line + chart once named phases land. Not awaited;
-  // must stay after _buildShotChart exists (a cache hit can resolve before
-  // it otherwise, since this fn has earlier awaits). Shots have no
-  // machineType of their own, hence the S.machines lookup.
-  const shotMachine = !shotB && S.machines?.find(m => m.id === (shotA.machineId ?? 1));
-  if (shotMachine?.type === 'gaggimate' && shotA.machineId) {
-    _loadGmPhases(shotA, token).then(gmPhases => {
-      if (!gmPhases || token !== _updateViewToken) return;
-      phasesSub.textContent = gmPhases.map(p => p.name).join(' · ');
-      _buildShotChart({ gaggimatePhases: gmPhases });
-    });
-  }
+  _buildShotChart(storedGmPhases
+    ? { gaggimatePhases: storedGmPhases }
+    : phases ? { preinfusion: phases.preinfusion, extraction: phases.extraction } : {});
 }
 
 // ── CSV Export ────────────────────────────────────────────────────────────

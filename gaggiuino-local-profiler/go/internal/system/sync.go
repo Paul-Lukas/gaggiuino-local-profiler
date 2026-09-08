@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mxkissnr/gaggiuino-local-profiler/go/internal/machines"
@@ -52,6 +53,9 @@ const syncHTTPTimeout = 10 * time.Second
 // syncClient is a dedicated client so the per-request timeout above is
 // explicit and independent of ha.Client / adapter clients.
 var syncClient = &http.Client{Timeout: syncHTTPTimeout}
+
+var fetchGaggiMateIndex = machines.FetchGaggiMateIndex
+var fetchGaggiMateShot = machines.FetchGaggiMateShot
 
 // SetShotsRepo wires the shots Repository the manual-sync pull loop
 // persists into. Kept a setter (not a NewPoller parameter) so the three
@@ -241,7 +245,7 @@ func (p *Poller) syncGaggiMateShots(ctx context.Context, machine *machines.Machi
 		return nil
 	}
 
-	latestMachineID, err := machines.FetchGaggiMateIndex(ctx, base)
+	latestMachineID, err := fetchGaggiMateIndex(ctx, base)
 	if err != nil {
 		// HTTP unreachable — machine may still be live via WS (e.g. only HTTP
 		// is blocked). Not a hard error: return nil so the caller doesn't stamp
@@ -276,8 +280,10 @@ func (p *Poller) syncGaggiMateShots(ctx context.Context, machine *machines.Machi
 		return nil
 	}
 
+	phaseResolver := newGaggiMatePhaseResolver(ctx, machine, adapter)
+
 	for i := effectiveMax + 1; i <= latestMachineID; i++ {
-		shot, status, err := machines.FetchGaggiMateShot(ctx, base, i)
+		shot, status, err := fetchGaggiMateShot(ctx, base, i)
 		if err != nil {
 			if status == http.StatusNotFound {
 				log.Printf("system: gaggimate sync: shot %d not found (404) — marking permanently missing", i)
@@ -293,6 +299,9 @@ func (p *Poller) syncGaggiMateShots(ctx context.Context, machine *machines.Machi
 			log.Printf("system: gaggimate sync: shot %d has no id/datapoints — skipped", i)
 			continue
 		}
+		if phases, ok := phaseResolver.phasesForShot(ctx, shot); ok {
+			shot["gmPhases"] = phases
+		}
 
 		if uerr := p.shots.Upsert(shots.Shot(shot)); uerr != nil {
 			p.recordSyncError(uerr)
@@ -303,6 +312,72 @@ func (p *Poller) syncGaggiMateShots(ctx context.Context, machine *machines.Machi
 	log.Printf("system: gaggimate sync complete: caught up to shot %d", latestMachineID)
 	p.recordSyncSuccess()
 	return nil
+}
+
+type gaggiMatePhaseResolver struct {
+	machine  *machines.Machine
+	adapter  machines.Adapter
+	nameToID map[string]string
+	cache    map[string][]any
+}
+
+func newGaggiMatePhaseResolver(ctx context.Context, machine *machines.Machine, adapter machines.Adapter) *gaggiMatePhaseResolver {
+	r := &gaggiMatePhaseResolver{
+		machine:  machine,
+		adapter:  adapter,
+		nameToID: map[string]string{},
+		cache:    map[string][]any{},
+	}
+	if adapter == nil {
+		return r
+	}
+	profiles, err := adapter.ListProfiles(ctx, machine)
+	if err != nil {
+		log.Printf("system: gaggimate sync: profile list unavailable; phase snapshot skipped: %v", err)
+		return r
+	}
+	for _, profile := range profiles {
+		if key := strings.ToLower(strings.TrimSpace(profile.Name)); key != "" && profile.ID != "" {
+			r.nameToID[key] = profile.ID
+		}
+	}
+	return r
+}
+
+func (r *gaggiMatePhaseResolver) phasesForShot(ctx context.Context, shot map[string]any) ([]any, bool) {
+	if r.adapter == nil || len(r.nameToID) == 0 {
+		return nil, false
+	}
+	profileName, _ := shot["profileName"].(string)
+	profileID := r.nameToID[strings.ToLower(strings.TrimSpace(profileName))]
+	if profileID == "" {
+		if strings.TrimSpace(profileName) != "" {
+			log.Printf("system: gaggimate sync: profile %q not found; phase snapshot skipped", profileName)
+		}
+		return nil, false
+	}
+	if phases, ok := r.cache[profileID]; ok {
+		return phases, len(phases) > 0
+	}
+	raw, err := r.adapter.GetProfile(ctx, r.machine, profileID)
+	if err != nil {
+		log.Printf("system: gaggimate sync: profile %q (%s) unavailable; phase snapshot skipped: %v", profileName, profileID, err)
+		r.cache[profileID] = nil
+		return nil, false
+	}
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		log.Printf("system: gaggimate sync: profile %q (%s) invalid; phase snapshot skipped: %v", profileName, profileID, err)
+		r.cache[profileID] = nil
+		return nil, false
+	}
+	phases, _ := body["phases"].([]any)
+	if len(phases) == 0 {
+		r.cache[profileID] = nil
+		return nil, false
+	}
+	r.cache[profileID] = phases
+	return phases, true
 }
 
 // fetchLatestShotID ports `axios.get(${machineUrl}/latest)` +

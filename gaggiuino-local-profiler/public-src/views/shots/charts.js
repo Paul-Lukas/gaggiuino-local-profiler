@@ -1,7 +1,7 @@
 import Chart from 'chart.js/auto';
 import { S }                                              from '../../state.js';
 import { t }                                              from '../../i18n.js';
-import { corsairPlugin, clearChartOnTouchEnd } from '../../constants.js';
+import { corsairPlugin, clearChartOnTouchEnd, phasePlugin, buildGmPhaseRanges } from '../../constants.js';
 import { formatTimeLabel, chartColors, mapShotDatapoints } from '../../utils.js';
 import { getRawCurve, getCachedShotData }                 from '../../shot-curves.js';
 
@@ -169,15 +169,20 @@ function renderFsChart() {
   const tms    = Math.ceil(maxTempA + 5) || 100;
   const maxTime = dA.rawTimes.length > 0 ? dA.rawTimes[dA.rawTimes.length - 1] : 60;
   const datasets = S.chart.data.datasets.map(ds => ({ ...ds, data: [...ds.data] }));
+  const gmPhases = Array.isArray(shotA.gmPhases) && shotA.gmPhases.length
+    ? buildGmPhaseRanges(shotA.gmPhases)
+    : null;
+  const chartPlugins = gmPhases ? [corsairPlugin, phasePlugin] : [corsairPlugin];
 
   S.fsChart = new Chart(canvas, {
     type: 'line',
-    plugins: [corsairPlugin],
+    plugins: chartPlugins,
     data: { datasets },
     options: {
       responsive: true, maintainAspectRatio: false, animation: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
+        phases: gmPhases ? { gaggimatePhases: gmPhases } : {},
         legend: { display: true, position: 'bottom',
           labels: { color: C.text, font: { family: 'Figtree', size: 11 }, boxWidth: 12, padding: 8 } },
         tooltip: { callbacks: { title: c => 'Zeit: ' + formatTimeLabel(c[0].parsed.x) } }

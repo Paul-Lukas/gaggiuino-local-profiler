@@ -51,11 +51,16 @@ func newTestDB(t *testing.T) *sql.DB {
 // stub that would fail loudly (panic) if this package's code path ever
 // changed to call it, rather than silently returning zero values.
 type fakeAdapter struct {
-	mu         sync.Mutex
-	status     machines.Status
-	statusErr  error
-	sensorSnap *proto.SensorStateSnapshotDto
-	sysState   *proto.SystemStateDto
+	mu            sync.Mutex
+	status        machines.Status
+	statusErr     error
+	sensorSnap    *proto.SensorStateSnapshotDto
+	sysState      *proto.SystemStateDto
+	profiles      []machines.ProfileSummary
+	profilesOK    bool
+	profilesErr   error
+	profileBodies map[string]json.RawMessage
+	profileErrs   map[string]error
 }
 
 var _ machines.Adapter = (*fakeAdapter)(nil)
@@ -98,9 +103,26 @@ func (f *fakeAdapter) notImplemented(name string) error {
 }
 
 func (f *fakeAdapter) ListProfiles(context.Context, *machines.Machine) ([]machines.ProfileSummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.profilesOK || f.profilesErr != nil {
+		return f.profiles, f.profilesErr
+	}
 	return nil, f.notImplemented("ListProfiles")
 }
-func (f *fakeAdapter) GetProfile(context.Context, *machines.Machine, string) (json.RawMessage, error) {
+func (f *fakeAdapter) GetProfile(_ context.Context, _ *machines.Machine, id string) (json.RawMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.profileBodies != nil || f.profileErrs != nil {
+		if err := f.profileErrs[id]; err != nil {
+			return nil, err
+		}
+		body, ok := f.profileBodies[id]
+		if !ok {
+			return nil, errors.New("profile not found")
+		}
+		return body, nil
+	}
 	return nil, f.notImplemented("GetProfile")
 }
 func (f *fakeAdapter) CreateProfile(context.Context, *machines.Machine, machines.ProfileInput) (machines.ProfileSummary, error) {
