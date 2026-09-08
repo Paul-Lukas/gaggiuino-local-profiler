@@ -63,8 +63,9 @@ type MachineStatus struct {
 	PressureSensorFaulted     *bool   `json:"pressureSensorFaulted,omitempty"`
 	PressureSensorFaultReason *string `json:"pressureSensorFaultReason,omitempty"`
 
-	Warnings []machines.WarningState `json:"warnings,omitempty"`
-	System   *machines.SystemState   `json:"system,omitempty"`
+	Warnings   []machines.WarningState `json:"warnings,omitempty"`
+	System     *machines.SystemState   `json:"system,omitempty"`
+	ScreenMode *int                    `json:"screenMode,omitempty"`
 }
 
 // RawStatus is the subset of a raw /api/system/status poll's fields
@@ -85,6 +86,7 @@ type RawStatus struct {
 	SteamSwitchState  bool
 	Warnings          []machines.WarningState
 	System            *machines.SystemState
+	ScreenMode        *int
 }
 
 // DeriveInput bundles one poll tick's raw REST status plus whatever's
@@ -192,6 +194,7 @@ func deriveMachineState(in DeriveInput) DeriveResult {
 		UpdatedAt:         in.Now,
 		Warnings:          in.Status.Warnings,
 		System:            in.Status.System,
+		ScreenMode:        in.Status.ScreenMode,
 	}
 
 	if in.Status.PumpFlow != nil && in.SensorSnap == nil {

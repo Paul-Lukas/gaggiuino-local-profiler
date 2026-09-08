@@ -425,3 +425,79 @@ func TestStopLivePolling_ForcesUnreachableFalse(t *testing.T) {
 		t.Fatalf("MachineReachable = %v, want false after stopLivePolling", ld.MachineReachable)
 	}
 }
+
+// gaggiMateStatusAtMode builds a machines.Status the way GetStatus() would
+// for a GaggiMate machine on the given evt:status "m" screen value —
+// mirrors gaggimate_adapter.go's own Status construction closely enough
+// for the mode-transition logic under test, without needing a live WS
+// session.
+func gaggiMateStatusAtMode(mode int, temp, targetTemp float64) machines.Status {
+	pn := "Espresso"
+	steamOff := false
+	return machines.Status{
+		Reachable: true, Temperature: temp, TargetTemperature: targetTemp,
+		SteamOn: &steamOff, ProfileName: &pn, ScreenMode: &mode,
+		Raw: json.RawMessage(`{}`),
+	}
+}
+
+// TestCheckGaggiMateModeTransition_StandbyToBrew_StartsPreheatWindow is the
+// regression test for the 2026-09-08 hardware finding: a GaggiMate with no
+// switch_entity configured (the common case — these machines are turned on
+// by a physical button, not an HA smart plug) never got a SwitchOnAt at
+// all from checkAndApplyMachinePower's HA-switch path, so preheat tracking
+// silently never activated. leaving the standby screen (m: 0 -> 1) must
+// now set SwitchOnAt itself.
+func TestCheckGaggiMateModeTransition_StandbyToBrew_StartsPreheatWindow(t *testing.T) {
+	fake := &fakeAdapter{}
+	p, sqlDB := newTestPoller(t, fake)
+	gm := "gaggimate"
+	if _, err := machines.NewRegistry(sqlDB).UpdateMachine(1, machines.MachineInput{Type: &gm}, nil); err != nil {
+		t.Fatalf("set machine type: %v", err)
+	}
+
+	fake.setStatus(gaggiMateStatusAtMode(0, 25.5, 0), nil)
+	p.pollViaGaggiuinoStatus(context.Background())
+	if snap := p.runtime.Get(); snap.SwitchOnAt != nil {
+		t.Fatalf("SwitchOnAt = %v after standby tick, want nil", *snap.SwitchOnAt)
+	}
+
+	fake.setStatus(gaggiMateStatusAtMode(1, 45.0, 86.5), nil)
+	p.pollViaGaggiuinoStatus(context.Background())
+	snap := p.runtime.Get()
+	if snap.SwitchOnAt == nil {
+		t.Fatal("SwitchOnAt still nil after standby->brew transition, want set")
+	}
+
+	// Back to standby: SwitchOffAt must be set, mirroring stopLivePolling.
+	fake.setStatus(gaggiMateStatusAtMode(0, 45.0, 0), nil)
+	p.pollViaGaggiuinoStatus(context.Background())
+	snap = p.runtime.Get()
+	if snap.SwitchOffAt == nil {
+		t.Fatal("SwitchOffAt still nil after brew->standby transition, want set")
+	}
+}
+
+// TestCheckGaggiMateModeTransition_IgnoredWhenSwitchEntityConfigured
+// confirms the mode-based trigger stays out of the way of an install that
+// already has a working HA-switch preheat signal — it must not fight
+// checkAndApplyMachinePower by also toggling SwitchOnAt off its own,
+// independent reading of machine state.
+func TestCheckGaggiMateModeTransition_IgnoredWhenSwitchEntityConfigured(t *testing.T) {
+	fake := &fakeAdapter{}
+	p, sqlDB := newTestPoller(t, fake)
+	gm := "gaggimate"
+	sw := "switch.machine"
+	if _, err := machines.NewRegistry(sqlDB).UpdateMachine(1, machines.MachineInput{Type: &gm, SwitchEntity: &sw}, nil); err != nil {
+		t.Fatalf("set machine type/switch: %v", err)
+	}
+
+	fake.setStatus(gaggiMateStatusAtMode(0, 25.5, 0), nil)
+	p.pollViaGaggiuinoStatus(context.Background())
+	fake.setStatus(gaggiMateStatusAtMode(1, 45.0, 86.5), nil)
+	p.pollViaGaggiuinoStatus(context.Background())
+
+	if snap := p.runtime.Get(); snap.SwitchOnAt != nil {
+		t.Fatalf("SwitchOnAt = %v, want nil — mode-based trigger must stay inert when a switch_entity is configured", *snap.SwitchOnAt)
+	}
+}

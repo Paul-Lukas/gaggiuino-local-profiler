@@ -568,8 +568,10 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 		SysState:   sysState,
 	})
 	ms := result.MachineStatus
+	prevMode := p.runtime.Get().MachineStatus
 	p.runtime.SetMachineStatus(&ms)
 	p.runtime.SetCurrentTemps(zeroToNil(ms.Temperature), zeroToNil(ms.TargetTemperature))
+	p.checkGaggiMateModeTransition(machine, prevMode, &ms, now)
 
 	snap := p.runtime.Get()
 	if ms.Temperature > 0 && !result.IsBrewing {
@@ -691,6 +693,61 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 	p.emitLiveSnapshot()
 }
 
+// checkGaggiMateModeTransition drives the same SwitchOnAt/SwitchOffAt
+// preheat bookkeeping checkAndApplyMachinePower's HA-switch path drives —
+// but from the machine's own reported screen instead, for the common
+// GaggiMate install with no HA switch_entity at all (the machine is turned
+// on by a physical button on the machine itself, per the person who owns
+// one and asked for this — an HA smart plug controlling power is the
+// unusual setup for this machine type, not the default one Gaggiuino
+// installs assume).
+//
+// evt:status's "m" field (machines.Status.ScreenMode) is which screen is
+// selected on the machine's own display: 0 = standby, 1 = brew, 2 = steam
+// — confirmed 2026-09-08 against real hardware (a Cremina lever machine
+// running GaggiMate): m/targetTemperature were {0, 0} on the standby
+// screen and flipped to {1, 86.5} within one poll tick of switching to the
+// brew screen, with currentTemperature visibly climbing on the ticks after
+// — i.e. the machine only starts actively heating for a shot once the
+// brew screen is selected, not just because it's powered on. That's
+// exactly the "just started warming up, begin the preheat window" moment
+// preheat.go's SwitchOnAt already exists to capture; leaving standby (m
+// returning to 0) is the equivalent of the switch turning off.
+//
+// Deliberately does nothing when a switch_entity IS configured (checked
+// via machine.SwitchEntity) — that installation already has a working,
+// HA-driven preheat signal from checkAndApplyMachinePower, and this must
+// not fight it by also toggling SwitchOnAt off its own, independent
+// reading of machine state.
+func (p *Poller) checkGaggiMateModeTransition(machine *machines.Machine, prev, cur *MachineStatus, now int64) {
+	if machine == nil || machine.Type != "gaggimate" {
+		return
+	}
+	if machine.SwitchEntity != nil && strings.TrimSpace(*machine.SwitchEntity) != "" {
+		return
+	}
+	if cur == nil || cur.ScreenMode == nil {
+		return
+	}
+	prevOff := prev == nil || prev.ScreenMode == nil || *prev.ScreenMode == 0
+	curOff := *cur.ScreenMode == 0
+	if prevOff == curOff {
+		return
+	}
+	if !curOff {
+		log.Printf("system: gaggimate left standby screen (mode %d) -- preheat window started", *cur.ScreenMode)
+		p.runtime.SetSwitchOnAt(&now)
+		p.savePreheatState()
+	} else {
+		log.Printf("system: gaggimate returned to standby screen -- preheat window ended")
+		p.runtime.SetSwitchOffAt(&now)
+		p.runtime.SetStabilityReady(false)
+		p.runtime.ClearTempHistory()
+		p.savePreheatState()
+	}
+	p.hub.Publish(sse.Event{Type: sse.EventPreheatUpdate, Data: p.buildPreheatResponse()})
+}
+
 func round10(v float64) int { return int(v*10 + 0.5) }
 
 // elapsedTenths ports lib/poll.js:287's `Math.round((now - startTime) /
@@ -763,6 +820,7 @@ func rawStatusFrom(s machines.Status, hasWaterSensor bool) RawStatus {
 		SteamSwitchState:  steamOn,
 		Warnings:          s.Warnings,
 		System:            s.System,
+		ScreenMode:        s.ScreenMode,
 	}
 }
 

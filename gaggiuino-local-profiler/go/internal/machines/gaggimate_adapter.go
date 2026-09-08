@@ -82,6 +82,7 @@ func (a *GaggiMateAdapter) GetStatus(ctx context.Context, m *Machine) (Status, e
 	profileName := looseStringPtr(evt["p"])
 	warnings := parseGaggiMateWarnings(evt["warn"])
 	systemState := parseGaggiMateSystem(evt["sys"])
+	screenMode := int(looseFloat(evt["m"]))
 	return Status{
 		Reachable:         true,
 		Temperature:       looseFloat(evt["ct"]),
@@ -95,6 +96,7 @@ func (a *GaggiMateAdapter) GetStatus(ctx context.Context, m *Machine) (Status, e
 		PumpFlow:          looseFloatOrNil(evt["fl"]),
 		Warnings:          warnings,
 		System:            systemState,
+		ScreenMode:        &screenMode,
 		Raw:               raw,
 	}, nil
 }

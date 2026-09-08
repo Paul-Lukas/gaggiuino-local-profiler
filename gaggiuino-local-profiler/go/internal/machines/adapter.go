@@ -30,7 +30,14 @@ type Status struct {
 	PumpFlow          *float64        `json:"pumpFlow,omitempty"`
 	Warnings          []WarningState  `json:"warnings,omitempty"`
 	System            *SystemState    `json:"system,omitempty"`
-	Raw               json.RawMessage `json:"raw"`
+	// ScreenMode is GaggiMate's evt:status "m" field: which screen is
+	// selected on the machine's own display (0 = standby, 1 = brew, 2 =
+	// steam — confirmed live against real hardware on 2026-09-08, see
+	// poll.go's checkGaggiMateModeTransition doc comment for why this
+	// matters more than it sounds like it should). nil for Gaggiuino,
+	// which has no equivalent concept.
+	ScreenMode *int            `json:"screenMode,omitempty"`
+	Raw        json.RawMessage `json:"raw"`
 }
 
 type WarningState struct {
