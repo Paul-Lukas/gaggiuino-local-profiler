@@ -15,7 +15,7 @@ import { mapShotDatapoints } from '../../utils.js';
 import { getShotCurve, ensureCurves, getRawCurve, getCachedShotData, evictCurve, primeCurve } from '../../shot-curves.js';
 import { calcGrindAdvice, calcComparativeGrindAdvice, _miniShotChart } from './grind.js';
 import { renderAnnotationPanel }                              from './annotation.js';
-import { updatePQChart }                                      from './charts.js';
+import { updatePQChart, refreshFsChartIfOpen }                 from './charts.js';
 import { updateMachineBanner, updateOnboardingPanel }          from '../../components/onboarding.js';
 import { GEAR_ICON_SVG, COFFEE_ICON_SVG, TARGET_ICON_SVG }    from '../../icons.js';
 import { loadShotImageBlobUrl }                               from '../../bean-image.js';
@@ -32,10 +32,63 @@ import { openLightbox }                                       from '../../compon
 // library-profile-editor.js (#521, #644).
 let _loadDataReqToken = 0;
 
+// GaggiMate phase-name lookup cache, keyed by `${machineId}:${profileName}`.
+// Invalidated by invalidateGmPhaseCache() after a profile save. This is a
+// FALLBACK ONLY: shots synced after the phase-persistence feature landed
+// already carry their own gmPhases snapshot (works offline, no network
+// call). Shots synced before that (or where the sync-time profile lookup
+// failed) have no stored snapshot — without this live fallback they would
+// never show phase markers again, even with the machine online and the
+// profile still present, which is a real regression for existing shot
+// history. So: stored snapshot first (fast, offline-safe), live fetch only
+// as a best-effort enhancement when the snapshot is missing.
+const _gmPhaseCache = new Map();
+
 export function invalidateGmPhaseCache(machineId) {
-  // Kept as a no-op compatibility hook for the GaggiMate profile editor.
-  // Shot history charts now use the per-shot stored gmPhases snapshot.
-  void machineId;
+  const prefix = `${machineId}:`;
+  for (const key of _gmPhaseCache.keys()) {
+    if (key.startsWith(prefix)) _gmPhaseCache.delete(key);
+  }
+}
+
+// GaggiMate only serves one WS request at a time — an overlapping call
+// (e.g. the live-status poll) can 503 even though the machine is fine.
+// Retries up to 3x; a real 4xx/other 5xx returns immediately.
+async function _fetchWithRetry(url, signal) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const r = await apiFetch(url, { signal });
+      if (r.ok || r.status < 500 || attempt === 3) return r;
+    } catch (e) {
+      if (attempt === 3 || signal?.aborted) throw e;
+    }
+    await new Promise(res => setTimeout(res, 400 * attempt));
+  }
+}
+
+// Resolves shotA's named GaggiMate profile phases live from the machine,
+// cache-first. Returns the RAW phases array (same shape shot.gmPhases would
+// have if it had been stored at sync time) so callers can feed it straight
+// into buildGmPhaseRanges(), or null on any miss/failure — callers treat
+// that as "no enhancement", not an error.
+async function _loadGmPhases(shotA, token) {
+  const mid = shotA.machineId;
+  const cacheKey = `${mid}:${shotA.profileName}`;
+  if (_gmPhaseCache.has(cacheKey)) return _gmPhaseCache.get(cacheKey);
+
+  let rawPhases = null;
+  try {
+    const r1 = await _fetchWithRetry(`api/machine/profiles?machineId=${mid}`, AbortSignal.timeout(6000));
+    const { optionsRaw: profiles = [] } = r1.ok && token === _updateViewToken ? await r1.json() : {};
+    const match = profiles.find(p => p.name === shotA.profileName || p.id === shotA.profileName);
+    const r2 = match && await _fetchWithRetry(`api/machine/profile/${match.id}?machineId=${mid}`, AbortSignal.timeout(6000));
+    const prof = r2?.ok && await r2.json();
+    if (prof?.phases?.length) rawPhases = prof.phases;
+  } catch (e) {
+    console.warn('[GLP] GaggiMate phase-name lookup failed:', e);
+  }
+  if (rawPhases) _gmPhaseCache.set(cacheKey, rawPhases); // only cache a hit — don't stick a transient failure
+  return rawPhases;
 }
 
 // #635: baskets/puck screens are pure ID-based library selections (see
@@ -793,6 +846,27 @@ export async function updateView() {
   _buildShotChart(storedGmPhases
     ? { gaggimatePhases: storedGmPhases }
     : phases ? { preinfusion: phases.preinfusion, extraction: phases.extraction } : {});
+
+  // Fallback for shots with no stored gmPhases snapshot (synced before the
+  // phase-persistence feature, or the sync-time profile lookup missed) —
+  // try a live fetch from the machine. Not awaited; must stay after
+  // _buildShotChart exists (a cache hit can resolve before it otherwise).
+  // Shots have no machineType of their own, hence the S.machines lookup.
+  const shotMachine = !shotB && S.machines?.find(m => m.id === (shotA.machineId ?? 1));
+  if (!storedGmPhases && shotMachine?.type === 'gaggimate' && shotA.machineId) {
+    _loadGmPhases(shotA, token).then(rawPhases => {
+      if (!rawPhases || token !== _updateViewToken) return;
+      // Patch the raw phases straight onto the S.shots entry so any other
+      // view reading shotA.gmPhases (e.g. the fullscreen chart) picks the
+      // same result up next time it renders, without duplicating this
+      // fetch/cache logic there.
+      shotA.gmPhases = rawPhases;
+      const gmPhases = buildGmPhaseRanges(rawPhases);
+      phasesSub.textContent = gmPhases.map(p => p.name).join(' · ');
+      _buildShotChart({ gaggimatePhases: gmPhases });
+      refreshFsChartIfOpen();
+    });
+  }
 }
 
 // ── CSV Export ────────────────────────────────────────────────────────────

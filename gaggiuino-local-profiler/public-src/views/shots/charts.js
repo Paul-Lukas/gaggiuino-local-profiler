@@ -106,6 +106,18 @@ export function openChartFullscreen() {
   renderFsChart();
 }
 
+// Called after an async gmPhases live-fetch resolves (index.js's
+// updateView fallback) — if the fullscreen chart happens to already be
+// open at that point, it was built before the fetch resolved and would
+// otherwise stay stuck showing no phase overlay until the user closes and
+// reopens it. Re-renders only when the modal is actually open; a no-op
+// otherwise.
+export function refreshFsChartIfOpen() {
+  if (document.getElementById('chartFullscreen')?.classList.contains('open')) {
+    renderFsChart();
+  }
+}
+
 export function closeChartFullscreen() {
   document.getElementById('chartFullscreen').classList.remove('open');
   document.body.style.overflow = '';
