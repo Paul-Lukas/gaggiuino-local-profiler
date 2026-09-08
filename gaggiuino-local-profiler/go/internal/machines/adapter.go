@@ -18,18 +18,18 @@ import (
 // because the GaggiMate adapter reports several as null (evt:status has no
 // weight field at all, no profile id, etc. — see gaggimate_adapter.go).
 type Status struct {
-	Reachable         bool            `json:"reachable"`
-	Temperature       float64         `json:"temperature"`
-	TargetTemperature float64         `json:"targetTemperature"`
-	Pressure          float64         `json:"pressure"`
-	Weight            *float64        `json:"weight"`
-	Brewing           bool            `json:"brewing"`
-	SteamOn           *bool           `json:"steamOn"`
-	ProfileID         *int            `json:"profileId"`
-	ProfileName       *string         `json:"profileName"`
-	PumpFlow          *float64        `json:"pumpFlow,omitempty"`
-	Warnings          []WarningState  `json:"warnings,omitempty"`
-	System            *SystemState    `json:"system,omitempty"`
+	Reachable         bool           `json:"reachable"`
+	Temperature       float64        `json:"temperature"`
+	TargetTemperature float64        `json:"targetTemperature"`
+	Pressure          float64        `json:"pressure"`
+	Weight            *float64       `json:"weight"`
+	Brewing           bool           `json:"brewing"`
+	SteamOn           *bool          `json:"steamOn"`
+	ProfileID         *int           `json:"profileId"`
+	ProfileName       *string        `json:"profileName"`
+	PumpFlow          *float64       `json:"pumpFlow,omitempty"`
+	Warnings          []WarningState `json:"warnings,omitempty"`
+	System            *SystemState   `json:"system,omitempty"`
 	// ScreenMode is GaggiMate's evt:status "m" field: which screen is
 	// selected on the machine's own display (0 = standby, 1 = brew, 2 =
 	// steam — confirmed live against real hardware on 2026-09-08, see

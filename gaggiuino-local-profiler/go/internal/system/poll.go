@@ -570,7 +570,17 @@ func (p *Poller) pollViaGaggiuinoStatus(ctx context.Context) {
 	ms := result.MachineStatus
 	prevMode := p.runtime.Get().MachineStatus
 	p.runtime.SetMachineStatus(&ms)
-	p.runtime.SetCurrentTemps(zeroToNil(ms.Temperature), zeroToNil(ms.TargetTemperature))
+	// zeroToNil on Temperature only: a boiler genuinely never reads exactly
+	// 0°C, so that's a sensor glitch/missing-reading filter. TargetTemperature
+	// is different — 0 is a real, meaningful state (no active target, e.g.
+	// a GaggiMate sitting on its standby screen), not an absent reading;
+	// running it through zeroToNil too made SetCurrentTemps' "nil = no new
+	// reading, keep the old value" rule treat "no target" as "no update",
+	// permanently freezing the last real target (2026-09-08 bug report —
+	// the Live tab kept showing "Vorheizen" against an 86.5° target the
+	// machine had already dropped back to 0 on its own display).
+	targetTemp := ms.TargetTemperature
+	p.runtime.SetCurrentTemps(zeroToNil(ms.Temperature), &targetTemp)
 	p.checkGaggiMateModeTransition(machine, prevMode, &ms, now)
 
 	snap := p.runtime.Get()

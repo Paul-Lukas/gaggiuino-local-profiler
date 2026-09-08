@@ -314,6 +314,54 @@ func (p *Poller) syncGaggiMateShots(ctx context.Context, machine *machines.Machi
 	return nil
 }
 
+// BackfillGaggiMatePhases resolves and stores gmPhases for GaggiMate shots
+// that were synced BEFORE the phase-persistence feature existed (or whose
+// sync-time profile lookup missed) — those never got a snapshot and
+// syncGaggiMateShots only ever processes shots newer than what's already
+// stored, so the regular sync loop can never revisit them on its own. This
+// is the one-time manual catch-up: walk every already-stored GaggiMate
+// shot, skip the ones that already have gmPhases, try to resolve it for
+// the rest using the exact same phaseResolver machinery the live sync path
+// uses (same name matching, same cache-per-run), and Upsert only the ones
+// that actually resolved — never touches a shot phasesForShot can't
+// resolve, so an already-renamed/deleted profile just leaves that shot as
+// it was, exactly like the live sync path's own graceful-degradation rule.
+func (p *Poller) BackfillGaggiMatePhases(ctx context.Context) (updated int, err error) {
+	machine, err := p.registry.GetDefaultMachine()
+	if err != nil {
+		return 0, err
+	}
+	if machine == nil || machine.Type != "gaggimate" {
+		return 0, fmt.Errorf("default machine is not a gaggimate machine")
+	}
+	adapter, err := p.adapters.GetAdapter(machine)
+	if err != nil {
+		return 0, err
+	}
+	all, err := p.shots.FindAllExcludingTrashByMachine(machine.ID)
+	if err != nil {
+		return 0, err
+	}
+
+	phaseResolver := newGaggiMatePhaseResolver(ctx, machine, adapter)
+	for _, shot := range all {
+		if existing, ok := shot["gmPhases"].([]any); ok && len(existing) > 0 {
+			continue
+		}
+		phases, ok := phaseResolver.phasesForShot(ctx, shot)
+		if !ok {
+			continue
+		}
+		shot["gmPhases"] = phases
+		if uerr := p.shots.Upsert(shot); uerr != nil {
+			return updated, uerr
+		}
+		updated++
+	}
+	log.Printf("system: gaggimate phase backfill complete: %d shot(s) updated", updated)
+	return updated, nil
+}
+
 type gaggiMatePhaseResolver struct {
 	machine  *machines.Machine
 	adapter  machines.Adapter

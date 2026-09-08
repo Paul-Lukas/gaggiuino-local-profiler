@@ -60,7 +60,7 @@ func (p *Poller) PreheatInfo() (ready bool, remainingMin int) {
 	preheatMs := int64(preheatMins) * 60_000
 	snap := p.runtime.Get()
 	machineOff := !snap.MachineOn && p.defaultSwitchEntity() != ""
-	if machineOff || snap.SwitchOnAt == nil {
+	if preheatCurrentlyOff(snap, machineOff) || snap.SwitchOnAt == nil {
 		return false, preheatMins
 	}
 	remainingMs := preheatMs - (time.Now().UnixMilli() - *snap.SwitchOnAt)
@@ -82,6 +82,39 @@ func (p *Poller) defaultSwitchEntity() string {
 	return *machine.SwitchEntity
 }
 
+// preheatCurrentlyOff reports whether preheat tracking should currently
+// read as "not in a preheat window" — the `!snap.MachineOn &&
+// defaultSwitchEntity() != ""` check alone only understands the
+// HA-switch-driven path (checkAndApplyMachinePower sets MachineOn from
+// the switch's read state; for a machine with no switch_entity configured
+// at all, defaultSwitchEntity() is always "" so this check can never
+// become true, no matter what MachineOn holds).
+//
+// checkGaggiMateModeTransition (poll.go) is a second, independent way a
+// preheat window starts/ends — for a GaggiMate with no switch_entity
+// (turned on by a physical button, not a smart plug — the common
+// installation for this machine type) it drives SwitchOnAt/SwitchOffAt
+// directly from the machine's own reported screen state, but does NOT set
+// MachineOn (that field's whole meaning is "the HA switch reads on",
+// which has no equivalent here — setting it would be a category error,
+// not a fix). Without this second check, buildPreheatResponse/PreheatInfo
+// had no way to ever learn a GaggiMate-mode-driven window had ended: they
+// kept reporting a live countdown against a target temperature the
+// machine had already dropped back to 0 (2026-09-08 bug report — the Live
+// tab kept showing "Vorheizen" after returning the machine to its standby
+// screen).
+//
+// For any HA-switch-driven install this is a no-op: startLivePolling/
+// stopLivePolling already keep SwitchOnAt/SwitchOffAt in lockstep with
+// MachineOn, so the ordering check below agrees with the existing
+// machineOff check rather than contradicting it.
+func preheatCurrentlyOff(snap Snapshot, machineOff bool) bool {
+	if machineOff {
+		return true
+	}
+	return snap.SwitchOffAt != nil && (snap.SwitchOnAt == nil || *snap.SwitchOffAt >= *snap.SwitchOnAt)
+}
+
 // buildPreheatResponse ports buildPreheatResponse(runtime) — shared by GET
 // /api/preheat and POST /api/preheat/ready-by so both return the identical
 // shape, and by every preheat-update SSE push.
@@ -96,7 +129,7 @@ func (p *Poller) buildPreheatResponse() PreheatStatus {
 	p.state.mu.Unlock()
 
 	machineOff := !snap.MachineOn && p.defaultSwitchEntity() != ""
-	if machineOff || snap.SwitchOnAt == nil {
+	if preheatCurrentlyOff(snap, machineOff) || snap.SwitchOnAt == nil {
 		return PreheatStatus{
 			Ready: false, Elapsed: 0, Remaining: preheatMins * 60, Pct: 0,
 			PreheatTime: preheatMins, Temp: snap.CurrentTemp, TargetTemp: snap.CurrentTargetTemp,

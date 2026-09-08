@@ -272,9 +272,17 @@ func (a *GaggiMateAdapter) StopBrew(ctx context.Context, m *Machine) error {
 
 func (a *GaggiMateAdapter) Capabilities() Capabilities {
 	return Capabilities{
-		ProfileEdit:   true,
-		BrewStart:     true,
-		Preheat:       nil, // not modeled yet — unknown until verified against hardware
+		ProfileEdit: true,
+		BrewStart:   true,
+		// Preheat: unlike Gaggiuino, this isn't gated through this
+		// capability flag at all (nothing reads it — see poll.go's
+		// checkGaggiMateModeTransition, which drives preheat tracking
+		// directly off evt:status's screen-mode field whenever no
+		// switch_entity is configured, confirmed against real hardware
+		// 2026-09-08). Left nil rather than wired up as true/false here
+		// since this field has no live reader to begin with; the real
+		// behavior lives in the poller, not this struct.
+		Preheat:       nil,
 		Volumetric:    nil, // determined per-shot from slog systemInfo.volumetricCapable, not a static capability
 		History:       true,
 		SettingsProxy: false,

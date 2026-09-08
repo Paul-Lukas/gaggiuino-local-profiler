@@ -160,3 +160,74 @@ func TestGaggiMateShotUpsert_NoGmPhasesWhenNotSet(t *testing.T) {
 		t.Fatalf("gmPhases present despite never being set: %+v", stored["gmPhases"])
 	}
 }
+
+// TestBackfillGaggiMatePhases_ResolvesOnlyShotsMissingIt is the regression
+// test for the 2026-09-08 request: shots synced before the
+// phase-persistence feature landed have no gmPhases and, unlike new shots,
+// the regular sync loop never revisits them (it only walks shots newer
+// than what's already stored) — this is the one-time manual catch-up path.
+func TestBackfillGaggiMatePhases_ResolvesOnlyShotsMissingIt(t *testing.T) {
+	fake := &fakeAdapter{
+		profilesOK: true,
+		profiles: []machines.ProfileSummary{
+			{ID: "morning-id", Name: "Morning"},
+		},
+		profileBodies: map[string]json.RawMessage{
+			"morning-id": json.RawMessage(`{"id":"morning-id","label":"Morning","phases":[{"name":"Preinfusion","phase":"preinfusion","duration":8},{"name":"Brew","phase":"brew","duration":24}]}`),
+		},
+	}
+	p, sqlDB := newTestPoller(t, fake)
+	gm := "gaggimate"
+	if _, err := machines.NewRegistry(sqlDB).UpdateMachine(1, machines.MachineInput{Type: &gm}, nil); err != nil {
+		t.Fatalf("set machine type: %v", err)
+	}
+	repo := shots.NewRepository(sqlDB)
+	p.SetShotsRepo(repo)
+
+	// Shot 1: no gmPhases yet (the pre-feature backlog this exists for).
+	if err := repo.Upsert(shots.Shot{
+		"id": int64(1), "timestamp": int64(1788825600), "duration": int64(300),
+		"machineId": int64(1), "profileName": "Morning",
+	}); err != nil {
+		t.Fatalf("seed shot 1: %v", err)
+	}
+	// Shot 2: already has gmPhases — must be left untouched (not
+	// re-resolved, not double-counted in the updated total).
+	if err := repo.Upsert(shots.Shot{
+		"id": int64(2), "timestamp": int64(1788825700), "duration": int64(300),
+		"machineId": int64(1), "profileName": "Morning",
+		"gmPhases": []any{map[string]any{"name": "Already Set", "phase": "brew", "duration": float64(30)}},
+	}); err != nil {
+		t.Fatalf("seed shot 2: %v", err)
+	}
+
+	updated, err := p.BackfillGaggiMatePhases(context.Background())
+	if err != nil {
+		t.Fatalf("BackfillGaggiMatePhases: %v", err)
+	}
+	if updated != 1 {
+		t.Fatalf("updated = %d, want 1", updated)
+	}
+
+	shot1, err := repo.FindByID(1)
+	if err != nil {
+		t.Fatalf("FindByID(1): %v", err)
+	}
+	phases, _ := shot1["gmPhases"].([]any)
+	if len(phases) != 2 {
+		t.Fatalf("shot 1 gmPhases len = %d, want 2; shot=%+v", len(phases), shot1)
+	}
+
+	shot2, err := repo.FindByID(2)
+	if err != nil {
+		t.Fatalf("FindByID(2): %v", err)
+	}
+	phases2, _ := shot2["gmPhases"].([]any)
+	if len(phases2) != 1 {
+		t.Fatalf("shot 2 gmPhases should stay untouched, len = %d, want 1", len(phases2))
+	}
+	first, _ := phases2[0].(map[string]any)
+	if first["name"] != "Already Set" {
+		t.Fatalf("shot 2 gmPhases was overwritten: %+v", first)
+	}
+}

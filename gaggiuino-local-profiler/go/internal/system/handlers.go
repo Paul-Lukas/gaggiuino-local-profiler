@@ -61,6 +61,7 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/switch/toggle", h.postSwitchToggle)
 	mux.HandleFunc("GET /api/openapi.json", h.getOpenAPI)
 	mux.HandleFunc("POST /api/sync", h.postSync)
+	mux.HandleFunc("POST /api/sync/backfill-gaggimate-phases", h.postBackfillGaggiMatePhases)
 }
 
 // postSync ports routes/system.js's POST /api/sync: a 30s-cooldown manual
@@ -76,6 +77,24 @@ func (h *Handlers) postSync(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	httputil.SafeGo("system: manual sync", func() { h.poller.RunManualSync(context.Background()) })
+}
+
+// postBackfillGaggiMatePhases is a one-time manual catch-up trigger for
+// BackfillGaggiMatePhases (sync.go): resolves and stores gmPhases for
+// already-synced GaggiMate shots that predate the phase-persistence
+// feature (or whose sync-time profile lookup missed), which the regular
+// sync loop can never revisit on its own since it only ever walks shots
+// newer than what's already stored. Synchronous (unlike postSync) — this
+// is an explicit, occasional maintenance action, not a frequent poll-tick
+// trigger, and the caller wants to know the actual updated count, not just
+// "started."
+func (h *Handlers) postBackfillGaggiMatePhases(w http.ResponseWriter, r *http.Request) {
+	updated, err := h.poller.BackfillGaggiMatePhases(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "updated": updated})
 }
 
 // machineStatus ports GET /api/machine/status: the default machine's
