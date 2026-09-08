@@ -304,6 +304,26 @@ func TestBean_BagFreezeThawAdjustLifecycle(t *testing.T) {
 		t.Fatalf("negative price_eur update-bag status = %d, want 400; body=%s", rec.Code, rec.Body.String())
 	}
 
+	// An explicit stock_g of 0 (the "mark bag empty" quick action) must
+	// round-trip as 0, not silently collapse to nil/"untracked" — this
+	// regressed once via floatOrNilFalsy's blanket 0-means-nil idiom,
+	// which is correct for an omitted field but wrong for a
+	// present-and-validated 0.
+	rec = doJSON(t, mux, http.MethodPut, "/api/library/bean/"+itoa(id)+"/bag/"+itoa(secondBagID),
+		mustMarshal(t, map[string]any{"roastDate": "2026-08-15", "stock_g": 0, "price_eur": 0}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("zero stock_g update-bag status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	zeroed := decodeBody(t, rec.Body.Bytes())
+	zeroedBags, _ := zeroed["bags"].([]any)
+	zeroedSecond, _ := zeroedBags[1].(map[string]any)
+	if v, ok := zeroedSecond["stock_g"].(float64); !ok || v != 0 {
+		t.Fatalf("stock_g after zeroing = %#v, want float64(0)", zeroedSecond["stock_g"])
+	}
+	if v, ok := zeroedSecond["price_eur"].(float64); !ok || v != 0 {
+		t.Fatalf("price_eur after zeroing = %#v, want float64(0)", zeroedSecond["price_eur"])
+	}
+
 	// freeze-portions
 	rec = doJSON(t, mux, http.MethodPost, "/api/library/bean/"+itoa(id)+"/freeze-portions",
 		mustMarshal(t, map[string]any{"portionCount": 5, "portionWeight_g": 18.5}))

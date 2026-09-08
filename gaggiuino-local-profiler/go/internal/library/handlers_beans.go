@@ -22,6 +22,14 @@ func findBeanIndex(lib Library, id int64) int {
 	return -1
 }
 
+// validateBagFloatField deliberately does NOT route through
+// floatOrNilFalsy for its return value: that helper collapses an
+// explicit 0 to nil (the `parseFloat(v) || null` idiom it ports, correct
+// for "field left blank"), but this function already separates "field
+// absent" (early-returns nil above) from "field present, parses to a
+// valid float" — a present, explicit 0 (e.g. the "mark bag empty" quick
+// action deliberately setting stock_g to exactly 0) must round-trip as
+// 0, not silently become "untracked" again.
 func validateBagFloatField(body Entity, key string) (any, bool) {
 	v, present := body[key]
 	if !present || v == nil {
@@ -31,7 +39,7 @@ func validateBagFloatField(body Entity, key string) (any, bool) {
 	if !ok || f < 0 {
 		return nil, false
 	}
-	return floatOrNilFalsy(v), true
+	return f, true
 }
 
 func validateBagRoastDate(body Entity) (string, bool) {

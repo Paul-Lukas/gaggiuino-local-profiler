@@ -311,7 +311,7 @@ export default {
     lib_bag_batch_number:'Número de lote',
     lib_bag_price:'Precio (€)', lib_bag_section_label:'Paquete actual', lib_bag_active:'Activo', lib_bag_edit:'Editar bolsa', lib_bag_consumed:'Consumido', lib_bag_save:'Guardar bolsa',
     lib_bag_weight:'Peso', lib_bag_remaining:'Restante', lib_bag_empty:'Todavía no hay ninguna bolsa registrada.', lib_bag_stock_untracked:'Stock sin seguimiento', lib_bag_no_roast_date:'Sin fecha de tostado', lib_bag_delete_confirm:'¿Eliminar esta bolsa?', lib_bag_invalid_number:'El peso y el precio no pueden ser negativos.', lib_bag_future_roast:'La fecha de tostado no puede estar en el futuro.',
-    lib_stock_edit_btn:'Ajustar stock',
+    lib_bag_state_current:'Actual', lib_bag_state_upcoming:'Llena', lib_bag_state_past:'Pasada', lib_bag_mark_empty:'Marcar como vacía', lib_bag_open_new_confirm:(n)=>`La bolsa actual todavía tiene ${n} g restantes. ¿Abrir una bolsa nueva de todos modos?`, lib_stock_edit_btn:'Ajustar stock',
     bag_freeze_btn:'Congelar', bag_freeze_save:'Congelar porciones',
     bag_freeze_count:'Número de porciones', bag_freeze_weight:'Gramos por porción',
     bag_frozen_badge:(d)=>`desde ${d}`, bag_frozen_thawed_badge:(d)=>`descongelado el ${d}`,

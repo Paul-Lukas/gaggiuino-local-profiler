@@ -68,6 +68,7 @@ export const S = {
   shotDefaults: null,
   beanEditId: null,
   _beanStockEditId: null,
+  _bagStockEditId: null,
   grinderEditId: null,
   basketEditId: null,
   puckScreenEditId: null,

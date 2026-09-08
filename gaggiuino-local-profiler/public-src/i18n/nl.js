@@ -311,7 +311,7 @@ export default {
     lib_bag_batch_number:'Chargenummer',
     lib_bag_price:'Prijs (€)', lib_bag_section_label:'Huidige verpakking', lib_bag_active:'Actief', lib_bag_edit:'Verpakking bewerken', lib_bag_consumed:'Verbruikt', lib_bag_save:'Verpakking opslaan',
     lib_bag_weight:'Gewicht', lib_bag_remaining:'Resterend', lib_bag_empty:'Nog geen zak geregistreerd.', lib_bag_stock_untracked:'Voorraad niet bijgehouden', lib_bag_no_roast_date:'Geen branddatum', lib_bag_delete_confirm:'Deze zak verwijderen?', lib_bag_invalid_number:'Gewicht en prijs mogen niet negatief zijn.', lib_bag_future_roast:'De branddatum mag niet in de toekomst liggen.',
-    lib_stock_edit_btn:'Voorraad aanpassen',
+    lib_bag_state_current:'Huidig', lib_bag_state_upcoming:'Vol', lib_bag_state_past:'Verleden', lib_bag_mark_empty:'Markeren als leeg', lib_bag_open_new_confirm:(n)=>`De huidige zak heeft nog ${n} g over. Toch een nieuwe zak openen?`, lib_stock_edit_btn:'Voorraad aanpassen',
     bag_freeze_btn:'Invriezen', bag_freeze_save:'Porties invriezen',
     bag_freeze_count:'Aantal porties', bag_freeze_weight:'Gram per portie',
     bag_frozen_badge:(d)=>`sinds ${d}`, bag_frozen_thawed_badge:(d)=>`ontdooid op ${d}`,

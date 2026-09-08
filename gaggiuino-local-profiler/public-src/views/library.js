@@ -13,7 +13,7 @@ import { openLightbox } from '../components/lightbox.js';
 import { generateBeanQR, parseGlpQrParams } from '../glp-qr.js';
 import { calcBestGrindCombosForBean } from './shots/grind.js';
 import { renderShotDefaultsSettingsCard } from '../components/shot-defaults-settings.js';
-import { matchesBean, sumConsumedDoses, computeBeanRemaining, remainingToStockG, resolveBagAtShotTime } from '../bean-math.js';
+import { sumConsumedDoses, computeBeanRemaining, remainingToStockG, bagConsumedGrams } from '../bean-math.js';
 import { TARGET_ICON_SVG, SLIDERS_ICON_SVG, FLAVOR_WHEEL_ICON_SVG, COFFEE_ICON_SVG, WATER_DROP_ICON_SVG, SNOWFLAKE_ICON_SVG, LINK_ICON_SVG, WRENCH_ICON_SVG, STAR_ICON_SVG, WARNING_ICON_SVG, CLOSE_ICON_SVG, EDIT_ICON_SVG } from '../icons.js';
 
 const _pendingBeanActiveToggles = new Set();
@@ -136,6 +136,107 @@ function annotationDoseRows() {
     .map(s => ({ coffee: s.annotation.coffee, beanId: s.annotation.beanId, dose: s.annotation.dose, timestamp: s.timestamp }));
 }
 
+// ── Bag lifecycle: Volle / Aktuelle / Vergangene ───────────────────────────
+// Three states a bag moves through:
+//   - "current": the one FIFO consumption is actually drawing from right
+//     now — the OLDEST tracked bag that still has remaining > 0. NOT
+//     necessarily the most recently added bag: if a fresh (full) bag was
+//     added while an older one still has stock left, that older bag stays
+//     current until it's used up.
+//   - "upcoming" ("Volle"): tracked, remaining > 0, but not yet the one
+//     being drawn from — queued behind the current bag.
+//   - "past" ("Vergangene"): remaining <= 0 (fully consumed, or an
+//     untracked bag that isn't the newest). Hidden by default in the UI.
+// Bags are assumed stored oldest-first (bags[bags.length-1] is the newest,
+// matching every other convention in this file). If literally nothing is
+// trackable (no bag has ever had stock_g set), the newest bag is still
+// reported as "current" so there's always exactly one actionable bag.
+function classifyBeanBags(b, doseRows, beans) {
+  const bags = Array.isArray(b.bags) ? b.bags : [];
+  const newest = bags.length ? bags[bags.length - 1] : null;
+  const upcoming = [];
+  const past = [];
+  let current = null;
+  for (const bg of bags) {
+    const consumed = Math.round(bagConsumedGrams(b, doseRows, beans, bags, bg));
+    const stockGRaw = bg.stock_g ?? (bg === newest ? b.stock_g : null);
+    const stockG = parseFloat(stockGRaw);
+    // isFinite alone, not "> 0": a bag explicitly emptied via
+    // markBagEmpty() ends up with stock_g === 0, which is still tracked
+    // (we know its remaining is exactly 0) — different from a bag that
+    // never had stock_g set at all (genuinely untracked, remaining
+    // unknowable).
+    const tracked = isFinite(stockG);
+    const remaining = tracked ? Math.max(0, stockG - consumed) : null;
+    const entry = { bg, consumed, stockG: tracked ? stockG : null, remaining };
+    // "Current" is always the newest (last-opened) bag — this must match
+    // resolveBagAtShotTime's own resolution rule (latest openedAt <= shot
+    // time wins), not a FIFO/oldest-with-stock guess: every new shot's
+    // dose gets attributed to whichever bag has the latest openedAt,
+    // period, regardless of whether an older bag still has stock left.
+    // Any other bag is either "upcoming" (still has stock, but won't
+    // receive further doses unless the newer bags are removed) or "past"
+    // (already at/below 0 remaining).
+    if (bg === newest) {
+      current = entry;
+    } else if (tracked && remaining > 0) {
+      upcoming.push(entry);
+    } else {
+      past.push(entry);
+    }
+  }
+  return { current, upcoming, past };
+}
+
+// Renders one bag card. `state` is 'current' | 'upcoming' | 'past' — only
+// current/upcoming get the stock-adjust controls (past is already empty by
+// definition); delete is only offered on upcoming/past (never current —
+// see classifyBeanBags, and never the last remaining bag, enforced
+// server-side too).
+function renderBagCard(b, entry, state, beans, canDelete) {
+  const { bg, consumed, stockG, remaining } = entry;
+  const pct = remaining != null && stockG > 0 ? Math.round((remaining / stockG) * 100) : null;
+  const editingStock = S._bagStockEditId === bg.id;
+  const details = [
+    stockG > 0 ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_weight')}</span><span class="lib-bag-detail-val">${stockG} g</span></span>` : '',
+    consumed > 0 ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_consumed')}</span><span class="lib-bag-detail-val">${consumed} g</span></span>` : '',
+    remaining != null ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_remaining')}</span><span class="lib-bag-detail-val">${remaining} g${pct != null ? ` (${pct}%)` : ''}</span></span>` : '',
+    bg.price_eur ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_price')}</span><span class="lib-bag-detail-val">${parseFloat(bg.price_eur).toFixed(2)} €</span></span>` : '',
+    bg.batchNumber ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_batch_number')}</span><span class="lib-bag-detail-val">${esc(bg.batchNumber)}</span></span>` : '',
+  ].filter(Boolean);
+  const stateBadge = state === 'current'
+    ? `<span class="lib-bag-active-badge">${t('lib_bag_state_current')}</span>`
+    : state === 'upcoming'
+    ? `<span class="lib-bag-upcoming-badge">${t('lib_bag_state_upcoming')}</span>`
+    : `<span class="lib-bag-past-badge">${t('lib_bag_state_past')}</span>`;
+  const canAdjust = (state === 'current' || state === 'upcoming') && stockG > 0;
+  const stockRow = editingStock
+    ? `<div class="lib-stock-edit-row">
+         <input type="number" class="lib-new-bag-input" id="bagStockEditInput${bg.id}" value="${remaining ?? 0}" min="0" step="1" placeholder="${t('lib_stock_adjust_ph')}">
+         <button class="lib-save-btn" data-action="save-bag-stock-edit" data-bean-id="${b.id}" data-bag-id="${bg.id}">${t('lib_save')}</button>
+         <button class="lib-btn-sm" data-action="close-bag-stock-edit" data-bean-id="${b.id}">${t('lib_cancel')}</button>
+       </div>`
+    : '';
+  return `<div class="lib-bag-card${state === 'current' ? ' active' : ''}">
+    <div class="lib-bag-card-header">
+      <span class="lib-bag-date">${bg.roastDate ? esc(bg.roastDate) : t('lib_bag_no_roast_date')}</span>
+      ${stateBadge}
+      <div class="lib-bag-card-actions">
+        <button class="lib-bag-edit-btn" data-action="open-edit-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_edit')}">${ICON_PENCIL}</button>
+        ${canDelete ? `<button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">${ICON_TRASH}</button>` : ''}
+      </div>
+    </div>
+    <div class="lib-bag-card-details">
+      ${details.length ? details.join('') : `<span class="lib-bag-empty-note">${t('lib_bag_stock_untracked')}</span>`}
+    </div>
+    ${canAdjust && !editingStock ? `<div class="lib-bag-card-actions-row">
+      <button class="lib-btn-sm" data-action="open-bag-stock-edit" data-bag-id="${bg.id}">${t('lib_stock_edit_btn')}</button>
+      <button class="lib-btn-sm" data-action="mark-bag-empty" data-bean-id="${b.id}" data-bag-id="${bg.id}">${t('lib_bag_mark_empty')}</button>
+    </div>` : ''}
+    ${stockRow}
+  </div>`;
+}
+
 // ── Bean list ─────────────────────────────────────────────────────────────
 export function renderBeanList() {
   const el = document.getElementById('beanListUI');
@@ -174,13 +275,8 @@ export function renderBeanList() {
     }, 0) || parseFloat(b.stock_g) || 0;
 
     // Per-bag consumed (for bag history display)
-    const beanIdExists = new Set(beans.map(x => x.id));
     function bagConsumedG(bg) {
-      return Math.round((doseRows || []).reduce((sum, r) => {
-        const d = parseFloat(r.dose);
-        if (!d || !matchesBean(r, b, beanIdExists)) return sum;
-        return resolveBagAtShotTime(bags, r.timestamp * 1000) === bg ? sum + d : sum;
-      }, 0));
+      return Math.round(bagConsumedGrams(b, doseRows, beans, bags, bg));
     }
 
     let invHtml = '';
@@ -217,39 +313,19 @@ export function renderBeanList() {
     }
 
     const bagHistoryHtml = bags.length >= 1 ? (() => {
-      const reversedBags = bags.slice().reverse();
-      const rows = reversedBags.map((bg, i) => {
-        const isActive = i === 0;
-        const bgConsumed = bagConsumedG(bg);
-        const bgStockG = parseFloat(bg.stock_g ?? (isActive ? b.stock_g : null));
-        const bgRemaining = isFinite(bgStockG) && bgStockG > 0 ? Math.max(0, bgStockG - bgConsumed) : null;
-        const bgPct = bgRemaining != null && bgStockG > 0 ? Math.round((bgRemaining / bgStockG) * 100) : null;
-        const details = [
-          bgStockG > 0 ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_weight')}</span><span class="lib-bag-detail-val">${bgStockG} g</span></span>` : '',
-          bgConsumed > 0 ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_consumed')}</span><span class="lib-bag-detail-val">${bgConsumed} g</span></span>` : '',
-          bgRemaining != null ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_remaining')}</span><span class="lib-bag-detail-val">${bgRemaining} g${bgPct != null ? ` (${bgPct}%)` : ''}</span></span>` : '',
-          bg.price_eur ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_price')}</span><span class="lib-bag-detail-val">${parseFloat(bg.price_eur).toFixed(2)} €</span></span>` : '',
-          bg.batchNumber ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_batch_number')}</span><span class="lib-bag-detail-val">${esc(bg.batchNumber)}</span></span>` : '',
-        ].filter(Boolean);
-        return `<div class="lib-bag-card${isActive ? ' active' : ''}">
-          <div class="lib-bag-card-header">
-            <span class="lib-bag-date">${bg.roastDate ? esc(bg.roastDate) : t('lib_bag_no_roast_date')}</span>
-            ${isActive ? `<span class="lib-bag-active-badge">${t('lib_bag_active') || 'Aktiv'}</span>` : ''}
-            <div class="lib-bag-card-actions">
-              <button class="lib-bag-edit-btn" data-action="open-edit-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_edit')}">${ICON_PENCIL}</button>
-              ${!isActive && bags.length > 1 ? `<button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">${ICON_TRASH}</button>` : ''}
-            </div>
-          </div>
-          <div class="lib-bag-card-details">
-            ${details.length ? details.join('') : `<span class="lib-bag-empty-note">${t('lib_bag_stock_untracked')}</span>`}
-          </div>
-        </div>`;
-      });
-      const historySection = bags.length > 1
-        ? `<div class="lib-bag-history" id="bagHistory${b.id}" style="display:none">${rows.join('')}</div>
-           <button class="lib-btn-sm lib-bag-history-btn" data-action="toggle-bag-history" data-id="${b.id}" id="bagHistoryBtn${b.id}">▸ ${t('lib_bag_history')} (${bags.length})</button>`
-        : `<div class="lib-bag-history lib-bag-history-single">${rows.join('')}</div>`;
-      return historySection;
+      const { current, upcoming, past } = classifyBeanBags(b, doseRows, beans);
+      const parts = [];
+      if (current) parts.push(renderBagCard(b, current, 'current', beans, false));
+      for (const entry of upcoming) parts.push(renderBagCard(b, entry, 'upcoming', beans, true));
+      // Past bags: not rendered into the DOM at all until expanded — the
+      // toggle handler (togglePastBags) builds this HTML on demand from the
+      // same live bean/doseRows state, so a bean with a long bag history
+      // never pays the DOM-build cost unless someone actually opens it.
+      const pastSection = past.length
+        ? `<div class="lib-bag-history-past" id="pastBags${b.id}" style="display:none"></div>
+           <button class="lib-btn-sm lib-bag-history-btn" data-action="toggle-past-bags" data-id="${b.id}" id="pastBagsBtn${b.id}">▸ ${t('lib_bag_state_past')} (${past.length})</button>`
+        : '';
+      return `<div class="lib-bag-history">${parts.join('')}</div>${pastSection}`;
     })() : `<div class="lib-bag-empty-note">${t('lib_bag_empty')}</div>`;
 
     // #477: the bag's own freshness badge is always the real calendar age —
@@ -432,15 +508,6 @@ function loadBeanThumbnails() {
   });
 }
 
-export function toggleBagHistory(id) {
-  const wrap = document.getElementById(`bagHistory${id}`);
-  const btn  = document.getElementById(`bagHistoryBtn${id}`);
-  if (!wrap) return;
-  const open = wrap.style.display === 'none';
-  wrap.style.display = open ? '' : 'none';
-  if (btn) btn.textContent = (open ? '▾ ' : '▸ ') + t('lib_bag_history');
-}
-
 export function openNewBagForm(id) {
   document.getElementById(`newBagForm${id}`).style.display = '';
 }
@@ -452,8 +519,13 @@ export function closeNewBagForm(id) {
 export async function deleteBag(beanId, bagId) {
   const bean = S.coffeeLibrary.beans.find(b => b.id === beanId);
   const bags = Array.isArray(bean?.bags) ? bean.bags : [];
-  const bagIdx = bags.findIndex(bg => bg.id === bagId);
-  if (!bean || bagIdx === -1 || bagIdx === bags.length - 1 || bags.length <= 1) return;
+  if (!bean || bags.length <= 1) return;
+  // Never the "current" bag (the one FIFO is actually drawing from) —
+  // matches the delete button only being rendered for upcoming/past cards
+  // in renderBagCard; re-checked here since state can change between
+  // render and click (e.g. two tabs open).
+  const { current } = classifyBeanBags(bean, annotationDoseRows(), S.coffeeLibrary.beans);
+  if (current?.bg.id === bagId) return;
   if (!confirm(t('lib_bag_delete_confirm'))) return;
   const r = await apiFetch(`api/library/bean/${beanId}/bag/${bagId}`, { method: 'DELETE' });
   if (!r.ok) return;
@@ -506,6 +578,94 @@ export async function saveBeanStock(id) {
   if (idx !== -1) S.coffeeLibrary.beans[idx] = saved;
   S._beanStockEditId = null;
   renderBeanList();
+}
+
+// ── Per-bag stock quick-adjust ──────────────────────────────────────────────
+// Unlike saveBeanStock above (which only ever touches the bean's own
+// stock_g fallback field — a no-op once a bag has its own explicit
+// stock_g, the normal case), this writes the BAG's own stock_g directly,
+// so it actually moves the needle for any bag created via the bag dialog.
+
+export function openBagStockEdit(bagId) {
+  S._bagStockEditId = bagId;
+  renderBeanList();
+}
+
+export function closeBagStockEdit() {
+  S._bagStockEditId = null;
+  renderBeanList();
+}
+
+// PUT /bag/{id} replaces the full bag record (see updateBag server-side) —
+// every call here must resend roastDate/price_eur/batchNumber alongside
+// the new stock_g, or those fields get silently blanked.
+async function putBagStock(beanId, bagId, newStockG) {
+  const bean = S.coffeeLibrary.beans.find(b => b.id === beanId);
+  const bag = bean?.bags?.find(bg => bg.id === bagId);
+  if (!bag) return false;
+  const r = await apiFetch(`api/library/bean/${beanId}/bag/${bagId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      roastDate: bag.roastDate || '',
+      stock_g: newStockG,
+      price_eur: bag.price_eur ?? null,
+      batchNumber: bag.batchNumber || '',
+    }),
+  });
+  if (!r.ok) return false;
+  const saved = await r.json();
+  const idx = S.coffeeLibrary.beans.findIndex(b => b.id === beanId);
+  if (idx !== -1) S.coffeeLibrary.beans[idx] = saved;
+  return true;
+}
+
+export async function saveBagStock(beanId, bagId) {
+  const val = parseFloat(document.getElementById(`bagStockEditInput${bagId}`)?.value);
+  if (isNaN(val) || val < 0) return;
+  const bean = S.coffeeLibrary.beans.find(b => b.id === beanId);
+  const bag = bean?.bags?.find(bg => bg.id === bagId);
+  if (!bean || !bag) return;
+  const consumed = bagConsumedGrams(bean, annotationDoseRows(), S.coffeeLibrary.beans, bean.bags, bag);
+  const newStockG = Math.round(val + consumed);
+  if (!(await putBagStock(beanId, bagId, newStockG))) return;
+  S._bagStockEditId = null;
+  renderBeanList();
+}
+
+// One-click "already empty / thrown away" — sets this bag's stock_g so its
+// computed remaining lands exactly on 0 (remaining <= 0 is what
+// classifyBeanBags treats as "past"), without needing the adjust-stock
+// input first.
+export async function markBagEmpty(beanId, bagId) {
+  const bean = S.coffeeLibrary.beans.find(b => b.id === beanId);
+  const bag = bean?.bags?.find(bg => bg.id === bagId);
+  if (!bean || !bag) return;
+  const consumed = bagConsumedGrams(bean, annotationDoseRows(), S.coffeeLibrary.beans, bean.bags, bag);
+  if (!(await putBagStock(beanId, bagId, Math.round(consumed)))) return;
+  renderBeanList();
+}
+
+// Past bags are never in the initial renderBeanList() output — this
+// builds their cards on first expand only (from the same live bean/dose
+// state, so it stays correct across edits) and just toggles visibility on
+// every call after that, so a bean with a long bag history doesn't pay
+// the DOM-build cost for a section most views never open.
+export function togglePastBags(beanId) {
+  const wrap = document.getElementById(`pastBags${beanId}`);
+  const btn  = document.getElementById(`pastBagsBtn${beanId}`);
+  if (!wrap) return;
+  const opening = wrap.style.display === 'none';
+  if (opening && !wrap.dataset.built) {
+    const bean = S.coffeeLibrary.beans.find(b => b.id === beanId);
+    if (bean) {
+      const { past } = classifyBeanBags(bean, annotationDoseRows(), S.coffeeLibrary.beans);
+      wrap.innerHTML = past.map(entry => renderBagCard(bean, entry, 'past', S.coffeeLibrary.beans, true)).join('');
+    }
+    wrap.dataset.built = '1';
+  }
+  wrap.style.display = opening ? '' : 'none';
+  if (btn) btn.textContent = (opening ? '▾ ' : '▸ ') + btn.textContent.replace(/^[▾▸]\s*/, '');
 }
 
 // ── Bag dialog (new / edit) ───────────────────────────────────────────────
@@ -588,6 +748,19 @@ export async function saveBagDialog() {
 
   let r;
   if (_bagDialogBagId == null) {
+    // New bag immediately becomes "current" (it's the newest by openedAt —
+    // see classifyBeanBags), so it starts collecting every future dose
+    // regardless of whether the previous current bag still has stock left.
+    // Warn rather than block: legitimate reasons exist to open a new one
+    // early (e.g. correcting a mistake), but doing it by accident silently
+    // strands the old bag's remaining stock in "upcoming" forever.
+    const bean = S.coffeeLibrary.beans.find(bn => bn.id === _bagDialogBeanId);
+    if (bean) {
+      const { current } = classifyBeanBags(bean, annotationDoseRows(), S.coffeeLibrary.beans);
+      if (current?.remaining > 0 && !confirm(t('lib_bag_open_new_confirm', current.remaining))) {
+        return;
+      }
+    }
     // new bag
     r = await apiFetch(`api/library/bean/${_bagDialogBeanId}/new-bag`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),

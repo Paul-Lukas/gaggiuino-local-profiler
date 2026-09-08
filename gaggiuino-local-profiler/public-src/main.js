@@ -99,9 +99,10 @@ import { loadLibrary, updateLibraryDatalist, switchLibTab, renderBeanList, rende
          openBeanForm, closeBeanForm, editBean, saveBean, deleteBean, toggleBeanActive, uploadBeanImage,
          openGrinderForm, closeGrinderForm, editGrinder, saveGrinder, deleteGrinder, uploadGrinderImage, resetGrinderBurrs,
          toggleBeanQR,
-         toggleBagHistory, openNewBagForm, closeNewBagForm, saveNewBag, deleteBag,
+         openNewBagForm, closeNewBagForm, saveNewBag, deleteBag,
          openNewBagDialog, openEditBagDialog, closeBagDialog, saveBagDialog,
          openBeanStockEdit, closeBeanStockEdit, saveBeanStock,
+         openBagStockEdit, closeBagStockEdit, saveBagStock, markBagEmpty, togglePastBags,
          openFreezeForm, closeFreezeForm, saveFreezePortions, thawPortion, filterShotsByBean,
          openEditFrozenForm, closeEditFrozenForm, saveEditFrozenForm,
          openRecipeForm, closeRecipeForm, editRecipe, saveRecipe, deleteRecipe, renderRecipeList,
@@ -396,7 +397,6 @@ Object.assign(window, {
   deleteGrinder,
   toggleBeanQR,
   generateBeanQR,
-  toggleBagHistory,
   openNewBagForm,
   closeNewBagForm,
   saveNewBag,
@@ -408,6 +408,11 @@ Object.assign(window, {
   openBeanStockEdit,
   closeBeanStockEdit,
   saveBeanStock,
+  openBagStockEdit,
+  closeBagStockEdit,
+  saveBagStock,
+  markBagEmpty,
+  togglePastBags,
   openFreezeForm,
   closeFreezeForm,
   saveFreezePortions,
@@ -890,12 +895,16 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'open-edit-bag':      openEditBagDialog(Number(el.dataset.beanId), Number(el.dataset.bagId)); break;
       case 'close-bag-dialog':   closeBagDialog(); break;
       case 'save-bag-dialog':    saveBagDialog(); break;
-      case 'toggle-bag-history':   toggleBagHistory(numId()); break;
+      case 'toggle-past-bags':    togglePastBags(numId()); break;
       case 'toggle-month-group':  toggleMonthGroup(strId()); break;
       case 'delete-bag':         deleteBag(Number(el.dataset.beanId), Number(el.dataset.bagId)); break;
       case 'open-stock-edit':    openBeanStockEdit(numId()); break;
       case 'close-stock-edit':   closeBeanStockEdit(); break;
       case 'save-stock-edit':    saveBeanStock(numId()); break;
+      case 'open-bag-stock-edit':  openBagStockEdit(Number(el.dataset.bagId)); break;
+      case 'close-bag-stock-edit': closeBagStockEdit(); break;
+      case 'save-bag-stock-edit':  saveBagStock(Number(el.dataset.beanId), Number(el.dataset.bagId)); break;
+      case 'mark-bag-empty':       markBagEmpty(Number(el.dataset.beanId), Number(el.dataset.bagId)); break;
       case 'open-freeze-form':   openFreezeForm(numId()); break;
       case 'close-freeze-form':  closeFreezeForm(numId()); break;
       case 'save-freeze-form':   saveFreezePortions(numId()); break;

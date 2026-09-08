@@ -311,7 +311,7 @@ export default {
     lib_bag_batch_number:'Chargennummer',
     lib_bag_price:'Preis (€)', lib_bag_section_label:'Aktuelle Packung', lib_bag_active:'Aktiv', lib_bag_edit:'Packung bearbeiten', lib_bag_consumed:'Verbraucht', lib_bag_save:'Packung speichern',
     lib_bag_weight:'Gewicht', lib_bag_remaining:'Verbleibend', lib_bag_empty:'Noch keine Packung erfasst.', lib_bag_stock_untracked:'Vorrat nicht erfasst', lib_bag_no_roast_date:'Kein Röstdatum', lib_bag_delete_confirm:'Diese Packung löschen?', lib_bag_invalid_number:'Gewicht und Preis dürfen nicht negativ sein.', lib_bag_future_roast:'Das Röstdatum darf nicht in der Zukunft liegen.',
-    lib_stock_edit_btn:'Bestand anpassen',
+    lib_bag_state_current:'Aktuelle', lib_bag_state_upcoming:'Voll', lib_bag_state_past:'Vergangen', lib_bag_mark_empty:'Als leer markieren', lib_bag_open_new_confirm:(n)=>`Die aktuelle Packung hat noch ${n} g übrig. Trotzdem neue Packung öffnen?`, lib_stock_edit_btn:'Bestand anpassen',
     bag_freeze_btn:'Einfrieren', bag_freeze_save:'Portionen einfrieren',
     bag_freeze_count:'Anzahl Portionen', bag_freeze_weight:'Gramm je Portion',
     bag_frozen_badge:(d)=>`seit ${d}`, bag_frozen_thawed_badge:(d)=>`aufgetaut ${d}`,

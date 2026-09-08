@@ -311,7 +311,7 @@ export default {
     lib_bag_batch_number:'Numero di lotto',
     lib_bag_price:'Prezzo (€)', lib_bag_section_label:'Confezione attuale', lib_bag_active:'Attivo', lib_bag_edit:'Modifica sacchetto', lib_bag_consumed:'Consumato', lib_bag_save:'Salva sacchetto',
     lib_bag_weight:'Peso', lib_bag_remaining:'Rimanente', lib_bag_empty:'Nessuna confezione registrata.', lib_bag_stock_untracked:'Scorta non tracciata', lib_bag_no_roast_date:'Nessuna data di tostatura', lib_bag_delete_confirm:'Eliminare questa confezione?', lib_bag_invalid_number:'Peso e prezzo non possono essere negativi.', lib_bag_future_roast:'La data di tostatura non può essere futura.',
-    lib_stock_edit_btn:'Modifica scorta',
+    lib_bag_state_current:'Attuale', lib_bag_state_upcoming:'Piena', lib_bag_state_past:'Passata', lib_bag_mark_empty:'Segna come vuota', lib_bag_open_new_confirm:(n)=>`La confezione attuale ha ancora ${n} g rimanenti. Aprire comunque una nuova confezione?`, lib_stock_edit_btn:'Modifica scorta',
     bag_freeze_btn:'Congela', bag_freeze_save:'Congela porzioni',
     bag_freeze_count:'Numero di porzioni', bag_freeze_weight:'Grammi per porzione',
     bag_frozen_badge:(d)=>`dal ${d}`, bag_frozen_thawed_badge:(d)=>`scongelato il ${d}`,

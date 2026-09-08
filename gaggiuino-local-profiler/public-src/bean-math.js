@@ -57,6 +57,25 @@ export function sumConsumedDoses(bean, doseRows, allBeans, bags = null) {
   }, 0);
 }
 
+// Sums matching dose rows resolved to exactly `targetBag` — like
+// sumConsumedDoses(..., bags) but for ANY bag in the array, not just the
+// last (active) one. Used by per-bag inventory display and per-bag stock
+// quick-adjust (#bag-inv): unlike the bean-wide "Bestand anpassen" field,
+// which only ever touches the bean's own stock_g fallback and is a no-op
+// once a bag has its own explicit stock_g (the normal case for any bag
+// created through the bag dialog), adjusting a specific bag's remaining
+// needs that bag's own consumed total, not the bean's.
+export function bagConsumedGrams(bean, doseRows, allBeans, bags, targetBag) {
+  const idExists = new Set((allBeans || []).map(b => b.id));
+  const bagList  = Array.isArray(bags) ? bags : [];
+  return (doseRows || []).reduce((sum, r) => {
+    const d = parseFloat(r.dose);
+    if (!d) return sum;
+    if (!matchesBean(r, bean, idExists)) return sum;
+    return resolveBagAtShotTime(bagList, r.timestamp * 1000) === targetBag ? sum + d : sum;
+  }, 0);
+}
+
 // Remaining grams for a stock-tracked bean — FIFO model: totalStock minus
 // all doses consumed during tracked-bag periods, clamped at 0.
 //

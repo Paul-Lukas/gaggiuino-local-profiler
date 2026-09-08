@@ -1342,6 +1342,10 @@
         .lib-bag-card-header { display: flex; align-items: center; gap: var(--sp-2); }
         .lib-bag-date { font-size: var(--fs-1); font-weight: 600; color: var(--gray-300); }
         .lib-bag-active-badge { font-size: 10px; font-weight: 700; background: rgba(var(--accent-rgb,99,102,241),.2); color: var(--accent); border: 1px solid rgba(var(--accent-rgb,99,102,241),.4); border-radius: 4px; padding: 0 var(--sp-1); letter-spacing: .03em; text-transform: uppercase; }
+        .lib-bag-upcoming-badge { font-size: 10px; font-weight: 700; background: rgba(34,197,94,.15); color: #4ade80; border: 1px solid rgba(34,197,94,.35); border-radius: 4px; padding: 0 var(--sp-1); letter-spacing: .03em; text-transform: uppercase; }
+        .lib-bag-past-badge { font-size: 10px; font-weight: 700; background: rgba(255,255,255,.06); color: var(--gray-600); border: 1px solid rgba(255,255,255,.12); border-radius: 4px; padding: 0 var(--sp-1); letter-spacing: .03em; text-transform: uppercase; }
+        .lib-bag-card-actions-row { display: flex; gap: var(--sp-2); margin-top: var(--sp-1); }
+        .lib-bag-history-past { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-2); }
         .lib-bag-card-actions { margin-left: auto; display: flex; gap: var(--sp-1); }
         .lib-bag-edit-btn { background: none; border: none; color: var(--gray-600); cursor: pointer; padding: 2px; line-height: 1; transition: color .15s; display: flex; align-items: center; }
         .lib-bag-edit-btn:hover { color: var(--gray-300); }
