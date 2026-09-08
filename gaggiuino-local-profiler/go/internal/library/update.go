@@ -194,6 +194,9 @@ func UpdateGrinder(repo *Repository, id int64, body Entity) (Entity, Library, bo
 	if v, present := trimMaxOrUndefined(body, "burrsResetAt", 10); present {
 		grinder["burrsResetAt"] = v
 	}
+	if _, present := body["burrsWeightOffset"]; present {
+		grinder["burrsWeightOffset"] = nonNegativeFloatOrZero(body["burrsWeightOffset"])
+	}
 	lib.Grinders[idx] = grinder
 	if err := repo.SaveLibrary(lib); err != nil {
 		return nil, Library{}, false, err

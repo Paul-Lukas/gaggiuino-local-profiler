@@ -295,6 +295,14 @@ func floatOrZero(v any) float64 {
 	return f
 }
 
+func nonNegativeFloatOrZero(v any) float64 {
+	f, ok := jsParseFloat(v)
+	if !ok || f < 0 {
+		return 0
+	}
+	return f
+}
+
 // boolOf ports JS's `!!v` truthiness coercion for the handful of fields
 // (decaf, milk request bodies, ...) that use it directly.
 func boolOf(v any) bool {

@@ -106,6 +106,7 @@ func SanitizeGrinderFields(grinder Entity) Entity {
 	out["notes"] = trimMax(grinder["notes"], 1000)
 	out["burrType"] = trimMax(grinder["burrType"], 200)
 	out["purchaseDate"] = trimMax(grinder["purchaseDate"], 10)
+	out["burrsWeightOffset"] = nonNegativeFloatOrZero(grinder["burrsWeightOffset"])
 	return out
 }
 

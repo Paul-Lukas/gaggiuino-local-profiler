@@ -9,8 +9,7 @@ import { apiFetch } from '../api.js';
 import { S } from '../state.js';
 import { t } from '../i18n.js';
 import { esc } from '../utils.js';
-import { loadShotDefaults, loadDrinkMenu } from '../views/shots/annotation.js';
-import { attachAutocomplete } from './autocomplete.js';
+import { getGrinderFieldValue, loadShotDefaults, loadDrinkMenu, renderGrinderField } from '../views/shots/annotation.js';
 import { CHECK_ICON_SVG } from '../icons.js';
 
 export function renderShotDefaultsSettingsCard() {
@@ -47,15 +46,7 @@ export function renderShotDefaultsSettingsCard() {
       puckScreens.map(p => `<option value="${p.id}"${d.puckScreenId === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
   }
 
-  const grinderInput = document.getElementById('sdGrinder');
-  if (grinderInput) {
-    grinderInput.value = d.grinder || '';
-    // #691: was a plain text input with no suggestions, unlike the real
-    // annotation panel's #annGrinder (main.js). attachAutocomplete() is a
-    // no-op if this input already has one attached (guards on
-    // input._autocomplete), so calling it on every render here is safe.
-    attachAutocomplete(grinderInput, () => S.coffeeLibrary?.grinders?.map(g => g.name) || []);
-  }
+  renderGrinderField('sdGrinder', 'sdGrinderOther', d.grinder || '', t('sd_none'));
 
   const doseInput = document.getElementById('sdDose');
   if (doseInput) doseInput.value = d.dose ?? '';
@@ -83,7 +74,7 @@ export async function saveShotDefaultsSettings() {
     beanId:       beanIdAttr ? parseInt(beanIdAttr, 10) : null,
     basketId:     parseInt(document.getElementById('sdBasket')?.value, 10) || null,
     puckScreenId: parseInt(document.getElementById('sdPuckScreen')?.value, 10) || null,
-    grinder:      document.getElementById('sdGrinder')?.value.trim() || '',
+    grinder:      getGrinderFieldValue('sdGrinder', 'sdGrinderOther'),
     dose:         parseFloat(document.getElementById('sdDose')?.value) || null,
   };
 

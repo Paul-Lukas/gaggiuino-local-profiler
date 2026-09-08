@@ -1101,8 +1101,8 @@
         .star-rating { display: flex; gap: var(--sp-1); }
         .star { cursor: pointer; color: var(--gray-700); transition: color .12s; user-select: none; line-height: 0; }
         .star .star-glyph { width: 22px; height: 22px; fill: none; }
-        .star.active, .star:hover { color: var(--accent-ink); }
-        .star.active .star-glyph, .star:hover .star-glyph { fill: currentColor; }
+        .star.active, .star.hovered, .star:hover { color: var(--accent-ink); }
+        .star.active .star-glyph, .star.hovered .star-glyph, .star:hover .star-glyph { fill: currentColor; }
         /* #403: touch-target audit — a bare glyph at any font-size falls
            short of the 44x44px minimum hit area on touch, regardless of
            viewport width, so this is gated on (hover: none) rather than a
@@ -1239,7 +1239,8 @@
         }
         .lib-grinder-wear { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; white-space: normal; }
         .lib-grinder-wear > span:first-child { display: inline-flex; align-items: center; gap: var(--sp-1); }
-        .lib-grinder-reset-burrs { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); border-radius:var(--radius); font-size: var(--fs-1); padding: 2px var(--sp-2); }
+        .lib-grinder-reset-burrs { background: var(--gray-800); border: 1px solid var(--gray-700); border-radius:var(--radius); color:var(--gray-300); font-size: var(--fs-1); padding: 2px var(--sp-2); cursor:pointer; transition:background .15s,color .15s,border-color .15s; }
+        .lib-grinder-reset-burrs:hover { background:var(--gray-700); color:var(--gray-100); border-color:var(--gray-600); }
         /* ── Inventory block (Material Design) ─────────────────────────────── */
         .lib-inv-block { margin-top: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-1); }
         .lib-inv-bar-row { display: flex; align-items: center; gap: var(--sp-2); }
@@ -1388,6 +1389,7 @@
         .lib-btn-sm { background: none; border: none; border-radius:var(--radius); color: var(--gray-600); font-size: var(--fs-1); padding: var(--sp-1) var(--sp-2); cursor: pointer; transition: background .15s, color .15s; display: inline-flex; align-items: center; justify-content: center; }
         .lib-btn-sm:hover { background: rgba(255,255,255,.06); color: var(--gray-400); }
         .lib-btn-sm.del:hover { background: rgba(239,68,68,.1); color: var(--err); }
+        .lib-btn-sm:disabled { opacity:.5; cursor:not-allowed; }
         .lib-btn-icon { padding: var(--sp-1); min-width: 28px; min-height: 28px; }
         .lib-add-form { background: var(--gray-800); border-radius:var(--radius); padding: var(--sp-3); display: none; margin-bottom: var(--sp-2); }
         .lib-add-form.open { display: block; }
@@ -2439,7 +2441,7 @@
             align-self:flex-start; background:transparent; border:1px solid var(--gray-700); border-radius:var(--radius);
             color:var(--gray-400); font-size: var(--fs-1); font-weight:600; padding: var(--sp-2) var(--sp-3); cursor:pointer;
             margin-top: var(--sp-2); transition:all .15s; }
-        .maint-guide-btn:hover { color:var(--gray-200); border-color:var(--gray-500); }
+        .maint-guide-btn:hover { background:var(--gray-800); color:var(--gray-200); border-color:var(--gray-500); }
         /* Guided maintenance walkthrough */
         .guided-maint-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:1000; padding: var(--sp-4); }
         .guided-maint-modal { background:var(--gray-900); border-radius:var(--radius); padding: var(--sp-4); max-width:440px; width:100%; max-height:85vh; overflow-y:auto; display:flex; flex-direction:column; gap: var(--sp-3); }
@@ -2593,7 +2595,7 @@
         .maint-log-section { margin-top: var(--sp-5); display:flex; flex-direction:column; gap: var(--sp-3); }
         .maint-log-header  { display:flex; justify-content:space-between; align-items:center; }
         .maint-log-add-btn { background:transparent; border:1px solid var(--gray-700); color:var(--gray-400); border-radius:var(--radius); padding: var(--sp-1) var(--sp-3); cursor:pointer; font-size: var(--fs-1); transition:all .15s; }
-        .maint-log-add-btn:hover { color:var(--gray-200); border-color:var(--gray-500); }
+        .maint-log-add-btn:hover { background:var(--gray-800); color:var(--gray-200); border-color:var(--gray-500); }
         .maint-log-form { background:var(--gray-900); border-radius:var(--radius); padding: var(--sp-4); display:flex; flex-direction:column; gap: var(--sp-3); }
         .maint-log-form-row { display:flex; gap: var(--sp-2); flex-wrap:wrap; }
         .maint-log-select, .maint-log-date, .maint-log-notes-input {
@@ -2604,8 +2606,8 @@
         .maint-log-date   { flex:0 0 auto; }
         .maint-log-notes-input { flex:1; min-width:120px; }
         .maint-log-form-actions { display:flex; gap: var(--sp-2); }
-        .maint-log-cancel-btn { background:transparent; border:1px solid var(--gray-700); color:var(--gray-500); border-radius:var(--radius); padding: var(--sp-2) var(--sp-4); cursor:pointer; font-size: var(--fs-1); }
-        .maint-log-cancel-btn:hover { color:var(--gray-300); }
+        .maint-log-cancel-btn { background:transparent; border:1px solid var(--gray-700); color:var(--gray-400); border-radius:var(--radius); padding: var(--sp-2) var(--sp-4); cursor:pointer; font-size: var(--fs-1); transition:background .15s,color .15s,border-color .15s; }
+        .maint-log-cancel-btn:hover { background:var(--gray-800); color:var(--gray-200); border-color:var(--gray-500); }
         .maint-log-manual-badge { font-size: var(--fs-1); font-weight:700; background:rgba(132,204,22,.12); border:1px solid rgba(132,204,22,.3); color:#84cc16; border-radius:var(--radius); padding: 1px var(--sp-1); vertical-align:middle; margin-left: var(--sp-1); }
 
         /* Maintenance log table (#393) */

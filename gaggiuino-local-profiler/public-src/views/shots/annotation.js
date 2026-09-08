@@ -12,6 +12,45 @@ import { COFFEE_ICON_SVG, CHECK_ICON_SVG } from '../../icons.js';
 import { localeFor } from '../../constants.js';
 import { computeBeanRemaining } from '../../bean-math.js';
 
+const OTHER_GRINDER_VALUE = '__other__';
+
+export function getGrinderFieldValue(selectId, otherId) {
+  const select = document.getElementById(selectId);
+  if (!select) return '';
+  if (select.tagName !== 'SELECT') return select.value.trim();
+  if (select.value === OTHER_GRINDER_VALUE) {
+    return document.getElementById(otherId)?.value.trim() || '';
+  }
+  return select.value.trim();
+}
+
+export function renderGrinderField(selectId, otherId, value, noneLabel = t('sd_none')) {
+  const select = document.getElementById(selectId);
+  const other = document.getElementById(otherId);
+  if (!select || select.tagName !== 'SELECT') return;
+
+  const grinders = S.coffeeLibrary?.grinders || [];
+  const knownNames = new Set(grinders.map(g => g.name));
+  const isOther = !!value && !knownNames.has(value);
+  select.innerHTML = `<option value="">${esc(noneLabel)}</option>` +
+    grinders.map(g => `<option value="${esc(g.name)}"${!isOther && value === g.name ? ' selected' : ''}>${esc(g.name)}</option>`).join('') +
+    `<option value="${OTHER_GRINDER_VALUE}"${isOther ? ' selected' : ''}>${esc(t('dialin_wizard_grinder_other'))}</option>`;
+  if (!value) select.value = '';
+
+  if (other) {
+    other.style.display = isOther ? '' : 'none';
+    other.value = isOther ? value : '';
+  }
+}
+
+export function handleGrinderFieldChange(selectId, otherId) {
+  const select = document.getElementById(selectId);
+  const other = document.getElementById(otherId);
+  if (!select || !other || select.tagName !== 'SELECT') return;
+  other.style.display = select.value === OTHER_GRINDER_VALUE ? '' : 'none';
+  if (select.value === OTHER_GRINDER_VALUE) other.focus();
+}
+
 // ── Auto-save ─────────────────────────────────────────────────────────────
 
 let _autoSaveTimer = null;
@@ -113,7 +152,7 @@ function _buildAnnotationPayload(shot) {
     beanId,
     basketId,
     puckScreenId,
-    grinder:      document.getElementById('annGrinder').value.trim(),
+    grinder:      getGrinderFieldValue('annGrinder', 'annGrinderOther'),
     grindSetting: document.getElementById('annGrindSetting').value.trim(),
     dose:         parseFloat(document.getElementById('annDose').value) || null,
     roastDate:    germanToIso(_roastDateFromLibrary(coffee, shot?.timestamp, beanId) || '') || null,
@@ -549,7 +588,7 @@ export function renderAnnotationPanel(shot) {
   _renderBasketSelect(ann.basketId ?? null);
   _renderPuckScreenSelect(ann.puckScreenId ?? null);
   _renderFrozenPortionPills(ann.coffee || null, shot?.timestamp ? shot.timestamp * 1000 : Date.now(), ann.frozenPortionId ?? null);
-  document.getElementById('annGrinder').value      = ann.grinder      || '';
+  renderGrinderField('annGrinder', 'annGrinderOther', ann.grinder || '', t('sd_none'));
   document.getElementById('annGrindSetting').value = ann.grindSetting || '';
   document.getElementById('annDose').value         = ann.dose         || '';
   updateDegassing(_roastDateFromLibrary(ann.coffee, shot?.timestamp, ann.beanId) || '');
@@ -599,7 +638,7 @@ export function quickClone() {
   const suggested = beanName
     ? suggestGrindDoseForBean(beanName, S.coffeeLibrary, S.shots, { preferMostRecent: true, beanId })
     : { grinder: '', grindSetting: '', dose: '' };
-  document.getElementById('annGrinder').value      = suggested.grinder      || ann.grinder      || '';
+  renderGrinderField('annGrinder', 'annGrinderOther', suggested.grinder || ann.grinder || '', t('sd_none'));
   document.getElementById('annGrindSetting').value = suggested.grindSetting || ann.grindSetting || '';
   document.getElementById('annDose').value         = suggested.dose         || ann.dose         || '';
   updateDegassing(_roastDateFromLibrary(beanName, currentShot?.timestamp, beanId) || '');

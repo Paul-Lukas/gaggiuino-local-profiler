@@ -144,7 +144,7 @@ func CreateGrinder(repo *Repository, body Entity) (Entity, Library, error) {
 	grinder := Entity{
 		"id": newID(), "name": trimMax(body["name"], 200), "notes": trimMax(body["notes"], 1000),
 		"burrType": trimMax(body["burrType"], 200), "purchaseDate": purchaseDate,
-		"burrsResetAt": burrsResetAt,
+		"burrsResetAt": burrsResetAt, "burrsWeightOffset": nonNegativeFloatOrZero(body["burrsWeightOffset"]),
 	}
 	lib.Grinders = append(lib.Grinders, grinder)
 	if err := repo.SaveLibrary(lib); err != nil {

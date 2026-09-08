@@ -81,6 +81,13 @@ func (h *Handlers) resetBurrs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	grinder := lib.Grinders[idx]
+	if r.Body != nil && r.ContentLength != 0 {
+		body, ok := decodeJSONBody(w, r)
+		if !ok {
+			return
+		}
+		grinder["burrsWeightOffset"] = nonNegativeFloatOrZero(body["burrsWeightOffset"])
+	}
 	grinder["burrsResetAt"] = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	lib.Grinders[idx] = grinder
 	if err := h.repo.SaveLibrary(lib); err != nil {

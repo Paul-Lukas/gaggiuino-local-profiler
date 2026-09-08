@@ -494,24 +494,33 @@ func TestGrinder_CreateUpdateResetBurrsDelete(t *testing.T) {
 	h, _, _ := newTestHandlers(t)
 	mux := newMux(h)
 
-	rec := doJSON(t, mux, http.MethodPost, "/api/library/grinder", mustMarshal(t, map[string]any{"name": "Niche Zero"}))
+	rec := doJSON(t, mux, http.MethodPost, "/api/library/grinder", mustMarshal(t, map[string]any{"name": "Niche Zero", "burrsWeightOffset": 125}))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create status = %d; body=%s", rec.Code, rec.Body.String())
 	}
 	grinder := decodeBody(t, rec.Body.Bytes())
 	id := int64(grinder["id"].(float64))
+	if grinder["burrsWeightOffset"] != float64(125) {
+		t.Fatalf("create burrsWeightOffset = %v, want 125", grinder["burrsWeightOffset"])
+	}
 
-	rec = doJSON(t, mux, http.MethodPut, "/api/library/grinder/"+itoa(id), mustMarshal(t, map[string]any{"burrType": "64mm conical"}))
+	rec = doJSON(t, mux, http.MethodPut, "/api/library/grinder/"+itoa(id), mustMarshal(t, map[string]any{"burrType": "64mm conical", "burrsWeightOffset": 250.5}))
 	updated := decodeBody(t, rec.Body.Bytes())
 	if updated["burrType"] != "64mm conical" {
 		t.Fatalf("unexpected updated grinder: %+v", updated)
 	}
+	if updated["burrsWeightOffset"] != 250.5 {
+		t.Fatalf("update burrsWeightOffset = %v, want 250.5", updated["burrsWeightOffset"])
+	}
 
-	rec = doJSON(t, mux, http.MethodPost, "/api/library/grinder/"+itoa(id)+"/reset-burrs", nil)
+	rec = doJSON(t, mux, http.MethodPost, "/api/library/grinder/"+itoa(id)+"/reset-burrs", mustMarshal(t, map[string]any{"burrsWeightOffset": 42}))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reset-burrs status = %d; body=%s", rec.Code, rec.Body.String())
 	}
 	reset := decodeBody(t, rec.Body.Bytes())
+	if reset["burrsWeightOffset"] != float64(42) {
+		t.Fatalf("reset burrsWeightOffset = %v, want 42", reset["burrsWeightOffset"])
+	}
 	wear, ok := reset["wear"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected wear object, got %+v", reset["wear"])

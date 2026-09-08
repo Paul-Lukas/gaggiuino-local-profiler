@@ -56,6 +56,7 @@ import { renderBottomNav, renderBottomNavSettings, closeMoreSheet } from './comp
 
 import { getShotData, calcShotScore, loadData, loadTrashData, renderTrash, toggleTrash,
          trashShot, restoreShot, permanentDeleteShot,
+         handleGrinderFieldChange, renderGrinderField,
          renderAnnotationPanel, renderStars, quickClone, scheduleAutoSave, flushAutoSave, updateDegassing, calcBeanAgeAtShot,
          suggestGrindDoseForBean,
          uploadShotImage, removeShotImage, openShotPhotoLightbox,
@@ -150,7 +151,6 @@ import { loadNotifySettingsCard, saveNotifySettings } from './components/notify-
 import { loadShotDefaultsSettingsCard, saveShotDefaultsSettings } from './components/shot-defaults-settings.js';
 
 import { renderWhatsNewCard } from './components/whats-new.js';
-import { attachAutocomplete } from './components/autocomplete.js';
 
 import { BEAN_ICON_SVG } from './icons.js';
 
@@ -538,7 +538,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const grinderEl = document.getElementById('annGrinder');
       const grindEl   = document.getElementById('annGrindSetting');
       const doseEl    = document.getElementById('annDose');
-      if (suggested.grinder      && grinderEl) grinderEl.value = suggested.grinder;
+      if (suggested.grinder      && grinderEl) renderGrinderField('annGrinder', 'annGrinderOther', suggested.grinder, t('sd_none'));
       if (suggested.grindSetting && grindEl)   grindEl.value   = suggested.grindSetting;
       if (suggested.dose         && doseEl)    doseEl.value    = suggested.dose;
 
@@ -711,12 +711,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // #430: no more explicit Save button — auto-save on input, flushed
   // immediately on blur (leaving the field) and on page hide/mode-switch
   // (below) so a pending debounced save is never silently dropped.
-  ['annCoffee','annGrinder','annGrindSetting','annDose','annTds','annNotes'].forEach(id => {
+  ['annCoffee','annGrinder','annGrinderOther','annGrindSetting','annDose','annTds','annNotes'].forEach(id => {
     const el = document.getElementById(id);
     el.addEventListener('input', scheduleAutoSave);
     el.addEventListener('blur', flushAutoSave);
   });
-  attachAutocomplete(document.getElementById('annGrinder'), () => S.coffeeLibrary.grinders.map(g => g.name));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushAutoSave();
     // #733: the 30s setInterval(updateStatus, ...) below gets throttled by
@@ -986,6 +985,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (el.dataset.action === 'dialin-grinder-select') {
       dialinGrinderChange();
+    }
+    if (el.dataset.action === 'annotation-grinder-select') {
+      handleGrinderFieldChange('annGrinder', 'annGrinderOther');
+      scheduleAutoSave();
+    }
+    if (el.dataset.action === 'shot-default-grinder-select') {
+      handleGrinderFieldChange('sdGrinder', 'sdGrinderOther');
     }
     if (el.dataset.action === 'switch-machine') {
       switchActiveMachine(el.value);

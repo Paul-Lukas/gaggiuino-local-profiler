@@ -119,7 +119,7 @@ func ComputeGrinderWearFrom(allShots []shots.Shot, grinder Entity) (shotsSinceBu
 		return 0, 0
 	}
 
-	var grams float64
+	grams := nonNegativeFloatOrZero(grinder["burrsWeightOffset"])
 	for _, shot := range allShots {
 		ann, _ := shot["annotation"].(map[string]any)
 		grinderName := ""

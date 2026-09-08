@@ -415,6 +415,13 @@ export function openMaintLogForm() {
     opt.value = task; opt.textContent = t(meta.key);
     sel.appendChild(opt);
   }
+  for (const grinder of S.coffeeLibrary?.grinders || []) {
+    if (grinder?.id == null) continue;
+    const opt = document.createElement('option');
+    opt.value = `grinder_${grinder.id}`;
+    opt.textContent = grinder.name || `Grinder ${grinder.id}`;
+    sel.appendChild(opt);
+  }
   // Set date to today
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('maintLogDate').value = today;

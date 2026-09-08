@@ -71,6 +71,21 @@ func TestGrinderWear_SinglePassMatchesPerGrinder(t *testing.T) {
 	}
 }
 
+func TestGrinderWear_AddsBurrsWeightOffset(t *testing.T) {
+	h, _, sqlDB := newTestHandlers(t)
+	insertWearShot(t, sqlDB, 1, 1000, "Niche Zero", 18.0)
+	insertWearShot(t, sqlDB, 2, 2000, "Niche Zero", 18.5)
+
+	allShots, err := h.shotsRepo.FindAllExcludingTrash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	shots, grams := ComputeGrinderWearFrom(allShots, Entity{"name": "Niche Zero", "burrsWeightOffset": float64(250)})
+	if shots != 2 || grams != 286.5 {
+		t.Fatalf("wear with offset = (%d, %g), want (2, 286.5)", shots, grams)
+	}
+}
+
 func benchGrinderWear(b *testing.B, singlePass bool) {
 	h, _, sqlDB := newTestHandlers(b)
 	names := []string{"Niche", "Eureka", "DF64", "Kafatek"}

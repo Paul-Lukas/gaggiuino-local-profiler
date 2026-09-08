@@ -16,6 +16,8 @@ import { renderShotDefaultsSettingsCard } from '../components/shot-defaults-sett
 import { matchesBean, sumConsumedDoses, computeBeanRemaining, remainingToStockG, resolveBagAtShotTime } from '../bean-math.js';
 import { TARGET_ICON_SVG, SLIDERS_ICON_SVG, FLAVOR_WHEEL_ICON_SVG, COFFEE_ICON_SVG, WATER_DROP_ICON_SVG, SNOWFLAKE_ICON_SVG, LINK_ICON_SVG, WRENCH_ICON_SVG, STAR_ICON_SVG, WARNING_ICON_SVG, CLOSE_ICON_SVG, EDIT_ICON_SVG } from '../icons.js';
 
+const _pendingBeanActiveToggles = new Set();
+
 const ICON_PENCIL = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"/></svg>`;
 const ICON_TRASH  = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H10V19H8V9M14,9H16V19H14V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z"/></svg>`;
 const ICON_EYE     = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z"/></svg>`;
@@ -388,7 +390,7 @@ export function renderBeanList() {
         <button class="lib-btn-sm" data-action="create-profile-from-bean" data-id="${b.id}" title="${t('profile_create_from_bean')}">${SLIDERS_ICON_SVG}</button>
         <button class="lib-btn-sm" data-action="start-dialin-from-bean" data-id="${b.id}" title="${t('dialin_wizard_start_from_bean')}">${TARGET_ICON_SVG}</button>
         <button class="lib-btn-sm" data-action="toggle-bean-qr" data-id="${b.id}" title="${t('bean_qr_label')}">QR</button>
-        <button class="lib-btn-sm lib-btn-icon" data-action="toggle-bean-active" data-id="${b.id}" title="${t(disabled ? 'lib_btn_enable' : 'lib_btn_disable')}">${disabled ? ICON_EYE_OFF : ICON_EYE}</button>
+        <button class="lib-btn-sm lib-btn-icon" data-action="toggle-bean-active" data-id="${b.id}" title="${t(disabled ? 'lib_btn_enable' : 'lib_btn_disable')}"${_pendingBeanActiveToggles.has(b.id) ? ' disabled' : ''}>${disabled ? ICON_EYE_OFF : ICON_EYE}</button>
         <button class="lib-btn-sm lib-btn-icon" data-action="edit-bean" data-id="${b.id}" title="${t('lib_btn_edit')}">${ICON_PENCIL}</button>
         <button class="lib-btn-sm del lib-btn-icon" data-action="delete-bean" data-id="${b.id}" title="${t('lib_btn_delete')}">${ICON_TRASH}</button>
       </div>
@@ -1090,12 +1092,30 @@ export async function deleteBean(id) {
 // The bean stays fully visible/editable in the library either way; only its
 // presence in /api/orders/active-beans changes.
 export async function toggleBeanActive(id) {
-  const r = await apiFetch(`api/library/bean/${id}/toggle-active`, { method: 'POST' });
-  if (!r.ok) return;
-  const saved = await r.json();
   const idx = S.coffeeLibrary.beans.findIndex(b => b.id === id);
-  if (idx !== -1) S.coffeeLibrary.beans[idx] = saved;
+  if (idx === -1 || _pendingBeanActiveToggles.has(id)) return;
+
+  const previous = { ...S.coffeeLibrary.beans[idx] };
+  S.coffeeLibrary.beans[idx] = {
+    ...S.coffeeLibrary.beans[idx],
+    enabled: S.coffeeLibrary.beans[idx].enabled === false,
+  };
+  _pendingBeanActiveToggles.add(id);
   renderBeanList();
+
+  try {
+    const r = await apiFetch(`api/library/bean/${id}/toggle-active`, { method: 'POST' });
+    if (!r.ok) throw new Error('toggle failed');
+    const saved = await r.json();
+    const savedIdx = S.coffeeLibrary.beans.findIndex(b => b.id === id);
+    if (savedIdx !== -1) S.coffeeLibrary.beans[savedIdx] = saved;
+  } catch {
+    const revertIdx = S.coffeeLibrary.beans.findIndex(b => b.id === id);
+    if (revertIdx !== -1) S.coffeeLibrary.beans[revertIdx] = previous;
+  } finally {
+    _pendingBeanActiveToggles.delete(id);
+    renderBeanList();
+  }
 }
 
 // ── Grinder form ──────────────────────────────────────────────────────────
@@ -1106,6 +1126,7 @@ export function openGrinderForm(grinder) {
   document.getElementById('grinderFormBurrType').value     = grinder?.burrType || '';
   attachAutocomplete(document.getElementById('grinderFormBurrType'), () => BURR_TYPE_SUGGESTIONS);
   document.getElementById('grinderFormPurchaseDate').value = toIsoDateInput(grinder?.purchaseDate);
+  document.getElementById('grinderFormBurrsWeightOffset').value = grinder?.burrsWeightOffset ?? '';
   document.getElementById('grinderFormImageField').style.display = grinder ? '' : 'none';
   document.getElementById('grinderAddForm').classList.add('open');
   document.getElementById('grinderAddTrigger').style.display = 'none';
@@ -1128,8 +1149,9 @@ export async function saveGrinder() {
   const notes        = document.getElementById('grinderFormNotes').value.trim();
   const burrType     = document.getElementById('grinderFormBurrType').value.trim();
   const purchaseDate = document.getElementById('grinderFormPurchaseDate').value.trim();
+  const burrsWeightOffset = parseFloat(document.getElementById('grinderFormBurrsWeightOffset').value) || 0;
   if (!name) { document.getElementById('grinderFormName').focus(); return; }
-  const body = JSON.stringify({ name, notes, burrType, purchaseDate });
+  const body = JSON.stringify({ name, notes, burrType, purchaseDate, burrsWeightOffset });
   const url  = S.grinderEditId ? `api/library/grinder/${S.grinderEditId}` : 'api/library/grinder';
   const r    = await apiFetch(url, { method: S.grinderEditId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body });
   if (!r.ok) return;
@@ -1149,7 +1171,15 @@ export async function saveGrinder() {
 
 export async function resetGrinderBurrs(id) {
   if (!confirm(t('lib_grinder_confirm_reset_burrs'))) return;
-  const r = await apiFetch(`api/library/grinder/${id}/reset-burrs`, { method: 'POST' });
+  const current = S.coffeeLibrary.grinders.find(g => g.id === id);
+  const rawOffset = prompt(t('lib_grinder_reset_burrs_offset_prompt'), current?.burrsWeightOffset ?? '0');
+  if (rawOffset === null) return;
+  const burrsWeightOffset = Math.max(0, parseFloat(rawOffset) || 0);
+  const r = await apiFetch(`api/library/grinder/${id}/reset-burrs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ burrsWeightOffset }),
+  });
   if (!r.ok) return;
   const saved = await r.json();
   const idx = S.coffeeLibrary.grinders.findIndex(g => g.id === id);

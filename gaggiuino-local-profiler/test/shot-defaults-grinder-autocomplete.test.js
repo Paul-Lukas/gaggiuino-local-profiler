@@ -1,22 +1,17 @@
-// #691: Settings -> "Shot logging defaults" grinder field (#sdGrinder) was a
-// plain text input with no suggestions, unlike the real annotation panel's
-// #annGrinder (which has attachAutocomplete() wired to S.coffeeLibrary.grinders,
-// see main.js). renderShotDefaultsSettingsCard() now attaches the same
-// autocomplete. Mocks attachAutocomplete itself rather than rebuilding its
-// internal fake-DOM harness (see test/autocomplete.test.js for that) -- this
-// test only needs to prove the wiring, not attachAutocomplete's own behavior.
+// #322: Settings -> "Shot logging defaults" grinder field (#sdGrinder) uses
+// the same library select + free-text fallback as shot annotation and the
+// dial-in wizard.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 globalThis.localStorage ??= { getItem: () => null, setItem: () => {} };
 globalThis.navigator ??= { language: 'en-US' };
 
-const attachAutocompleteMock = vi.fn();
-vi.mock('../public-src/components/autocomplete.js', () => ({
-  attachAutocomplete: attachAutocompleteMock,
-}));
+const renderGrinderFieldMock = vi.fn();
 vi.mock('../public-src/views/shots/annotation.js', () => ({
   loadShotDefaults: vi.fn(),
   loadDrinkMenu: vi.fn(),
+  renderGrinderField: renderGrinderFieldMock,
+  getGrinderFieldValue: vi.fn(() => ''),
 }));
 
 const { S } = await import('../public-src/state.js');
@@ -27,33 +22,28 @@ function makeFakeDocument(fields) {
   return { getElementById: id => registry.get(id) };
 }
 
-describe('shot defaults grinder autocomplete (#691)', () => {
-  let grinderInput;
-
+describe('shot defaults grinder select (#322)', () => {
   beforeEach(() => {
-    attachAutocompleteMock.mockClear();
-    grinderInput = { value: '' };
-    globalThis.document = makeFakeDocument({ sdGrinder: grinderInput });
+    renderGrinderFieldMock.mockClear();
+    globalThis.document = makeFakeDocument({});
     S.shotDefaults = {};
   });
 
-  it('attaches autocomplete to #sdGrinder on render', () => {
+  it('renders #sdGrinder through the shared grinder select helper', () => {
     renderShotDefaultsSettingsCard();
-    expect(attachAutocompleteMock).toHaveBeenCalledTimes(1);
-    expect(attachAutocompleteMock.mock.calls[0][0]).toBe(grinderInput);
+    expect(renderGrinderFieldMock).toHaveBeenCalledTimes(1);
+    expect(renderGrinderFieldMock.mock.calls[0].slice(0, 3)).toEqual(['sdGrinder', 'sdGrinderOther', '']);
   });
 
-  it('the attached getOptions callback returns grinder names from the coffee library', () => {
-    S.coffeeLibrary = { grinders: [{ name: 'Niche Zero' }, { name: 'Kingrinder K6' }] };
+  it('passes an existing defaults grinder value through for preselection', () => {
+    S.shotDefaults = { grinder: 'Niche Zero' };
     renderShotDefaultsSettingsCard();
-    const getOptions = attachAutocompleteMock.mock.calls[0][1];
-    expect(getOptions()).toEqual(['Niche Zero', 'Kingrinder K6']);
+    expect(renderGrinderFieldMock.mock.calls[0].slice(0, 3)).toEqual(['sdGrinder', 'sdGrinderOther', 'Niche Zero']);
   });
 
-  it('the getOptions callback does not throw when the coffee library has no grinders yet', () => {
-    S.coffeeLibrary = {};
+  it('does not require the coffee library to be loaded yet', () => {
+    S.coffeeLibrary = null;
     renderShotDefaultsSettingsCard();
-    const getOptions = attachAutocompleteMock.mock.calls[0][1];
-    expect(getOptions()).toEqual([]);
+    expect(renderGrinderFieldMock).toHaveBeenCalledTimes(1);
   });
 });
