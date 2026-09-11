@@ -25,7 +25,7 @@ if ('serviceWorker' in navigator) {
 
 // Installable PWA (v1.112.0): register the app-shell service worker, but only
 // when the server actually injected the manifest link into this page — see
-// server.js's isIngressRequest()/index.html route. Requests arriving through
+// the backend's ingress-trust check (go/internal/auth) and SPA index route. Requests arriving through
 // HA Ingress (the Companion App's embedded WebView) never get that link, so
 // this branch never runs there, which is the structural fix for the
 // v1.102.0 regression (that SW's fetch interception broke the Companion
@@ -40,7 +40,7 @@ import { t, setLang, applyTranslations } from './i18n.js';
 import { connectEvents, onEvent, EVENTS } from './sse.js';
 import { generateBeanQR } from './glp-qr.js';
 import { themeColor, THEME_CHANGE_EVENT, onThemeChange, applyChartTheme } from './utils.js';
-import { THEME_STORAGE_KEY, applyTheme, watchSystemTheme } from './theme.js';
+import { THEME_STORAGE_KEY, applyTheme, watchSystemTheme, migrateLegacyAccent } from './theme.js';
 import { openBackupExportModal, openBackupRestoreModal } from './components/backup-modal.js';
 
 import { renderSidebar, updateSidebarHighlighting, filterShots, setSortMode, sortedShots, updateFlapCounter,
@@ -136,7 +136,8 @@ import { startProfileDialinFromList, profileDialinClose,
 import { loadDemoData, endDemo } from './components/onboarding.js';
 
 import { loadMachines, openMachineForm, closeMachineForm, saveMachineForm, testMachineForm, switchActiveMachine, renderMachinesList,
-         onThemeCustomColorAChange, onThemeCustomColorBChange, onThemeGradientToggleChange, onMachineTypeChange } from './components/machines-settings.js';
+         onThemeCustomColorAChange, onThemeCustomColorBChange, onThemeGradientToggleChange, onMachineTypeChange,
+         applyActiveMachineAccentTheme, renderAccentSwatches } from './components/machines-settings.js';
 
 import { openSetupWizard, closeSetupWizard, setupWizardGetStarted, setupWizardSkipToDemo,
          shouldOpenSetupWizard } from './views/setup-wizard.js';
@@ -238,10 +239,23 @@ Object.assign(window, {
   },
   setAccentTheme: (name) => {
     localStorage.setItem('glp_accent_theme', name);
+    // #1019: the only thing that still applies --accent-* now -- the
+    // [data-accent="..."] CSS blocks that used to pick this up on their own
+    // are retired, so a manual pick has to be pushed through the same
+    // inline-var mechanism the active machine's own theme uses (and which
+    // takes priority over this pick when the active machine has a theme set).
+    // #1021: this dispatch is what applies it -- the onThemeChange()
+    // listener registered below already calls applyActiveMachineAccentTheme()
+    // synchronously in response, so no separate direct call is needed here.
     window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT));  // #814, see theme.js's applyTheme()
+    // Still recorded on <html> even though no CSS reads it any more (#1019
+    // retired the [data-accent] selectors) -- shareCard() (views/shots/
+    // index.js, #462) reads this to match the exported card to whatever
+    // preset the user actually picked, independent of this DOM attribute's
+    // now-defunct original CSS purpose.
     document.documentElement.dataset.accent = name;
     document.querySelectorAll('.accent-swatch').forEach(b =>
-      b.classList.toggle('active', b.dataset.accent === name));
+      b.classList.toggle('active', b.dataset.presetKey === name));
   },
 
   // api
@@ -616,12 +630,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // #1021: --accent-ink now has a light-theme-only override table (see
+  // machines-settings.js), so toggling dark<->light (manually or via the OS
+  // 'auto' listener in theme.js, which also fires this event) has to
+  // recompute it too, not just whenever the accent/machine choice itself
+  // changes.
+  onThemeChange(() => applyActiveMachineAccentTheme());
+
   applyTheme(localStorage.getItem(THEME_STORAGE_KEY) || 'dark');
 
-  const _savedAccent = localStorage.getItem('glp_accent_theme') || 'amber';
+  // #1019: migrates a pre-#1019 6-swatch value (amber/ocean/aurora/ember/
+  // forest/crema) to its nearest of the 8 THEME_PRESETS, and is a no-op on
+  // an already-migrated value -- written back so this doesn't silently
+  // re-run every load (harmless if it did, but there's no reason to).
+  const _savedAccent = migrateLegacyAccent(localStorage.getItem('glp_accent_theme')) || 'amber-americano';
+  localStorage.setItem('glp_accent_theme', _savedAccent);
   document.documentElement.dataset.accent = _savedAccent;
-  document.querySelectorAll('.accent-swatch').forEach(b =>
-    b.classList.toggle('active', b.dataset.accent === _savedAccent));
+  renderAccentSwatches();
 
   // ── Static element wiring ──────────────────────────────────────────────
   document.getElementById('collapseBtn').addEventListener('click', toggleDesktopSidebar);
@@ -830,10 +855,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('#themeToggleGroup .theme-btn').forEach(btn => {
     // eslint-disable-next-line no-undef -- setTheme is assigned onto window above (Object.assign), resolves as a global at runtime
     btn.addEventListener('click', () => setTheme(btn.dataset.themeVal));
-  });
-  document.querySelectorAll('.accent-swatch').forEach(btn => {
-    // eslint-disable-next-line no-undef -- setAccentTheme is assigned onto window above (Object.assign), resolves as a global at runtime
-    btn.addEventListener('click', () => setAccentTheme(btn.dataset.accent));
   });
   document.querySelectorAll('.lang-option-btn').forEach(btn => {
     btn.addEventListener('click', () => setLang(btn.dataset.lang));

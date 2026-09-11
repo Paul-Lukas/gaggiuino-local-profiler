@@ -1,14 +1,50 @@
-# GLP App — Go rewrite (in progress)
+# GLP backend
 
-This directory holds the future Go implementation of the Gaggiuino Local
-Profiler backend and frontend. It exists **parallel to** the current
-Express/Node app (`server.js`, `lib/`, `routes/`, `public-src/`) at the repo
-root, which remains the shipping, stable implementation. Nothing under `go/`
-is wired into the repo-root Docker image or the running stable/dev add-on
-yet — the one exception is the standalone beta channel described in "Go
-preview channel (publishing)" below.
+This directory is the GLP backend: a single static Go binary (`net/http` +
+`modernc.org/sqlite`, no CGo) that serves the REST/SSE API and embeds and
+serves the Vite SPA built from `../public-src`. It is the only backend —
+the legacy Node.js/Express implementation (`server.js`, `lib/`, `routes/`)
+was removed from the tree in 3.0.0 (#1028); its last in-tree state is
+archived at tag `archive/node-backend-final` and branch
+`legacy/node-backend`.
 
-## Status: Phase 5 in progress (go-preview beta channel — mxkissnr/glp-go-preview-app + .github/workflows/go-preview-publish.yaml, on top of Phase 4's complete build-only CI, Phase 2's complete frontend and Phase 3b's complete backend)
+The repo-root `Dockerfile` builds this directory (Vite build → Go
+cross-compile → Alpine runtime) for amd64, armv7 and aarch64.
+
+## Orientation
+
+- Entrypoint: `cmd/server/main.go` — opens the DB, loads/creates the API
+  token, wires every `internal/<domain>` package's `RegisterRoutes` into
+  one `net/http` handler chain (security headers → rate limiter → token
+  auth), listens on port 8099.
+- One package per concern under `internal/`: `shots`, `library`,
+  `machines` (+ `machines/proto` for the Gaggiuino binary WS codec),
+  `orders`, `maintenance`, `backup`, `importer`, `db`, `auth`,
+  `ratelimit`, `sse`, `system` (status/preheat/version/demo), `ha`,
+  `mqtt`, `img`, `achievements`, `netguard`, `webapp` (SPA embed + serve),
+  `web` (frozen no-JS templ fallback under `/ui/`).
+- Each package has a `doc.go` that is the authoritative description of what
+  it does and why. The narrative below is the migration history and is
+  kept as background — the `doc.go` files are current.
+
+## Config
+
+Runtime configuration is env vars (all optional, sensible defaults):
+`GLP_PORT` (8099), `GLP_DB_PATH` (`/data/glp.db`), `GLP_TOKEN_FILE`
+(`/data/api_token.txt`), `GLP_ENABLE_ORDERS`, `GLP_SYNC_INTERVAL`,
+`GLP_PREHEAT_TIME`, `GLP_DEBUG_LOGGING`, `GLP_HA_URL` + `GLP_HA_TOKEN`
+(standalone HA integration), `MACHINE_URL`, `GLP_RATE_LIMIT_*`. Inside the
+HA add-on the Supervisor writes `/data/options.json` and those take
+precedence over the env fallbacks.
+
+The version string served from `GET /api/version` lives in
+`internal/system/version.go` (`glpVersion`); it and
+`internal/backup/bundle.go`'s copy must match `../config.yaml`'s canonical
+`version:` — enforced by `../test/version-sync.test.js`.
+
+---
+
+## Migration history (background)
 
 Phase 0 was scaffolding only. Phase 1a ported the first two foundational
 packages everything else builds on. Phase 1b added a real, listening HTTP
@@ -408,17 +444,15 @@ Replace Node/Express + better-sqlite3 with a single static Go binary
 `better-sqlite3` rebuild pain on Home Assistant's ARM hardware, cut the
 resource footprint, and remove the npm supply-chain surface.
 
-This is a rollout, not a rewrite-and-flip: the plan is to ship the Go
-binary first on the dev channel as an opt-in beta alongside the existing
-Node image, promote it to the stable/main add-on only once it's proven
-itself there, and keep Node as the fallback until then — no big-bang cutover.
-Two things anchor that compatibility bar:
+The rollout ran in phases on a `go-migration` branch, then a dev-channel
+beta, then the #977 cutover that made this the shipping image. Two
+compatibility bars anchored it and still hold:
 
-- `openapi.yaml` at the repo root is the frozen contract — every Go endpoint
-  must match paths, methods, status codes, and response shapes exactly, so
-  `glp-integration`, `glp-lovelace-card`, and `glp-order-card` don't need to
-  care which binary answers a request.
-- The existing `/data/glp.db` SQLite file must keep opening unchanged — no
+- The API contract: every endpoint keeps the paths, methods, status codes
+  and response shapes `glp-integration`, `glp-lovelace-card` and
+  `glp-order-card` depend on. `internal/system/openapi.yaml` (served at
+  `/api/openapi.json`) is the current spec.
+- The existing `/data/glp.db` SQLite file keeps opening unchanged — no
   data migration, only schema compatibility (see `internal/db/doc.go`).
 
 Security parity with the Node app's ingress-trust model (HA Ingress vs.
@@ -462,8 +496,12 @@ go/
     smoke-test.sh            native-binary + (GLP_SMOKE_DOCKER_IMAGE mode) Docker-image smoke test (Phase 3a, extended Phase 4)
 ```
 
-`.github/workflows/go-build.yaml` (repo root) is this package's CI — see
-"Docker" below; it's separate from the repo root's Node-app workflows.
+This package's CI is `.github/workflows/test.yaml`'s `go-test` job (gofmt/
+vet/build/`go test -race`/govulncheck/route-parity) plus that same file's
+`docker-smoke` job (`needs: go-test`; multi-arch matrix build of the
+repo-root Dockerfile — amd64/arm64/armv7 — plus `go/scripts/smoke-test.sh`
+against the amd64 image) — both added at the #977 cutover, replacing the
+now-deleted `go-build.yaml`; see "Docker" below for that history.
 
 Every backend package under `internal/` is implemented — see
 `go/internal/system/doc.go` for the small, deliberate set of
@@ -512,9 +550,9 @@ parity in one step. The eleven templ pages are frozen, not deleted:
 a dedicated sub-mux) as a no-JS fallback. Their relative-path convention is
 unchanged — every route simply moved one segment deeper, together. Only a
 committed `internal/webapp/dist/index.html` placeholder is tracked in git,
-so a bare `go build ./...` (CI's go-build.yaml test job) resolves the embed
-with no npm step; the Docker image and `make frontend` supply the real
-bundle.
+so a bare `go build ./...` (CI's `go-test` job, `test.yaml`) resolves the
+embed with no npm step; the Docker image and `make frontend` supply the
+real bundle.
 
 **Status (Phase 2a-2e, #901, complete):** the tooling foundation plus every
 frontend domain's pages. Phase 2a's `GET /ui/shots` is a shot-history list built on
@@ -713,11 +751,10 @@ and it's the only caller this fetch is expected to fail for.
 
 ## Contract
 
-`openapi.yaml` at the repo root (kept in sync with the Node app's actual
-routes as of this package's creation) is the frozen reference contract for
-this rewrite — every Go endpoint must match it exactly (paths, methods,
-status codes, response shapes) before it's considered done, verified via
-contract tests against recorded Node traffic (Phase 0/1, not yet built).
+`internal/system/openapi.yaml`, served at `/api/openapi.json`, is the API
+spec. External consumers (`glp-integration`, `glp-lovelace-card`,
+`glp-order-card`) depend on the paths, methods, status codes and response
+shapes it documents.
 
 ## Building
 
@@ -734,7 +771,16 @@ make frontend   # OPTIONAL: `npm ci && npm run build` at the repo root, staged
 go build ./...
 ```
 
-## Docker (#901 Phase 4, build-only — no release channel yet)
+## Docker (#901 Phase 4, build-only — no release channel yet) [HISTORICAL — see Status above]
+
+`.github/workflows/go-build.yaml` described in this section was deleted in
+the #977 cutover PR (redundant to `build.yaml`/`build-dev.yaml` once the
+repo-root Dockerfile became this same content). `go/Dockerfile` and
+`go/docker-entrypoint.sh` themselves were also deleted (#977 follow-up
+code review, round 3) once that was the only thing still reading them —
+see the repo-root `Dockerfile`/`docker-entrypoint.sh` for the version that
+actually ships, which now carries this history in its own comments
+instead.
 
 `go/Dockerfile` and `.github/workflows/go-build.yaml` (repo root) exist so
 this binary's containerization is proven ahead of time, not so it ships:
@@ -834,7 +880,16 @@ passed, 0 failed**, identical to the native-binary run's own 30/0. A real
 `docker buildx build --platform linux/arm64,linux/arm/v7` (see "Multi-arch"
 above) also completed successfully for both non-amd64 targets.
 
-## Go preview channel (publishing, #901 Phase 5)
+## Go preview channel (publishing, #901 Phase 5) [HISTORICAL — see Status above]
+
+`.github/workflows/go-preview-publish.yaml` described in this section was
+deleted in the #977 cutover PR — the full cutover this channel existed to
+preview ahead of has now happened, so a separate preview channel means
+nothing distinct from the main release/dev channels described in the
+top-level `README.md`/`DEVELOPMENT.md`. `go/apparmor.txt`, described below
+as that workflow's source-of-truth file to copy, was also deleted (#977
+follow-up code review, round 3) once the workflow reading it was gone —
+the repo-root `apparmor.txt` is the one real profile now.
 
 A third, independent Home Assistant app channel — separate from both the
 stable app and the Node dev channel (`glp-dev-app`) — so the Go rewrite can
