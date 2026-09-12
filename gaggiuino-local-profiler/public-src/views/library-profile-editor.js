@@ -71,6 +71,7 @@ export function renderProfileList() {
         <div class="lib-item-name-row">
           <span class="lib-item-name">${esc(p.name)}</span>
           ${p.utility ? `<span class="lib-utility-badge">${t('profile_utility_badge')}</span>` : ''}
+          ${p.syncStatus && p.syncStatus !== 'synced' ? `<span class="lib-utility-badge" title="${t('profile_not_synced')}">⏳</span>` : ''}
         </div>
       </div>
       <div class="lib-item-actions">
@@ -90,8 +91,10 @@ export async function editProfile(id) {
 
 export async function deleteMachineProfile(id) {
   if (!confirm(t('profile_confirm_delete'))) return;
-  const r = await apiFetch(`api/machine/profile/${id}?machineId=${S.activeMachineId ?? ''}`, { method: 'DELETE' });
-  if (!r.ok) { window.showToast?.(t('profile_send_error')); return; }
+  try {
+    const r = await apiFetch(`api/machine/profile/${id}?machineId=${S.activeMachineId ?? ''}`, { method: 'DELETE' });
+    if (!r.ok) window.showToast?.(t('profile_send_error'));
+  } catch { /* network error */ }
   await loadMachineProfileList();
 }
 
@@ -292,8 +295,16 @@ export async function sendProfileToMachine() {
     window.showToast?.(t('profile_send_error') + (body.error ? `: ${body.error}` : ''));
     return;
   }
+  // Same offline-editor contract as gaggimate-profile-editor.js's
+  // saveGaggiMateProfile: the backend saved locally first, this 200 might
+  // just mean "queued, machine unreachable right now" — surface that
+  // distinctly from a silent success.
+  const saved = await r.json().catch(() => ({}));
   closeProfileForm();
   await loadMachineProfileList();
+  if (saved.syncStatus && saved.syncStatus !== 'synced') {
+    window.showToast?.(t('gm_toast_saved_offline'));
+  }
 }
 
 // ── Preview chart ─────────────────────────────────────────────────────
