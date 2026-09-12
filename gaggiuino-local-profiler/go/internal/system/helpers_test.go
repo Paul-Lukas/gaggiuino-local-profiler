@@ -61,6 +61,13 @@ type fakeAdapter struct {
 	profilesErr   error
 	profileBodies map[string]json.RawMessage
 	profileErrs   map[string]error
+
+	// Opt-in stubs for the three profile-mutation methods — nil means
+	// "this test never expects a call", same notImplemented-panics
+	// convention as every other unset field here (profile_sync_test.go).
+	createProfileFn func(context.Context, *machines.Machine, machines.ProfileInput) (machines.ProfileSummary, error)
+	updateProfileFn func(context.Context, *machines.Machine, machines.ProfileInput) (machines.ProfileSummary, error)
+	deleteProfileFn func(context.Context, *machines.Machine, string) ([]machines.ProfileSummary, error)
 }
 
 var _ machines.Adapter = (*fakeAdapter)(nil)
@@ -125,13 +132,22 @@ func (f *fakeAdapter) GetProfile(_ context.Context, _ *machines.Machine, id stri
 	}
 	return nil, f.notImplemented("GetProfile")
 }
-func (f *fakeAdapter) CreateProfile(context.Context, *machines.Machine, machines.ProfileInput) (machines.ProfileSummary, error) {
+func (f *fakeAdapter) CreateProfile(ctx context.Context, m *machines.Machine, in machines.ProfileInput) (machines.ProfileSummary, error) {
+	if f.createProfileFn != nil {
+		return f.createProfileFn(ctx, m, in)
+	}
 	return machines.ProfileSummary{}, f.notImplemented("CreateProfile")
 }
-func (f *fakeAdapter) UpdateProfile(context.Context, *machines.Machine, machines.ProfileInput) (machines.ProfileSummary, error) {
+func (f *fakeAdapter) UpdateProfile(ctx context.Context, m *machines.Machine, in machines.ProfileInput) (machines.ProfileSummary, error) {
+	if f.updateProfileFn != nil {
+		return f.updateProfileFn(ctx, m, in)
+	}
 	return machines.ProfileSummary{}, f.notImplemented("UpdateProfile")
 }
-func (f *fakeAdapter) DeleteProfile(context.Context, *machines.Machine, string) ([]machines.ProfileSummary, error) {
+func (f *fakeAdapter) DeleteProfile(ctx context.Context, m *machines.Machine, id string) ([]machines.ProfileSummary, error) {
+	if f.deleteProfileFn != nil {
+		return f.deleteProfileFn(ctx, m, id)
+	}
 	return nil, f.notImplemented("DeleteProfile")
 }
 func (f *fakeAdapter) SelectProfile(context.Context, *machines.Machine, string) error {
