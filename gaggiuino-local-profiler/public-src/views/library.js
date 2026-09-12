@@ -13,7 +13,6 @@ import { openLightbox } from '../components/lightbox.js';
 import { generateBeanQR, parseGlpQrParams } from '../glp-qr.js';
 import { calcBestGrindCombosForBean } from './shots/grind.js';
 import { renderShotDefaultsSettingsCard } from '../components/shot-defaults-settings.js';
-import { sumConsumedDoses, computeBeanRemaining, remainingToStockG, bagConsumedGrams } from '../bean-math.js';
 import { TARGET_ICON_SVG, SLIDERS_ICON_SVG, FLAVOR_WHEEL_ICON_SVG, COFFEE_ICON_SVG, WATER_DROP_ICON_SVG, SNOWFLAKE_ICON_SVG, LINK_ICON_SVG, WRENCH_ICON_SVG, STAR_ICON_SVG, WARNING_ICON_SVG, CLOSE_ICON_SVG, EDIT_ICON_SVG } from '../icons.js';
 
 const _pendingBeanActiveToggles = new Set();
@@ -22,6 +21,8 @@ const ICON_PENCIL = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" hei
 const ICON_TRASH  = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19M8,9H10V19H8V9M14,9H16V19H14V9M15.5,4L14.5,3H9.5L8.5,4H5V6H19V4H15.5Z"/></svg>`;
 const ICON_EYE     = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z"/></svg>`;
 const ICON_EYE_OFF = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M11.83,9L15,12.16C15,12.11 15,12.05 15,12A3,3 0 0,0 12,9C11.94,9 11.89,9 11.83,9M7.53,9.8L9.08,11.35C9.03,11.56 9,11.77 9,12A3,3 0 0,0 12,15C12.22,15 12.44,14.97 12.65,14.92L14.2,16.47C13.53,16.8 12.79,17 12,17A5,5 0 0,1 7,12C7,11.21 7.2,10.47 7.53,9.8M2,4.27L4.28,6.55L4.73,7C3.08,8.3 1.78,10 1,12C2.73,16.39 7,19.5 12,19.5C13.55,19.5 15.03,19.2 16.38,18.66L16.81,19.08L19.73,22L21,20.73L3.27,3M12,7A5,5 0 0,1 17,12C17,12.64 16.87,13.26 16.64,13.82L19.57,16.75C21.07,15.5 22.27,13.86 23,12C21.27,7.61 17,4.5 12,4.5C10.6,4.5 9.26,4.75 8,5.2L10.17,7.35C10.74,7.13 11.35,7 12,7Z"/></svg>`;
+const ICON_QR      = `<svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M3,11H5V13H3V11M11,5H13V9H11V5M9,11H13V15H11V13H9V11M15,11H17V13H19V11H21V13H19V15H21V19H19V21H17V19H13V21H11V17H15V15H17V13H15V11M19,19V15H17V19H19M15,3H21V9H15V3M17,5V7H19V5H17M3,3H9V9H3V3M5,5V7H7V5H5M3,15H9V21H3V15M5,17V19H7V17H5Z"/></svg>`;
+const ICON_PLUS    = `<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/></svg>`;
 
 // Static burr-type suggestions for the grinder form (moved out of the old
 // <datalist> markup in index.html).
@@ -126,77 +127,76 @@ export function switchLibTab(tab) {
   document.getElementById('libSectionProfiles')?.classList.toggle('active', tab === 'profiles');
 }
 
-// #551/#930: adapts S.shots' { annotation, timestamp } shape into the
-// { coffee, beanId, dose, timestamp } rows bean-math.js's shared functions
-// expect — used everywhere in this file that needs consumption totals
-// (rendering, "Adjust stock", the bean edit form's stock field).
-function annotationDoseRows() {
-  return S.shots
-    .filter(s => s.annotation?.coffee != null)
-    .map(s => ({ coffee: s.annotation.coffee, beanId: s.annotation.beanId, dose: s.annotation.dose, timestamp: s.timestamp }));
-}
-
 // ── Bag lifecycle: Volle / Aktuelle / Vergangene ───────────────────────────
-// Three states a bag moves through:
-//   - "current": the one FIFO consumption is actually drawing from right
-//     now — the OLDEST tracked bag that still has remaining > 0. NOT
-//     necessarily the most recently added bag: if a fresh (full) bag was
-//     added while an older one still has stock left, that older bag stays
-//     current until it's used up.
-//   - "upcoming" ("Volle"): tracked, remaining > 0, but not yet the one
-//     being drawn from — queued behind the current bag.
-//   - "past" ("Vergangene"): remaining <= 0 (fully consumed, or an
-//     untracked bag that isn't the newest). Hidden by default in the UI.
-// Bags are assumed stored oldest-first (bags[bags.length-1] is the newest,
-// matching every other convention in this file). If literally nothing is
-// trackable (no bag has ever had stock_g set), the newest bag is still
-// reported as "current" so there's always exactly one actionable bag.
-function classifyBeanBags(b, doseRows, beans) {
+// Three states a bag moves through — consumedG/remainingG/current are now
+// computed server-side (SimulateBagQueue, go/internal/library/
+// orders_support.go) and attached to every bag by the backend on every
+// bean-returning response, so this is a pure lookup, not a replay of
+// doseRows: no simulation logic lives on the frontend anymore.
+//   - "current": the one bag actually being drawn from right now — lowest
+//     sortOrder among tracked bags with remaining > 0 (queue order, not
+//     "most recently added").
+//   - "upcoming" ("Volle"): tracked, remaining > 0, queued behind current.
+//   - "past" ("Vergangene"): remaining <= 0, or never tracked at all.
+//     Hidden by default in the UI.
+function classifyBeanBags(b) {
   const bags = Array.isArray(b.bags) ? b.bags : [];
-  const newest = bags.length ? bags[bags.length - 1] : null;
   const upcoming = [];
   const past = [];
   let current = null;
   for (const bg of bags) {
-    const consumed = Math.round(bagConsumedGrams(b, doseRows, beans, bags, bg));
-    const stockGRaw = bg.stock_g ?? (bg === newest ? b.stock_g : null);
-    const stockG = parseFloat(stockGRaw);
-    // isFinite alone, not "> 0": a bag explicitly emptied via
-    // markBagEmpty() ends up with stock_g === 0, which is still tracked
-    // (we know its remaining is exactly 0) — different from a bag that
-    // never had stock_g set at all (genuinely untracked, remaining
-    // unknowable).
-    const tracked = isFinite(stockG);
-    const remaining = tracked ? Math.max(0, stockG - consumed) : null;
-    const entry = { bg, consumed, stockG: tracked ? stockG : null, remaining };
-    // "Current" is always the newest (last-opened) bag — this must match
-    // resolveBagAtShotTime's own resolution rule (latest openedAt <= shot
-    // time wins), not a FIFO/oldest-with-stock guess: every new shot's
-    // dose gets attributed to whichever bag has the latest openedAt,
-    // period, regardless of whether an older bag still has stock left.
-    // Any other bag is either "upcoming" (still has stock, but won't
-    // receive further doses unless the newer bags are removed) or "past"
-    // (already at/below 0 remaining).
-    if (bg === newest) {
-      current = entry;
-    } else if (tracked && remaining > 0) {
-      upcoming.push(entry);
-    } else {
-      past.push(entry);
-    }
+    // consumedG/remainingG are only attached to bags SimulateBagQueue could
+    // resolve (i.e. tracked ones) — their absence IS the untracked signal.
+    const tracked = bg.remainingG != null;
+    const entry = { bg, consumed: bg.consumedG ?? 0, stockG: tracked ? parseFloat(bg.stock_g) : null, remaining: tracked ? bg.remainingG : null };
+    if (bg.current) current = entry;
+    else if (tracked && entry.remaining > 0) upcoming.push(entry);
+    else past.push(entry);
   }
+  // Queue order must stay visible/editable in "Volle" — the drag-reorder
+  // UI (renderBagCard) depends on this being sorted.
+  upcoming.sort((a, b2) => (a.bg.sortOrder ?? a.bg.openedAt ?? 0) - (b2.bg.sortOrder ?? b2.bg.openedAt ?? 0));
+  // Most recently emptied first — both for display order and so the one
+  // fat-finger-correction exception below always lands on the bag that was
+  // actually just marked empty, not an arbitrarily older one.
+  past.sort((a, b2) => (b2.bg.sortOrder ?? b2.bg.openedAt ?? 0) - (a.bg.sortOrder ?? a.bg.openedAt ?? 0));
+  // The single most recently emptied (tracked) bag stays editable — "ich
+  // habe mich im Bestand verklickt" needs a way back without resurrecting
+  // arbitrary old history. Untracked entries have nothing to correct.
+  const lastEmpty = past.find(e => e.stockG != null);
+  if (lastEmpty) lastEmpty.isLastEmpty = true;
   return { current, upcoming, past };
 }
+
+// Bag cards are collapsed by default (space-saving on mobile) — this Set
+// tracks which bag ids are expanded, mirroring the _pendingBeanActiveToggles
+// module-state pattern already used elsewhere in this file.
+const _expandedBagCards = new Set();
+// Same pattern for the "Vergangene" (past bags) section per bean id — see
+// renderBeanList's pastSection comment for why this can't live as
+// DOM-only classList/dataset state anymore.
+const _expandedPastSections = new Set();
 
 // Renders one bag card. `state` is 'current' | 'upcoming' | 'past' — only
 // current/upcoming get the stock-adjust controls (past is already empty by
 // definition); delete is only offered on upcoming/past (never current —
 // see classifyBeanBags, and never the last remaining bag, enforced
-// server-side too).
+// server-side too). The full edit dialog is only offered while the bag is
+// still unconsumed (consumed === 0) — upcoming bags always qualify by
+// construction (SimulateBagQueue never touches a bag before its turn),
+// current loses it as soon as any dose lands on it, past bags never had it.
+// Only 'upcoming' bags are drag-reorderable (see main.js's pointer-events
+// drag handler) — current is queue-position-fixed, past is inert.
 function renderBagCard(b, entry, state, beans, canDelete) {
   const { bg, consumed, stockG, remaining } = entry;
   const pct = remaining != null && stockG > 0 ? Math.round((remaining / stockG) * 100) : null;
   const editingStock = S._bagStockEditId === bg.id;
+  const expanded = _expandedBagCards.has(bg.id);
+  // Past bags are locked out of editing except the single most recently
+  // emptied one (classifyBeanBags' isLastEmpty) — lets a "verklickt"
+  // (fat-fingered) mark-empty/stock-adjust get corrected without reopening
+  // arbitrary older history.
+  const canEdit = state === 'past' ? !!entry.isLastEmpty : consumed === 0;
   const details = [
     stockG > 0 ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_weight')}</span><span class="lib-bag-detail-val">${stockG} g</span></span>` : '',
     consumed > 0 ? `<span class="lib-bag-detail"><span class="lib-bag-detail-label">${t('lib_bag_consumed')}</span><span class="lib-bag-detail-val">${consumed} g</span></span>` : '',
@@ -209,32 +209,51 @@ function renderBagCard(b, entry, state, beans, canDelete) {
     : state === 'upcoming'
     ? `<span class="lib-bag-upcoming-badge">${t('lib_bag_state_upcoming')}</span>`
     : `<span class="lib-bag-past-badge">${t('lib_bag_state_past')}</span>`;
-  const canAdjust = (state === 'current' || state === 'upcoming') && stockG > 0;
+  // stockG != null (tracked), not stockG > 0 — the last-emptied exception
+  // is specifically for a bag sitting at 0, so requiring a positive stock
+  // here would hide the fix for the exact case it exists for.
+  const canAdjust = (state === 'current' || state === 'upcoming' || (state === 'past' && entry.isLastEmpty)) && stockG != null;
+  // "Als leer markieren" lives inside the stock-adjust row now, not as its
+  // own always-visible button — both are "change this bag's stock" actions.
   const stockRow = editingStock
     ? `<div class="lib-stock-edit-row">
          <input type="number" class="lib-new-bag-input" id="bagStockEditInput${bg.id}" value="${remaining ?? 0}" min="0" step="1" placeholder="${t('lib_stock_adjust_ph')}">
          <button class="lib-save-btn" data-action="save-bag-stock-edit" data-bean-id="${b.id}" data-bag-id="${bg.id}">${t('lib_save')}</button>
+         <button class="lib-btn-sm" data-action="mark-bag-empty" data-bean-id="${b.id}" data-bag-id="${bg.id}">${t('lib_bag_mark_empty')}</button>
          <button class="lib-btn-sm" data-action="close-bag-stock-edit" data-bean-id="${b.id}">${t('lib_cancel')}</button>
        </div>`
     : '';
-  return `<div class="lib-bag-card${state === 'current' ? ' active' : ''}">
-    <div class="lib-bag-card-header">
+  const dragHandle = state === 'upcoming'
+    ? `<span class="lib-bag-drag-handle" data-bag-drag-handle data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_reorder_handle')}">⠿</span>`
+    : '';
+  return `<div class="lib-bag-card${state === 'current' ? ' active' : ''}${expanded ? ' expanded' : ''}" data-bag-card data-bag-id="${bg.id}">
+    <div class="lib-bag-card-header" data-action="toggle-bag-card" data-bag-id="${bg.id}">
+      ${dragHandle}
       <span class="lib-bag-date">${bg.roastDate ? esc(bg.roastDate) : t('lib_bag_no_roast_date')}</span>
       ${stateBadge}
+      ${pct != null ? `<span class="lib-bag-pct">${pct}%</span>` : ''}
+      <span class="lib-bag-chevron">${expanded ? '▾' : '▸'}</span>
+    </div>
+    <div class="lib-bag-card-body" style="${expanded ? '' : 'display:none'}">
       <div class="lib-bag-card-actions">
-        <button class="lib-bag-edit-btn" data-action="open-edit-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_edit')}">${ICON_PENCIL}</button>
+        ${canEdit ? `<button class="lib-bag-edit-btn" data-action="open-edit-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_edit')}">${ICON_PENCIL}</button>` : ''}
         ${canDelete ? `<button class="lib-bag-del" data-action="delete-bag" data-bean-id="${b.id}" data-bag-id="${bg.id}" title="${t('lib_bag_delete')}">${ICON_TRASH}</button>` : ''}
       </div>
+      <div class="lib-bag-card-details">
+        ${details.length ? details.join('') : `<span class="lib-bag-empty-note">${t('lib_bag_stock_untracked')}</span>`}
+      </div>
+      ${canAdjust && !editingStock ? `<div class="lib-bag-card-actions-row">
+        <button class="lib-btn-sm" data-action="open-bag-stock-edit" data-bag-id="${bg.id}">${t('lib_stock_edit_btn')}</button>
+      </div>` : ''}
+      ${stockRow}
     </div>
-    <div class="lib-bag-card-details">
-      ${details.length ? details.join('') : `<span class="lib-bag-empty-note">${t('lib_bag_stock_untracked')}</span>`}
-    </div>
-    ${canAdjust && !editingStock ? `<div class="lib-bag-card-actions-row">
-      <button class="lib-btn-sm" data-action="open-bag-stock-edit" data-bag-id="${bg.id}">${t('lib_stock_edit_btn')}</button>
-      <button class="lib-btn-sm" data-action="mark-bag-empty" data-bean-id="${b.id}" data-bag-id="${bg.id}">${t('lib_bag_mark_empty')}</button>
-    </div>` : ''}
-    ${stockRow}
   </div>`;
+}
+
+export function toggleBagCard(bagId) {
+  if (_expandedBagCards.has(bagId)) _expandedBagCards.delete(bagId);
+  else _expandedBagCards.add(bagId);
+  renderBeanList();
 }
 
 // ── Bean list ─────────────────────────────────────────────────────────────
@@ -250,80 +269,84 @@ export function renderBeanList() {
     el.innerHTML = `<div class="lib-empty">${t('lib_empty_beans')}</div>`;
     return;
   }
-  // #551: shared with the backend's LibraryService.computeBeanRemaining —
-  // same beanId-first-with-name-fallback matching (#456), same double-round
-  // pattern.
-  const doseRows = annotationDoseRows();
   // codeql[js/xss-through-dom] false positive: esc()/escapeHtml() already applied, see #760
   el.innerHTML = beans.map(b => {
-    // Total consumption across all bags (all shots matching this bean)
-    const totalConsumed = Math.round(sumConsumedDoses(b, doseRows, beans));
-
-    // Current bag consumption (shots since last bag openedAt)
     const bags = Array.isArray(b.bags) ? b.bags : [];
-    const activeBag = bags.length ? bags[bags.length - 1] : null;
-    const activeBagConsumed = activeBag
-      ? Math.round(sumConsumedDoses(b, doseRows, beans, bags))
-      : totalConsumed;
+    // consumedG/remainingG (bean-level totals) and every bag's own
+    // consumedG/remainingG/current are computed server-side (see
+    // decorateBeanStatus, go/internal/library/handlers.go's getLibrary) and
+    // attached to every bean/bag on load — no client-side dose replay.
+    const totalConsumed = Math.round(b.consumedG ?? 0);
+    const remaining = b.remainingG ?? null;
+    const { current, upcoming, past } = classifyBeanBags(b);
+    const activeBag = current?.bg || null;
 
-    const remaining = computeBeanRemaining(b, doseRows, beans);
-
-    // Total stock across all tracked bags (for correct % bar denominator)
-    const totalStockG = bags.reduce((sum, bg, i) => {
-      const s = parseFloat(bg.stock_g ?? (i === bags.length - 1 ? b.stock_g : null));
-      return sum + (isFinite(s) && s > 0 ? s : 0);
-    }, 0) || parseFloat(b.stock_g) || 0;
-
-    // Per-bag consumed (for bag history display)
-    function bagConsumedG(bg) {
-      return Math.round(bagConsumedGrams(b, doseRows, beans, bags, bg));
-    }
-
+    // Stock %/bar is scoped to the CURRENT bag only (how far through the
+    // bag actually being drawn from) — the headline g-numbers above stay
+    // bean-wide totals (sum across all bags).
     let invHtml = '';
-    if (b.stock_g || bags.some(bg => bg.stock_g > 0)) {
+    if (remaining != null || totalConsumed > 0) {
       const isLow = remaining != null && remaining < 100;
-      const editingStock = S._beanStockEditId === b.id;
       const rem = Math.max(0, remaining ?? 0);
-      const stockPct = totalStockG > 0 ? Math.max(0, Math.min(100, Math.round((rem / totalStockG) * 100))) : 0;
+      const stockPct = current && current.stockG > 0
+        ? Math.max(0, Math.min(100, Math.round((current.remaining / current.stockG) * 100)))
+        : 0;
       invHtml = `<div class="lib-inv-block">
-        <div class="lib-inv-bar-row">
+        ${remaining != null ? `<div class="lib-inv-bar-row">
           <div class="lib-stock-bar-md" title="${stockPct}%"><div class="lib-stock-bar-fill-md${isLow ? ' low' : ''}" style="width:${stockPct}%"></div></div>
           <span class="lib-inv-pct${isLow ? ' low' : ''}">${stockPct}%</span>
-        </div>
+        </div>` : ''}
         <div class="lib-inv-nums">
-          <span class="lib-inv-remaining${isLow ? ' low' : ''}">${t('lib_inv_remaining', rem)} g</span>
-          <span class="lib-inv-sep">·</span>
-          <span class="lib-inv-consumed">${t('lib_inv_consumed', activeBagConsumed)} g</span>
+          ${remaining != null ? `<span class="lib-inv-remaining${isLow ? ' low' : ''}">${t('lib_inv_remaining', rem)} g</span><span class="lib-inv-sep">·</span>` : ''}
+          <span class="lib-inv-consumed">${t('lib_inv_consumed', totalConsumed)} g</span>
           ${bags.length > 1 ? `<span class="lib-inv-sep">·</span><span class="lib-inv-total">${t('lib_inv_bags', bags.length)}</span>` : ''}
           ${isLow ? `<span class="lib-inv-reorder">${t('lib_inv_reorder')}</span>` : ''}
         </div>
-        ${editingStock
-          ? `<div class="lib-stock-edit-row">
-               <input type="number" class="lib-new-bag-input" id="stockEditInput${b.id}" value="${rem}" min="0" step="1" placeholder="${t('lib_stock_adjust_ph')}">
-               <button class="lib-save-btn" data-action="save-stock-edit" data-id="${b.id}">${t('lib_save')}</button>
-               <button class="lib-btn-sm" data-action="close-stock-edit" data-id="${b.id}">${t('lib_cancel')}</button>
-             </div>`
-          : `<button class="lib-btn-sm lib-stock-edit-btn" data-action="open-stock-edit" data-id="${b.id}" title="${t('lib_stock_edit_btn')}">${t('lib_stock_edit_btn')}</button>`
-        }
-      </div>`;
-    } else if (totalConsumed > 0) {
-      invHtml = `<div class="lib-inv-block">
-        <div class="lib-inv-nums"><span class="lib-inv-consumed">${t('lib_inv_total_consumed', totalConsumed)} g</span>${bags.length > 1 ? `<span class="lib-inv-sep">·</span><span class="lib-inv-total">${t('lib_inv_bags', bags.length)}</span>` : ''}</div>
       </div>`;
     }
 
+    // Bag-level actions (new bag / freeze portions) live right next to the
+    // inventory display now, not in the generic actions toolbar — they act
+    // ON the packaging shown right above, so they read as one unit instead
+    // of being scattered into an unrelated meta-actions row. Rendered
+    // unconditionally (unlike invHtml) so a bean with zero bags yet still
+    // gets an obvious "add the first one" affordance.
+    const bagActionsHtml = `<div class="lib-bag-toolbar">
+      <button class="lib-btn-sm lib-bag-toolbar-btn" data-action="open-new-bag" data-id="${b.id}" title="${t('lib_new_bag')}">${ICON_PLUS} ${t('lib_new_bag_title')}</button>
+      ${activeBag ? `<button class="lib-btn-sm lib-bag-toolbar-btn" data-action="open-freeze-form" data-id="${b.id}" title="${t('bag_freeze_btn')}">${SNOWFLAKE_ICON_SVG} ${t('bag_freeze_btn')}</button>` : ''}
+    </div>`;
+
     const bagHistoryHtml = bags.length >= 1 ? (() => {
-      const { current, upcoming, past } = classifyBeanBags(b, doseRows, beans);
       const parts = [];
       if (current) parts.push(renderBagCard(b, current, 'current', beans, false));
-      for (const entry of upcoming) parts.push(renderBagCard(b, entry, 'upcoming', beans, true));
-      // Past bags: not rendered into the DOM at all until expanded — the
-      // toggle handler (togglePastBags) builds this HTML on demand from the
-      // same live bean/doseRows state, so a bean with a long bag history
-      // never pays the DOM-build cost unless someone actually opens it.
+      // data-bag-drag-list marks the container main.js's drag-reorder
+      // handler watches for drop targets — only "upcoming" bags participate.
+      const upcomingHtml = upcoming.map(entry => renderBagCard(b, entry, 'upcoming', beans, true)).join('');
+      if (upcomingHtml) parts.push(`<div class="lib-bag-drag-list" data-bag-drag-list data-bean-id="${b.id}">${upcomingHtml}</div>`);
+      // Past bags: only rendered once the section has ever been opened for
+      // this bean (_expandedPastSections, same Set-backed pattern as
+      // _expandedBagCards below) — a bean with a long bag history still
+      // avoids the DOM-build cost until someone actually opens it, but the
+      // open/closed state now survives the full renderBeanList() rebuild
+      // that clicking ANY bag card triggers (toggleBagCard -> renderBeanList
+      // regenerates this whole card's HTML from scratch every time — with
+      // the old DOM-only classList/dataset.built approach, clicking a bag
+      // card that happened to live INSIDE an opened past section wiped the
+      // section back to collapsed, since nothing re-rendered it as open;
+      // 2026-09-09 mobile bug report). Material "expansion panel": a
+      // chip-style trigger row (chevron rotates via CSS transform) driving
+      // a grid-template-rows 0fr/1fr wrapper for a real animated open/close.
+      const pastExpanded = _expandedPastSections.has(b.id);
+      const pastBagsHtml = pastExpanded ? past.map(entry => renderBagCard(b, entry, 'past', beans, true)).join('') : '';
       const pastSection = past.length
-        ? `<div class="lib-bag-history-past" id="pastBags${b.id}" style="display:none"></div>
-           <button class="lib-btn-sm lib-bag-history-btn" data-action="toggle-past-bags" data-id="${b.id}" id="pastBagsBtn${b.id}">▸ ${t('lib_bag_state_past')} (${past.length})</button>`
+        ? `<div class="lib-bag-history-toggle${pastExpanded ? ' expanded' : ''}" data-action="toggle-past-bags" data-id="${b.id}">
+             <span class="lib-bag-chevron">▸</span>
+             <span>${t('lib_bag_state_past')}</span>
+             <span class="lib-bag-past-count">${past.length}</span>
+           </div>
+           <div class="lib-bag-history-past-wrap${pastExpanded ? ' expanded' : ''}">
+             <div class="lib-bag-history-past">${pastBagsHtml}</div>
+           </div>`
         : '';
       return `<div class="lib-bag-history">${parts.join('')}</div>${pastSection}`;
     })() : `<div class="lib-bag-empty-note">${t('lib_bag_empty')}</div>`;
@@ -438,11 +461,31 @@ export function renderBeanList() {
     // small eyebrow above the (now serif) bean name.
     const origin = originDisplay(b);
     const originEyebrow = origin ? `<div class="lib-item-origin-eyebrow">${esc(origin)}</div>` : '';
+    // Meta-actions (profile/dial-in/QR/flavor-wheel/visibility/edit/delete)
+    // now live in a compact header toolbar next to the bean name — anchored
+    // at a fixed spot regardless of card content height, instead of the old
+    // single flex row that vertically centered on the WHOLE card and ended
+    // up floating in empty space next to whatever happened to be tallest
+    // (usually the bag cards). Delete sits behind a visual divider so it
+    // doesn't read as "just another icon" among the safe actions.
+    const toolbarHtml = `<div class="lib-item-toolbar">
+      ${Array.isArray(b.flavors) && b.flavors.length ? `<button class="lib-btn-sm lib-btn-icon" data-action="open-flavor-wheel" data-id="${b.id}" title="${t('flavor_wheel_btn')}">${FLAVOR_WHEEL_ICON_SVG}</button>` : ''}
+      <button class="lib-btn-sm lib-btn-icon" data-action="create-profile-from-bean" data-id="${b.id}" title="${t('profile_create_from_bean')}">${SLIDERS_ICON_SVG}</button>
+      <button class="lib-btn-sm lib-btn-icon" data-action="start-dialin-from-bean" data-id="${b.id}" title="${t('dialin_wizard_start_from_bean')}">${TARGET_ICON_SVG}</button>
+      <button class="lib-btn-sm lib-btn-icon" data-action="toggle-bean-qr" data-id="${b.id}" title="${t('bean_qr_label')}">${ICON_QR}</button>
+      <button class="lib-btn-sm lib-btn-icon" data-action="toggle-bean-active" data-id="${b.id}" title="${t(disabled ? 'lib_btn_enable' : 'lib_btn_disable')}"${_pendingBeanActiveToggles.has(b.id) ? ' disabled' : ''}>${disabled ? ICON_EYE_OFF : ICON_EYE}</button>
+      <button class="lib-btn-sm lib-btn-icon" data-action="edit-bean" data-id="${b.id}" title="${t('lib_btn_edit')}">${ICON_PENCIL}</button>
+      <span class="lib-toolbar-sep"></span>
+      <button class="lib-btn-sm del lib-btn-icon" data-action="delete-bean" data-id="${b.id}" title="${t('lib_btn_delete')}">${ICON_TRASH}</button>
+    </div>`;
     return `<div class="lib-item${disabled ? ' lib-item-disabled' : ''}">
       ${b.image ? `<img class="lib-bean-thumb" data-bean-id="${b.id}" alt="">` : ''}
       <div class="lib-item-info">
         ${originEyebrow}
-        <div class="lib-item-name"><span class="serif-display lib-bean-name-link" data-action="filter-by-bean" data-id="${b.id}" title="${t('bean_filter_hint')}">${esc(b.name)}</span>${freshBadge}${b.roastType ? ` <span class="lib-roast-badge">${esc(t('roast_type_' + b.roastType))}</span>` : ''}${b.decaf ? ` <span class="lib-decaf-badge">DECAF</span>` : ''}${disabled ? ` <span class="lib-disabled-badge">${t('lib_bean_disabled_badge')}</span>` : ''}</div>
+        <div class="lib-item-header">
+          <div class="lib-item-name"><span class="serif-display lib-bean-name-link" data-action="filter-by-bean" data-id="${b.id}" title="${t('bean_filter_hint')}">${esc(b.name)}</span>${freshBadge}${b.roastType ? ` <span class="lib-roast-badge">${esc(t('roast_type_' + b.roastType))}</span>` : ''}${b.decaf ? ` <span class="lib-decaf-badge">DECAF</span>` : ''}${disabled ? ` <span class="lib-disabled-badge">${t('lib_bean_disabled_badge')}</span>` : ''}</div>
+          ${toolbarHtml}
+        </div>
         <div class="lib-item-sub">${[
           b.region, b.species, b.variety, b.process, b.roaster, b.roastDate, b.notes,
         ].filter(Boolean).map(esc).join(' · ')}</div>
@@ -453,22 +496,13 @@ export function renderBeanList() {
         ${lastGrindHtml}
         ${Array.isArray(b.flavors) && b.flavors.length ? `<div class="lib-flavor-row">${b.flavors.map(f => `<span class="flavor-chip flavor-chip-static">${esc(f)}</span>`).join('')}</div>` : ''}
         ${invHtml}
+        ${bagActionsHtml}
         ${frozenHtml}
         ${bagHistoryHtml}
         ${b.source ? `<div class="lib-item-source">${t('lib_imported_from',
           b.sourceUrl ? `<a href="${esc(b.sourceUrl)}" target="_blank" rel="noopener">${esc(b.source)}</a>` : esc(b.source),
           esc(b.importedAt || ''))}</div>` : ''}
       </div>
-      <div class="lib-item-actions">
-        <button class="lib-btn-sm" data-action="open-new-bag" data-id="${b.id}" title="${t('lib_new_bag')}">${t('lib_new_bag')}</button>
-        ${activeBag ? `<button class="lib-btn-sm" data-action="open-freeze-form" data-id="${b.id}" title="${t('bag_freeze_btn')}">${SNOWFLAKE_ICON_SVG} ${t('bag_freeze_btn')}</button>` : ''}
-        ${Array.isArray(b.flavors) && b.flavors.length ? `<button class="lib-btn-sm" data-action="open-flavor-wheel" data-id="${b.id}" title="${t('flavor_wheel_btn')}">${FLAVOR_WHEEL_ICON_SVG}</button>` : ''}
-        <button class="lib-btn-sm" data-action="create-profile-from-bean" data-id="${b.id}" title="${t('profile_create_from_bean')}">${SLIDERS_ICON_SVG}</button>
-        <button class="lib-btn-sm" data-action="start-dialin-from-bean" data-id="${b.id}" title="${t('dialin_wizard_start_from_bean')}">${TARGET_ICON_SVG}</button>
-        <button class="lib-btn-sm" data-action="toggle-bean-qr" data-id="${b.id}" title="${t('bean_qr_label')}">QR</button>
-        <button class="lib-btn-sm lib-btn-icon" data-action="toggle-bean-active" data-id="${b.id}" title="${t(disabled ? 'lib_btn_enable' : 'lib_btn_disable')}"${_pendingBeanActiveToggles.has(b.id) ? ' disabled' : ''}>${disabled ? ICON_EYE_OFF : ICON_EYE}</button>
-        <button class="lib-btn-sm lib-btn-icon" data-action="edit-bean" data-id="${b.id}" title="${t('lib_btn_edit')}">${ICON_PENCIL}</button>
-        <button class="lib-btn-sm del lib-btn-icon" data-action="delete-bean" data-id="${b.id}" title="${t('lib_btn_delete')}">${ICON_TRASH}</button>
       </div>
       <!-- new bag now uses overlay dialog, no inline form -->
       <div id="freezeForm${b.id}" class="lib-new-bag-form" style="display:none">
@@ -524,7 +558,7 @@ export async function deleteBag(beanId, bagId) {
   // matches the delete button only being rendered for upcoming/past cards
   // in renderBagCard; re-checked here since state can change between
   // render and click (e.g. two tabs open).
-  const { current } = classifyBeanBags(bean, annotationDoseRows(), S.coffeeLibrary.beans);
+  const { current } = classifyBeanBags(bean);
   if (current?.bg.id === bagId) return;
   if (!confirm(t('lib_bag_delete_confirm'))) return;
   const r = await apiFetch(`api/library/bean/${beanId}/bag/${bagId}`, { method: 'DELETE' });
@@ -551,40 +585,10 @@ export async function saveNewBag(id) {
   renderBeanList();
 }
 
-export function openBeanStockEdit(id) {
-  S._beanStockEditId = id;
-  renderBeanList();
-}
-
-export function closeBeanStockEdit() {
-  S._beanStockEditId = null;
-  renderBeanList();
-}
-
-export async function saveBeanStock(id) {
-  const val = parseFloat(document.getElementById(`stockEditInput${id}`)?.value);
-  if (isNaN(val) || val < 0) return;
-  const bean = S.coffeeLibrary.beans.find(b => b.id === id);
-  if (!bean) return;
-  const stock_g = remainingToStockG(bean, annotationDoseRows(), S.coffeeLibrary.beans, val);
-  const r = await apiFetch(`api/library/bean/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stock_g }),
-  });
-  if (!r.ok) return;
-  const saved = await r.json();
-  const idx = S.coffeeLibrary.beans.findIndex(b => b.id === id);
-  if (idx !== -1) S.coffeeLibrary.beans[idx] = saved;
-  S._beanStockEditId = null;
-  renderBeanList();
-}
-
 // ── Per-bag stock quick-adjust ──────────────────────────────────────────────
-// Unlike saveBeanStock above (which only ever touches the bean's own
-// stock_g fallback field — a no-op once a bag has its own explicit
-// stock_g, the normal case), this writes the BAG's own stock_g directly,
-// so it actually moves the needle for any bag created via the bag dialog.
+// Stock is only ever adjustable at the bag level now — there is no
+// bean-wide stock-edit UI anymore (a bean's remaining is purely the sum of
+// its bags', computed server-side).
 
 export function openBagStockEdit(bagId) {
   S._bagStockEditId = bagId;
@@ -626,8 +630,7 @@ export async function saveBagStock(beanId, bagId) {
   const bean = S.coffeeLibrary.beans.find(b => b.id === beanId);
   const bag = bean?.bags?.find(bg => bg.id === bagId);
   if (!bean || !bag) return;
-  const consumed = bagConsumedGrams(bean, annotationDoseRows(), S.coffeeLibrary.beans, bean.bags, bag);
-  const newStockG = Math.round(val + consumed);
+  const newStockG = Math.round(val + (bag.consumedG ?? 0));
   if (!(await putBagStock(beanId, bagId, newStockG))) return;
   S._bagStockEditId = null;
   renderBeanList();
@@ -641,8 +644,7 @@ export async function markBagEmpty(beanId, bagId) {
   const bean = S.coffeeLibrary.beans.find(b => b.id === beanId);
   const bag = bean?.bags?.find(bg => bg.id === bagId);
   if (!bean || !bag) return;
-  const consumed = bagConsumedGrams(bean, annotationDoseRows(), S.coffeeLibrary.beans, bean.bags, bag);
-  if (!(await putBagStock(beanId, bagId, Math.round(consumed)))) return;
+  if (!(await putBagStock(beanId, bagId, Math.round(bag.consumedG ?? 0)))) return;
   renderBeanList();
 }
 
@@ -652,20 +654,72 @@ export async function markBagEmpty(beanId, bagId) {
 // every call after that, so a bean with a long bag history doesn't pay
 // the DOM-build cost for a section most views never open.
 export function togglePastBags(beanId) {
-  const wrap = document.getElementById(`pastBags${beanId}`);
-  const btn  = document.getElementById(`pastBagsBtn${beanId}`);
-  if (!wrap) return;
-  const opening = wrap.style.display === 'none';
-  if (opening && !wrap.dataset.built) {
-    const bean = S.coffeeLibrary.beans.find(b => b.id === beanId);
-    if (bean) {
-      const { past } = classifyBeanBags(bean, annotationDoseRows(), S.coffeeLibrary.beans);
-      wrap.innerHTML = past.map(entry => renderBagCard(bean, entry, 'past', S.coffeeLibrary.beans, true)).join('');
-    }
-    wrap.dataset.built = '1';
-  }
-  wrap.style.display = opening ? '' : 'none';
-  if (btn) btn.textContent = (opening ? '▾ ' : '▸ ') + btn.textContent.replace(/^[▾▸]\s*/, '');
+  if (_expandedPastSections.has(beanId)) _expandedPastSections.delete(beanId);
+  else _expandedPastSections.add(beanId);
+  renderBeanList();
+}
+
+// ── Drag-reorder for "upcoming" bags ────────────────────────────────────────
+// Pointer Events unify mouse and touch (no separate touch handlers, no
+// library) — drag a card past a sibling's vertical midpoint and it swaps
+// places in the DOM immediately; on release the new DOM order becomes the
+// new sortOrder via one POST .../reorder-bags call (server assigns the
+// actual values, see handlers_beans.go's reorderBags).
+let _dragState = null;
+
+function bagDragPointerDown(e) {
+  const handle = e.target.closest('[data-bag-drag-handle]');
+  if (!handle) return;
+  const card = handle.closest('[data-bag-card]');
+  const list = handle.closest('[data-bag-drag-list]');
+  if (!card || !list) return;
+  e.preventDefault();
+  handle.setPointerCapture(e.pointerId);
+  _dragState = { pointerId: e.pointerId, card, list, beanId: Number(list.dataset.beanId) };
+  card.classList.add('dragging');
+  document.addEventListener('pointermove', bagDragPointerMove);
+  document.addEventListener('pointerup', bagDragPointerUp);
+}
+
+function bagDragPointerMove(e) {
+  if (!_dragState || e.pointerId !== _dragState.pointerId) return;
+  const { card, list } = _dragState;
+  const after = [...list.children].find(sib => {
+    if (sib === card) return false;
+    const rect = sib.getBoundingClientRect();
+    return e.clientY < rect.top + rect.height / 2;
+  });
+  if (after) list.insertBefore(card, after);
+  else list.appendChild(card);
+}
+
+async function bagDragPointerUp(e) {
+  if (!_dragState || e.pointerId !== _dragState.pointerId) return;
+  const { card, list, beanId } = _dragState;
+  card.classList.remove('dragging');
+  document.removeEventListener('pointermove', bagDragPointerMove);
+  document.removeEventListener('pointerup', bagDragPointerUp);
+  _dragState = null;
+  const bagIds = [...list.querySelectorAll('[data-bag-card]')].map(c => Number(c.dataset.bagId));
+  await reorderBags(beanId, bagIds);
+}
+
+// Some test files import this module in a non-DOM (plain Node) vitest
+// environment — guard the module-load-time listener registration the same
+// way the rest of this codebase avoids assuming `document` exists globally.
+if (typeof document !== 'undefined') {
+  document.addEventListener('pointerdown', bagDragPointerDown);
+}
+
+export async function reorderBags(beanId, bagIds) {
+  const r = await apiFetch(`api/library/bean/${beanId}/reorder-bags`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bagIds }),
+  });
+  if (!r.ok) return;
+  const saved = await r.json();
+  const idx = S.coffeeLibrary.beans.findIndex(b => b.id === beanId);
+  if (idx !== -1) S.coffeeLibrary.beans[idx] = saved;
+  renderBeanList();
 }
 
 // ── Bag dialog (new / edit) ───────────────────────────────────────────────
@@ -748,20 +802,10 @@ export async function saveBagDialog() {
 
   let r;
   if (_bagDialogBagId == null) {
-    // New bag immediately becomes "current" (it's the newest by openedAt —
-    // see classifyBeanBags), so it starts collecting every future dose
-    // regardless of whether the previous current bag still has stock left.
-    // Warn rather than block: legitimate reasons exist to open a new one
-    // early (e.g. correcting a mistake), but doing it by accident silently
-    // strands the old bag's remaining stock in "upcoming" forever.
-    const bean = S.coffeeLibrary.beans.find(bn => bn.id === _bagDialogBeanId);
-    if (bean) {
-      const { current } = classifyBeanBags(bean, annotationDoseRows(), S.coffeeLibrary.beans);
-      if (current?.remaining > 0 && !confirm(t('lib_bag_open_new_confirm', current.remaining))) {
-        return;
-      }
-    }
-    // new bag
+    // A new bag joins the back of the queue (server assigns the next
+    // sortOrder) — it does NOT become current while an earlier bag still
+    // has stock, so there's nothing to warn about here anymore (see
+    // go/internal/library/handlers_beans.go's newBag).
     r = await apiFetch(`api/library/bean/${_bagDialogBeanId}/new-bag`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
@@ -1103,13 +1147,10 @@ export function openBeanForm(bean) {
   document.getElementById('beanFormRoaster').value   = bean?.roaster   || '';
   document.getElementById('beanFormRoastDate').value = toIsoDateInput(bean?.roastDate);
   document.getElementById('beanFormNotes').value     = bean?.notes     || '';
-  // #930: show what's actually left, not the bag's original weight — a bean
-  // with consumption history had computeBeanRemaining() != stock_g already.
-  document.getElementById('beanFormStock').value = bean
-    ? (computeBeanRemaining(bean, annotationDoseRows(), S.coffeeLibrary.beans) ?? '')
-    : '';
-  const activeEditBag = Array.isArray(bean?.bags) && bean.bags.length ? bean.bags[bean.bags.length - 1] : null;
-  document.getElementById('beanFormBatchNumber').value = activeEditBag?.batchNumber || '';
+  // Stock and batch number are bag-only now (see classifyBeanBags/
+  // renderBagCard's own "Bestand anpassen"/bag-dialog fields) — neither
+  // field exists on the bean form at all.
+  const activeEditBag = bean ? classifyBeanBags(bean).current?.bg : null;
   document.getElementById('beanFormDecaf').checked   = !!bean?.decaf;
   populateOriginSelect();
   bindOriginInput();
@@ -1127,8 +1168,7 @@ export function openBeanForm(bean) {
   document.getElementById('beanFormAltitude').value      = bean?.altitude_m ?? '';
   document.getElementById('beanFormImporter').value      = bean?.importer || '';
   document.getElementById('beanFormHarvest').value       = bean?.harvest || '';
-  const activeBagForPrice = Array.isArray(bean?.bags) && bean.bags.length ? bean.bags[bean.bags.length - 1] : null;
-  document.getElementById('beanFormPrice').value = activeBagForPrice?.price_eur ?? bean?.price_eur ?? '';
+  document.getElementById('beanFormPrice').value = activeEditBag?.price_eur ?? bean?.price_eur ?? '';
   document.getElementById('beanFormProducer').value      = bean?.producer || '';
   document.getElementById('beanFormCertification').value = bean?.certification || '';
   document.getElementById('beanFormBrewTemp').value  = bean?.brewTempC ?? '';
@@ -1136,6 +1176,19 @@ export function openBeanForm(bean) {
   document.getElementById('beanFormBrewTime').value  = bean?.brewTimeS ?? '';
   document.getElementById('beanFormBrewNotes').value = bean?.brewNotes || '';
   document.getElementById('beanFormImageField').style.display = bean ? '' : 'none';
+  // Edit mode keeps a single Speichern; creating a new bean instead offers
+  // "Speichern und Packung hinzufügen" / "Speichern ohne Packung" — there's
+  // nothing to combine-with-a-bag-dialog once the bean already exists.
+  // Reads S.beanEditId (set above), not the raw `bean` param — the
+  // "+ Bohne hinzufügen" trigger button is wired directly as a click
+  // listener, so `bean` there is the MouseEvent, not undefined/null.
+  const isEdit = S.beanEditId != null;
+  const saveBtn       = document.getElementById('saveBeanBtn');
+  const saveNoBagBtn  = document.getElementById('saveBeanNoBagBtn');
+  const saveAddBagBtn = document.getElementById('saveBeanAddBagBtn');
+  if (saveBtn)       saveBtn.style.display       = isEdit ? '' : 'none';
+  if (saveNoBagBtn)  saveNoBagBtn.style.display  = isEdit ? 'none' : '';
+  if (saveAddBagBtn) saveAddBagBtn.style.display = isEdit ? 'none' : '';
   document.getElementById('beanAddForm').classList.add('open');
   document.getElementById('beanAddTrigger').style.display = 'none';
   document.getElementById('beanFormName').focus();
@@ -1159,21 +1212,18 @@ export function editBean(id) {
   if (bean) openBeanForm(bean);
 }
 
-export async function saveBean() {
+export async function saveBean() { return saveBeanInternal(false); }
+// Create-only entry points (see openBeanForm's mode-conditional buttons) —
+// both save the bean identically, they only differ in what happens right
+// after: opening the existing new-bag dialog, or not.
+export async function saveBeanNoBag() { return saveBeanInternal(false); }
+export async function saveBeanAddBag() { return saveBeanInternal(true); }
+
+async function saveBeanInternal(openBagDialogAfter) {
   const name      = document.getElementById('beanFormName').value.trim();
   const roaster   = document.getElementById('beanFormRoaster').value.trim();
   const roastDate = document.getElementById('beanFormRoastDate').value.trim();
   const notes     = document.getElementById('beanFormNotes').value.trim();
-  // #930: the field shows/accepts "how much is left", not the bag's original
-  // weight — translate back through the existing bean's consumption before
-  // storing stock_g. A brand-new bean (no S.beanEditId yet) has nothing
-  // consumed, so it's stored as-is.
-  const rawStock  = parseFloat(document.getElementById('beanFormStock').value) || null;
-  const editingBean = S.beanEditId != null ? S.coffeeLibrary.beans.find(b => b.id === S.beanEditId) : null;
-  const stock_g   = editingBean && rawStock != null
-    ? remainingToStockG(editingBean, annotationDoseRows(), S.coffeeLibrary.beans, rawStock)
-    : rawStock;
-  const batchNumber = document.getElementById('beanFormBatchNumber').value.trim();
   const decaf     = document.getElementById('beanFormDecaf').checked;
   const variety   = document.getElementById('beanFormVariety').value.trim();
   const species   = document.getElementById('beanFormSpecies').value;
@@ -1194,9 +1244,9 @@ export async function saveBean() {
   commitFlavorInput(); // take a still-typed flavor along
   if (!name) { document.getElementById('beanFormName').focus(); return; }
   const payload = {
-    name, roaster, roastDate, notes, stock_g, decaf, origins: _formOrigins, variety, species, category, process, flavors: _formFlavors, roastType, region,
+    name, roaster, roastDate, notes, decaf, origins: _formOrigins, variety, species, category, process, flavors: _formFlavors, roastType, region,
     altitude_m, importer, harvest, price_eur, producer, certification,
-    brewTempC, brewRatio, brewTimeS, brewNotes, batchNumber,
+    brewTempC, brewRatio, brewTimeS, brewNotes,
   };
   if (!S.beanEditId && S._urlImportSource) {
     payload.source     = S._urlImportSource;
@@ -1227,10 +1277,9 @@ export async function saveBean() {
       S.coffeeLibrary.recipes.push(await rr.json());
     }
   }
-  // Also persist price_eur to the active bag so per-bag price stays in sync
+  // Also persist price_eur to the current bag so per-bag price stays in sync
   if (S.beanEditId && price_eur) {
-    const activeBagForSave = Array.isArray(saved.bags) && saved.bags.length
-      ? saved.bags[saved.bags.length - 1] : null;
+    const activeBagForSave = classifyBeanBags(saved).current?.bg || null;
     if (activeBagForSave) {
       const rb = await apiFetch(`api/library/bean/${S.beanEditId}/bag/${activeBagForSave.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -1247,9 +1296,11 @@ export async function saveBean() {
     }
   }
   updateLibraryDatalist();
+  const wasCreate = !S.beanEditId;
   closeBeanForm();
   renderBeanList();
   if (extraRecipesToImport.length) renderRecipeList();
+  if (wasCreate && openBagDialogAfter) openNewBagDialog(saved.id);
 }
 
 export async function deleteBean(id) {
