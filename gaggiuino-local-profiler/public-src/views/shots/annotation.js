@@ -386,8 +386,11 @@ function _updateMilkFieldVisibility() {
 // a bean rename, name does not. Without it (or when it no longer resolves
 // in the current library — e.g. a deleted bean), falls back to matching by
 // name, same as before this second parameter existed.
-export function _renderBeanSelect(selectedName, selectedBeanId) {
-  const select = document.getElementById('annCoffee');
+// selectId defaults to the annotation panel's own #annCoffee — views/live.js's
+// pre-shot setup panel passes '#lsBean' to reuse this same in-stock/exhausted
+// bean-listing logic instead of duplicating it.
+export function _renderBeanSelect(selectedName, selectedBeanId, selectId = 'annCoffee') {
+  const select = document.getElementById(selectId);
   if (!select) return;
   const allBeans = S.coffeeLibrary?.beans || [];
   // #933 (was #915): exhausted (zero-stock) beans used to be dropped from
@@ -455,21 +458,25 @@ function _fillIdSelect(select, noneLabel, items, selectedId, datasetKey) {
 // beans, there's no free-text legacy value to preserve) — value and
 // data-basket-id/data-puckscreen-id both carry the id, mirroring
 // _renderBeanSelect's data-attribute pattern for _buildAnnotationPayload.
-export function _renderBasketSelect(selectedId) {
-  const select = document.getElementById('annBasket');
+// selectId/fieldId default to the annotation panel's own elements —
+// views/live.js's pre-shot setup panel (#lsBasket/#lsPuckScreen/#lsRecipe)
+// passes its own ids to reuse this same library-backed population logic
+// instead of duplicating it.
+export function _renderBasketSelect(selectedId, selectId = 'annBasket') {
+  const select = document.getElementById(selectId);
   if (!select) return;
   _fillIdSelect(select, t('ann_basket_none'), S.coffeeLibrary?.baskets || [], selectedId, 'basketId');
 }
 
-export function _renderPuckScreenSelect(selectedId) {
-  const select = document.getElementById('annPuckScreen');
+export function _renderPuckScreenSelect(selectedId, selectId = 'annPuckScreen') {
+  const select = document.getElementById(selectId);
   if (!select) return;
   _fillIdSelect(select, t('ann_puckscreen_none'), S.coffeeLibrary?.puckScreens || [], selectedId, 'puckscreenId');
 }
 
-export function _renderRecipeSelect(selectedId) {
-  const field  = document.getElementById('recipeField');
-  const select = document.getElementById('annRecipe');
+export function _renderRecipeSelect(selectedId, fieldId = 'recipeField', selectId = 'annRecipe') {
+  const field  = document.getElementById(fieldId);
+  const select = document.getElementById(selectId);
   if (!field || !select) return;
   const recipes = S.coffeeLibrary?.recipes || [];
   if (!recipes.length) { field.style.display = 'none'; return; }
