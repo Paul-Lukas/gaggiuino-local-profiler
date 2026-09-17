@@ -15,6 +15,13 @@
 // caps it defensively so an out-of-order manual edit can't silently show
 // entries in the wrong order or let the list grow unbounded.
 const WHATS_NEW_ENTRIES = [
+    { version: '3.1.0', date: '2026-09-17', highlights: [
+        'Machines can now check for, trigger, and track Gaggiuino firmware updates right from the web app — a status badge on the machine\'s row expands into a progress bar naming the component being flashed, plus a release-channel selector in the machine\'s edit form.',
+        'Fixed: manual shot sync and the machine debug probe are now protected against a machine host that changes what it points to.',
+        'Fixed: the machine firmware update entity now actually detects available updates instead of always reporting up to date.',
+        'Fixed: the Statistics world map tooltip no longer renders bean or region names as HTML.',
+        'Fixed: the MQTT broker password can now be explicitly cleared, and is never returned in cleartext.',
+    ] },
     { version: '3.0.2', date: '2026-09-11', highlights: [
         'Fixed: the machine firmware check no longer stops reporting the installed version when GitHub is temporarily unreachable.',
     ] },
@@ -45,9 +52,6 @@ const WHATS_NEW_ENTRIES = [
     ] },
     { version: '2.33.3', date: '2026-08-11', highlights: [
         'Live view updates faster on a fresh sensor reading: a WebSocket or MQTT sample now pushes to the Live tab instantly instead of waiting for the next 1-second poll.',
-    ] },
-    { version: '2.33.2', date: '2026-08-11', highlights: [
-        'Sidebar shot counter cleaned up: removed the redundant "(N)" text next to the flap-board counter and moved the counter in front of the "Shots" label.',
     ] },
 ];
 
