@@ -1,4 +1,5 @@
 ## [Unreleased]
+- **`DEVELOPMENT.md`'s AI model breakdown now recognizes every AI co-author, not just Claude**, and separates Max's flat-rate Claude Pro subscription cost from usage-billed models like DeepSeek instead of implying a single subscription covers all of them. Closes #1100
 
 ## [3.1.0] – 2026-09-17
 ### Added
