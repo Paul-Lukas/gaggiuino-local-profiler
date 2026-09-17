@@ -53,9 +53,6 @@ const WHATS_NEW_ENTRIES = [
     { version: '2.33.3', date: '2026-08-11', highlights: [
         'Live view updates faster on a fresh sensor reading: a WebSocket or MQTT sample now pushes to the Live tab instantly instead of waiting for the next 1-second poll.',
     ] },
-    { version: '2.33.2', date: '2026-08-11', highlights: [
-        'Sidebar shot counter cleaned up: removed the redundant "(N)" text next to the flap-board counter and moved the counter in front of the "Shots" label.',
-    ] },
 ];
 
 const MAX_ENTRIES = 8;
