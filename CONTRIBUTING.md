@@ -4,7 +4,7 @@ Bug reports, feature ideas and pull requests are welcome!
 
 ## Workflow
 
-1. **Open an issue first** — describe the bug or feature before writing any code
+1. **Open an issue first** — describe the bug or feature before writing any code  
    (no PRs without a linked issue — see [CLAUDE.md](CLAUDE.md) for context)
 2. **Fork & branch** — `feature/short-description` or `fix/short-description`
 3. **Implement** — commit with `Closes #N` in the message
