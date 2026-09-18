@@ -457,7 +457,7 @@ func (h *Handlers) deleteBag(w http.ResponseWriter, r *http.Request) {
 // free-text omission the way a roaster-entered bean price can be.
 func validateBagFloatField(body Entity, key string) (any, bool) {
 	v, present := body[key]
-	if !present {
+	if !present || v == nil {
 		return nil, true
 	}
 	f, ok := jsParseFloat(v)
