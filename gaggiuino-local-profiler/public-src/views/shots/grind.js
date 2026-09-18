@@ -1,7 +1,9 @@
 import { t }                               from '../../i18n.js';
+import { S }                               from '../../state/index.js';
 import { detectChanneling, calcBrewRatio } from '../../utils.js';
 import { calcShotScore }                   from './utils.js';
 import { getRawCurve }                     from '../../shot-curves.js';
+import { normalizeGrindToNow }             from '../../grind-zero.js';
 import { LIGHTNING_ICON_SVG, SCALE_ICON_SVG, BAR_CHART_ICON_SVG } from '../../icons.js';
 
 // ── Mini chart thumbnail ───────────────────────────────────────────────────
@@ -69,6 +71,17 @@ export function calcGrindAdvice(shot, data) {
   return { type: 'ok', icon: '✓', text: `${t('grind_ok')} – ${secs.toFixed(0)} s${avgP > 0 ? `, ${avgP.toFixed(1)} bar Ø` : ''}` };
 }
 
+// Parses a shot's own recorded grindSetting and normalizes it to what it
+// would read on the grinder TODAY (see grind-zero.js) — so a comparison or
+// average built across shots straddling a zero-point reset (e.g. after
+// cleaning) stays meaningful, without any past shot's recorded value
+// needing to be rewritten. A no-op when the shot's grinder never tracked a
+// zero point.
+function _currentGrindNum(grinderName, grindSettingStr, shotTimestampSec) {
+  const raw = _parseGrindNum(grindSettingStr);
+  return normalizeGrindToNow(S.coffeeLibrary?.grinders, grinderName, raw, shotTimestampSec * 1000);
+}
+
 export function calcComparativeGrindAdvice(shot, allShots) {
   const ann          = shot.annotation || {};
   const coffee       = ann.coffee?.trim().toLowerCase();
@@ -76,7 +89,7 @@ export function calcComparativeGrindAdvice(shot, allShots) {
   const grinder      = ann.grinder?.trim().toLowerCase();
   const profile      = (shot.profile?.name || shot.profileName || '').trim().toLowerCase();
   const dose         = parseFloat(ann.dose) || null;
-  const currentGrind = _parseGrindNum(ann.grindSetting);
+  const currentGrind = _currentGrindNum(ann.grinder, ann.grindSetting, shot.timestamp);
   if (!coffee || !grinder) return null;
 
   // #456: beanId-first match when both sides have one — a row whose beanId
@@ -103,7 +116,7 @@ export function calcComparativeGrindAdvice(shot, allShots) {
 
   const byGrind = {};
   comparable.forEach(s => {
-    const g   = _parseGrindNum(s.annotation.grindSetting);
+    const g   = _currentGrindNum(s.annotation.grinder, s.annotation.grindSetting, s.timestamp);
     const sc  = calcShotScore(s);
     const key = Math.round(g * 2) / 2;
     if (!byGrind[key]) byGrind[key] = [];
@@ -120,7 +133,7 @@ export function calcComparativeGrindAdvice(shot, allShots) {
   const n         = comparable.length;
   const bestScore = Math.round(bestAvg);
   const shots     = comparable
-    .map(s => ({ shot: s, grind: _parseGrindNum(s.annotation.grindSetting), score: calcShotScore(s) }))
+    .map(s => ({ shot: s, grind: _currentGrindNum(s.annotation.grinder, s.annotation.grindSetting, s.timestamp), score: calcShotScore(s) }))
     .sort((a, b) => b.score - a.score);
 
   if (currentGrind === null)
@@ -164,7 +177,7 @@ export function calcBestGrindCombosForBean(beanName, allShots, beanId) {
   const byCombo = {};
   scored.forEach(s => {
     const grinder = s.annotation.grinder.trim();
-    const grind    = Math.round(_parseGrindNum(s.annotation.grindSetting) * 2) / 2;
+    const grind    = Math.round(_currentGrindNum(grinder, s.annotation.grindSetting, s.timestamp) * 2) / 2;
     const key      = `${grinder.toLowerCase()} ${grind}`;
     if (!byCombo[key]) byCombo[key] = { grinder, grindSetting: grind, scores: [] };
     byCombo[key].scores.push(calcShotScore(s));
