@@ -1,3 +1,9 @@
+// @ts-nocheck -- renamed from main.js (TypeScript migration package A1,
+// #1106) without converting its contents: it still imports untyped .js
+// modules, and strict mode's any-propagation would error on nearly every
+// line until those are migrated too. Remove once main.ts's own imports are
+// converted (a later package) -- see eslint.config.js's matching block.
+
 import './style.css';
 
 // One-time cleanup for the v1.102.0 service worker (reverted in v1.102.1):
