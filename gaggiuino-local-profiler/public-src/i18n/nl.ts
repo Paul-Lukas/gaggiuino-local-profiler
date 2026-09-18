@@ -1,5 +1,6 @@
+import type { Translations } from '../i18n.js';
 import { BARCODE_ICON_SVG, LINK_ICON_SVG, GEAR_ICON_SVG, CLOCK_ICON_SVG, CLOSE_ICON_SVG } from '../icons.js';
-export default {
+const nl: Partial<Translations> = {
     nav_shots:'Shots', nav_live:'Live', nav_analytics:'Statistieken', nav_library:'Bibliotheek', nav_more:'Meer',
     nav_achievements:'Prestaties',
     sort_newest:'Nieuwste', sort_score:'Score', sort_rating:'Beoordeling', sort_duration:'Duur',
@@ -736,3 +737,5 @@ export default {
     profile_dialin_converged_score:'Twee shots op rij met score ≥80.',
     profile_dialin_safety_valve:'6 rondes zonder duidelijke convergentie — een profielaanpassing alleen is misschien niet genoeg, check ook maalgraad/boon.',
 };
+
+export default nl;

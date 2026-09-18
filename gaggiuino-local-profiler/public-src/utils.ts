@@ -1,21 +1,37 @@
+import type { Chart } from 'chart.js';
+
 // ── HTML escaping (XSS prevention) ───────────────────────────────────────
-export function esc(str) {
-  if (str == null) return '';
+// Branded marker for a string known to be safe to interpolate into markup
+// (either escaped by esc() or authored as trusted HTML). A plain string is
+// not assignable to it, so the only producers are esc() and html() below.
+export type Html = string & { readonly __html: unique symbol };
+
+export function esc(str: string | number | bigint | boolean | null | undefined): Html {
+  if (str == null) return '' as Html;
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/'/g, '&#39;') as Html;
+}
+
+// Trusted-markup template tag. Every interpolated value must already be an
+// `Html`, so the tag never escapes anything itself. The seam for migrating
+// innerHTML call sites (#1104) onto a typed builder.
+export function html(strings: TemplateStringsArray, ...values: Html[]): Html {
+  let out = strings[0];
+  for (let i = 0; i < values.length; i++) out += values[i] + strings[i + 1];
+  return out as Html;
 }
 
 // ── Roast freshness ───────────────────────────────────────────────────────
 // Roast dates appear in two formats across the app: DD.MM.YYYY (bean form,
 // TT.MM.JJJJ placeholder) and YYYY-MM-DD (ISO, bags & imports). Returns whole
 // days since roast, or null when unparseable / implausible (>2 years).
-export function roastAgeDays(str, nowMs = Date.now()) {
+export function roastAgeDays(str: string | null | undefined, nowMs: number = Date.now()): number | null {
   if (!str || typeof str !== 'string') return null;
-  let d = null;
+  let d: Date | null = null;
   let m = str.trim().match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})$/);
   if (m) {
     const y = m[3].length === 2 ? 2000 + parseInt(m[3]) : parseInt(m[3]);
@@ -24,7 +40,7 @@ export function roastAgeDays(str, nowMs = Date.now()) {
     m = str.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (m) d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
   }
-  if (!d || isNaN(d)) return null;
+  if (!d || isNaN(d.getTime())) return null;
   const days = Math.floor((nowMs - d.getTime()) / 86400000);
   return days >= 0 && days <= 730 ? days : null;
 }
@@ -36,7 +52,7 @@ export function roastAgeDays(str, nowMs = Date.now()) {
 // This normalizes either stored format into the YYYY-MM-DD a date input
 // needs to pre-fill correctly when opening an edit form; returns '' (an
 // empty, unset date input) when the string doesn't parse.
-export function toIsoDateInput(str) {
+export function toIsoDateInput(str: string | null | undefined): string {
   if (!str || typeof str !== 'string') return '';
   const s = str.trim();
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -53,7 +69,7 @@ export function toIsoDateInput(str) {
 // would roll over a day early/late depending on the user's timezone) — used
 // as both the default value and the `max` of freeze-date-style pickers that
 // shouldn't accept a future date.
-export function todayIsoDate(nowMs = Date.now()) {
+export function todayIsoDate(nowMs: number = Date.now()): string {
   const d = new Date(nowMs);
   const y = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, '0');
@@ -66,15 +82,15 @@ export function todayIsoDate(nowMs = Date.now()) {
 // local midnight doesn't exist or is ambiguous) — used wherever a picked
 // date needs to become the epoch-ms timestamp the backend stores (e.g.
 // frozenAt). Returns null for an empty/invalid value.
-export function isoDateInputToMs(value) {
+export function isoDateInputToMs(value: string | null | undefined): number | null {
   const m = typeof value === 'string' && value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
   const d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]), 12, 0, 0);
-  return isNaN(d) ? null : d.getTime();
+  return isNaN(d.getTime()) ? null : d.getTime();
 }
 
 // Same windows as the degassing tracker in the annotation panel.
-export function freshnessState(days) {
+export function freshnessState(days: number | null | undefined): 'degassing' | 'almost' | 'peak' | 'fading' | 'old' | null {
   if (days == null) return null;
   if (days < 4)   return 'degassing';
   if (days < 7)   return 'almost';
@@ -94,26 +110,34 @@ export function freshnessState(days) {
 // it accrues normally up to frozenAt, then holds flat while (any of) it is
 // still frozen (remainingCount > 0, no thawedAt), then resumes counting
 // from thawedAt once closed out — i.e. its clock only runs while not frozen.
-export function frozenPortionAgeDays(roastDateStr, portion, nowMs = Date.now()) {
+export function frozenPortionAgeDays(
+  roastDateStr: string | null | undefined,
+  portion: { frozenAt: number; thawedAt?: number } | null | undefined,
+  nowMs: number = Date.now(),
+): number | null {
   if (!portion || !(portion.frozenAt > 0)) return null;
   const ageAtFreeze = roastAgeDays(roastDateStr, portion.frozenAt);
   if (ageAtFreeze == null) return null;
-  if (!(portion.thawedAt > portion.frozenAt)) return ageAtFreeze;
-  const daysSinceThaw = Math.floor((nowMs - portion.thawedAt) / 86400000);
+  const thawedAt = portion.thawedAt ?? 0;
+  if (!(thawedAt > portion.frozenAt)) return ageAtFreeze;
+  const daysSinceThaw = Math.floor((nowMs - thawedAt) / 86400000);
   return ageAtFreeze + Math.max(0, daysSinceThaw);
 }
 
 // A stock-tracked bean with nothing left shouldn't nag about freshness — the
 // badge is only meaningful while there's still coffee to brew. Beans with no
 // stock tracking at all (stock_g unset, remaining is null) keep showing it.
-export function shouldShowFreshBadge(stock_g, remaining) {
-  return !(stock_g > 0 && remaining !== null && remaining <= 0);
+export function shouldShowFreshBadge(stock_g: number | null | undefined, remaining: number | null | undefined): boolean {
+  return !(stock_g != null && stock_g > 0 && remaining != null && remaining <= 0);
 }
 
 // ── Brew ratio ────────────────────────────────────────────────────────────
 // Final weight / annotated dose; null when either side is missing or absurd.
-export function calcBrewRatio(shot, data) {
-  const dose = parseFloat(shot?.annotation?.dose);
+export function calcBrewRatio(
+  shot: { annotation?: { dose?: string | null } | null } | null | undefined,
+  data: { weight?: { y: number }[] } | null | undefined,
+): number | null {
+  const dose = parseFloat(shot?.annotation?.dose ?? '');
   if (!dose || dose < 5 || dose > 30) return null;
   const w = data?.weight;
   const yieldG = w?.length ? w[w.length - 1].y : null;
@@ -126,12 +150,15 @@ export function calcBrewRatio(shot, data) {
 // Average star rating (1-5) across all shots annotated with this bean name
 // (case-insensitive, same join precedent as computeBeanRemaining). Returns
 // { avg, count } or null when no rated shot matches.
-export function calcBeanRating(beanName, shots) {
+export function calcBeanRating(
+  beanName: string | null | undefined,
+  shots: { annotation?: { coffee?: string | null; rating?: string | null } | null }[] | null | undefined,
+): { avg: number; count: number } | null {
   if (!beanName || !Array.isArray(shots)) return null;
   const name = beanName.toLowerCase();
   const ratings = shots
     .filter(s => (s.annotation?.coffee || '').toLowerCase() === name)
-    .map(s => parseFloat(s.annotation?.rating))
+    .map(s => parseFloat(s.annotation?.rating ?? ''))
     .filter(r => r >= 1 && r <= 5);
   if (!ratings.length) return null;
   const mean = ratings.reduce((a, b) => a + b, 0) / ratings.length;
@@ -148,14 +175,18 @@ export function calcBeanRating(beanName, shots) {
 // than the user cancelling (AbortError), default behavior falls back to the
 // anchor download so the user still gets their file; pass false to instead
 // let the error propagate to the caller (e.g. to show its own alert).
-export async function shareOrDownloadBlob(blob, filename, { title, fallbackOnError = true } = {}) {
+export async function shareOrDownloadBlob(
+  blob: Blob,
+  filename: string,
+  { title, fallbackOnError = true }: { title?: string; fallbackOnError?: boolean } = {},
+): Promise<void> {
   const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title });
       return;
     } catch (e) {
-      if (e.name === 'AbortError') return; // user cancelled — respect it, no fallback
+      if ((e as { name?: string } | null)?.name === 'AbortError') return; // user cancelled — respect it, no fallback
       if (!fallbackOnError) throw e;
       // else: fall through to the anchor-download fallback below
     }
@@ -167,51 +198,59 @@ export async function shareOrDownloadBlob(blob, filename, { title, fallbackOnErr
 }
 
 // ── Math helpers ──────────────────────────────────────────────────────────
-export function avg(arr) {
+export function avg(arr: number[] | null | undefined): number | null {
   if (!arr?.length) return null;
   return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
-export function avgActive(arr, t = 0.5) {
+export function avgActive(arr: number[] | null | undefined, t: number = 0.5): number | null {
   if (!arr?.length) return null;
   const active = arr.filter(v => v > t);
   return active.length ? active.reduce((a, b) => a + b, 0) / active.length : arr[arr.length - 1];
 }
 
-export function max(arr) {
+export function max(arr: number[] | null | undefined): number | null {
   if (!arr?.length) return null;
   return arr.reduce((m, v) => v > m ? v : m, arr[0]);
 }
 
-export function safeLast(arr) {
+export function safeLast(arr: (number | null | undefined)[] | null | undefined): number | null {
   if (!arr?.length) return null;
-  for (let i = arr.length - 1; i >= 0; i--)
-    if (arr[i] != null && !isNaN(arr[i])) return arr[i];
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const v = arr[i];
+    if (v != null && !isNaN(v)) return v;
+  }
   return null;
 }
 
-export function stddev(arr) {
+export function stddev(arr: number[] | null | undefined): number | null {
   if (!arr?.length) return null;
   const m = arr.reduce((a, b) => a + b, 0) / arr.length;
   return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length);
 }
 
 // ── Formatting ────────────────────────────────────────────────────────────
-export function fmt(v, unit = '') {
+export function fmt(v: number | null | undefined, unit: string = ''): string {
   return v == null ? '-' : `${v.toFixed(1)}${unit}`;
 }
 
-export function formatTimeLabel(s) {
+export function formatTimeLabel(s: number | null | undefined): string {
   if (s == null || isNaN(s)) return '00:00';
   return `${Math.floor(s / 60).toString().padStart(2, '0')}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
 }
 
 // ── Data mapping ──────────────────────────────────────────────────────────
-export function mapToXY(timeArr, dataArr) {
+export function mapToXY(
+  timeArr: number[] | null | undefined,
+  dataArr: (number | null | undefined)[] | null | undefined,
+): { x: number; y: number }[] {
   if (!timeArr || !dataArr) return [];
   return timeArr
-    .map((t, i) => ({ x: t / 10, y: dataArr[i] != null ? dataArr[i] / 10 : null }))
-    .filter(pt => pt.y !== null);
+    .map((t, i) => {
+      const v = dataArr[i];
+      return { x: t / 10, y: v != null ? v / 10 : null };
+    })
+    .filter((pt): pt is { x: number; y: number } => pt.y !== null);
 }
 
 // mapShotDatapoints(datapoints) -> the XY-series bundle the shot charts and
@@ -220,7 +259,36 @@ export function mapToXY(timeArr, dataArr) {
 // object through the exact same shape. Pure; a missing/empty datapoints
 // yields all-empty series, never null. Kept in this leaf module (no imports)
 // so shot-curves.js can depend on it without an import cycle.
-export function mapShotDatapoints(datapoints) {
+export interface ShotDatapoints {
+  timeInShot?: number[];
+  pressure?: number[];
+  targetPressure?: number[];
+  pumpFlow?: number[];
+  targetPumpFlow?: number[];
+  shotWeight?: number[];
+  weight?: number[];
+  bleScaleConnected?: boolean | null;
+  weightFlow?: number[];
+  temperature?: number[];
+  targetTemperature?: number[];
+}
+
+export type XYSeries = { x: number; y: number }[];
+
+export interface ShotSeries {
+  rawTimes: number[];
+  pressure: XYSeries;
+  targetPressure: XYSeries;
+  flow: XYSeries;
+  targetFlow: XYSeries;
+  weight: XYSeries;
+  weightIsReal: boolean;
+  weightFlow: XYSeries;
+  temp: XYSeries;
+  targetTemp: XYSeries;
+}
+
+export function mapShotDatapoints(datapoints: ShotDatapoints | null | undefined): ShotSeries {
   const d = datapoints || {};
   const t = d.timeInShot || [];
   return {
@@ -242,7 +310,7 @@ export function mapShotDatapoints(datapoints) {
 }
 
 // ── Phase detection ───────────────────────────────────────────────────────
-export function detectPhases(times, pressures) {
+export function detectPhases(times: number[], pressures: number[]): { preinfusion: number; extraction: number } | null {
   if (!times?.length || pressures?.length < 5) return null;
   const THRESH = 3.5;
   let endIdx = -1;
@@ -256,7 +324,7 @@ export function detectPhases(times, pressures) {
 }
 
 // ── Channeling detection ──────────────────────────────────────────────────
-export function detectChanneling(times, pressures) {
+export function detectChanneling(times: number[], pressures: number[]): boolean {
   if (!times?.length || pressures?.length < 5) return false;
   for (let i = 1; i < pressures.length; i++) {
     if (pressures[i - 1] < 5) continue;
@@ -268,26 +336,26 @@ export function detectChanneling(times, pressures) {
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────
-export function isoToGerman(iso) {
+export function isoToGerman(iso: string | null | undefined): string {
   if (!iso) return '';
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return m ? `${m[3]}.${m[2]}.${m[1]}` : iso;
 }
 
-export function germanToIso(s) {
+export function germanToIso(s: string | null | undefined): string | null {
   if (!s) return null;
   const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (!m) return null;
   return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
 }
 
-export function parseDMY(s) {
+export function parseDMY(s: string | null | undefined): Date | null {
   if (!s) return null;
   const m = s.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})$/);
   if (!m) return null;
   const y = m[3].length === 2 ? 2000 + parseInt(m[3]) : parseInt(m[3]);
   const d = new Date(y, parseInt(m[2]) - 1, parseInt(m[1]));
-  return isNaN(d) ? null : d;
+  return isNaN(d.getTime()) ? null : d;
 }
 
 // ── Day-separator grouping (#412, hybrid grouping #426) ─────────────────
@@ -311,12 +379,21 @@ export function parseDMY(s) {
 // expanded, non-interactive) apart from month-headers (collapsible
 // accordion, restoring pre-#399 behavior) without inferring it from key
 // shape/length.
-const RECENT_WINDOW_DAYS = 14; // today(0) + yesterday(1) + 12 more per-day buckets
+const RECENT_WINDOW_DAYS: number = 14; // today(0) + yesterday(1) + 12 more per-day buckets
 
-export function groupShotsByDay(shots, now, todayLabel, yesterdayLabel, formatRecent, formatOlder) {
-  const dayKey = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const monthKey = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+export type ShotGroup<T> = { key: string; label: string; tier: 'day' | 'month'; shots: T[] };
+
+export function groupShotsByDay<T extends { timestamp: number }>(
+  shots: T[] | null | undefined,
+  now: Date,
+  todayLabel: string,
+  yesterdayLabel: string,
+  formatRecent: (date: Date) => string,
+  formatOlder: (date: Date) => string,
+): ShotGroup<T>[] {
+  const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
   const today = dayKey(now);
   const yesterdayDate = new Date(now);
@@ -324,12 +401,12 @@ export function groupShotsByDay(shots, now, todayLabel, yesterdayLabel, formatRe
   const yesterday = dayKey(yesterdayDate);
   const todayStart = startOfDay(now);
 
-  const groups = [];
-  let current = null;
+  const groups: ShotGroup<T>[] = [];
+  let current: ShotGroup<T> | null = null;
   (shots || []).forEach(shot => {
     const d = new Date(shot.timestamp * 1000);
     const dKey = dayKey(d);
-    const daysAgo = Math.round((todayStart - startOfDay(d)) / 86400000);
+    const daysAgo = Math.round((todayStart.getTime() - startOfDay(d).getTime()) / 86400000);
     const isRecent = daysAgo < RECENT_WINDOW_DAYS;
     const key = isRecent ? dKey : monthKey(d);
     if (!current || current.key !== key) {
@@ -349,13 +426,13 @@ export function groupShotsByDay(shots, now, todayLabel, yesterdayLabel, formatRe
 // Unified 3-tier scale (#397): green >= 90, yellow >= 70, red below — the
 // single source of truth for shot-score coloring across sidebar, shot
 // detail, analytics, and the dial-in wizards. No per-view thresholds.
-export function scoreClass(n) {
+export function scoreClass(n: number): string {
   return n >= 90 ? 'score-great' : n >= 70 ? 'score-ok' : 'score-bad';
 }
 
 // Returns a CSS custom-property reference so callers stay theme-aware
 // (accent/light-dark) instead of a hardcoded hex.
-export function scoreColor(sc) {
+export function scoreColor(sc: number | null | undefined): string {
   if (sc == null) return 'var(--gray-600)';
   return sc >= 90 ? 'var(--ok)' : sc >= 70 ? 'var(--warn)' : 'var(--err)';
 }
@@ -363,7 +440,7 @@ export function scoreColor(sc) {
 // Signed delta formatting for the same-profile auto-compare chips (#402):
 // "+2", "−0.3 bar", "±0" — a real minus sign (−, U+2212) rather than a
 // hyphen, matching how the rest of the app renders negative deltas.
-export function formatDelta(value, decimals = 0, unit = '') {
+export function formatDelta(value: number | null | undefined, decimals: number = 0, unit: string = ''): string | null {
   if (value == null) return null;
   const rounded = Number(value.toFixed(decimals));
   const sign = rounded > 0 ? '+' : rounded < 0 ? '−' : '±';
@@ -381,7 +458,7 @@ export function formatDelta(value, decimals = 0, unit = '') {
 // module load: the value is whatever the active theme resolves to right now,
 // and a value captured at import time would be frozen to whichever theme
 // happened to be active when the module first loaded.
-export function themeColor(varName, fallback = '') {
+export function themeColor(varName: string, fallback: string = ''): string {
   if (typeof getComputedStyle !== 'function' || typeof document === 'undefined') return fallback;
   return getComputedStyle(document.documentElement).getPropertyValue(varName).trim() || fallback;
 }
@@ -389,7 +466,7 @@ export function themeColor(varName, fallback = '') {
 // The three roles every chart needs. Fallbacks are the old dark-theme values,
 // so a chart still renders sanely if this is somehow called before the
 // stylesheet has applied.
-export function chartColors() {
+export function chartColors(): { text: string; tick: string; grid: string } {
   return {
     text: themeColor('--gray-200', '#e4e4e7'),  // legend / dataset labels
     tick: themeColor('--gray-500', '#a1a1aa'),  // axis tick labels
@@ -402,9 +479,9 @@ export function chartColors() {
 // holding a live Chart instance listen for this and rebuild — without it,
 // switching theme in Settings leaves every open chart on the old palette
 // until something else happens to re-render it.
-export const THEME_CHANGE_EVENT = 'glp-theme-change';
+export const THEME_CHANGE_EVENT: string = 'glp-theme-change';
 
-export function onThemeChange(handler) {
+export function onThemeChange(handler: EventListener): () => void {
   window.addEventListener(THEME_CHANGE_EVENT, handler);
   return () => window.removeEventListener(THEME_CHANGE_EVENT, handler);
 }
@@ -417,7 +494,7 @@ export function onThemeChange(handler) {
 // Updating in place rather than rebuilding: a rebuild would lose zoom/pan
 // state and restart the intro animation on every theme switch, and there is
 // nothing about a colour change that requires new geometry.
-export function applyChartTheme(chart) {
+export function applyChartTheme(chart: Chart): void {
   if (!chart || !chart.options) return;
   const C = chartColors();
   const legend = chart.options.plugins?.legend?.labels;

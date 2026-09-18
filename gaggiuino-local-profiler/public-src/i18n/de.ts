@@ -1,5 +1,6 @@
+import type { Translations } from '../i18n.js';
 import { BARCODE_ICON_SVG, LINK_ICON_SVG, GEAR_ICON_SVG, CLOCK_ICON_SVG, CLOSE_ICON_SVG } from '../icons.js';
-export default {
+const de: Partial<Translations> = {
     nav_shots:'Shots', nav_live:'Live', nav_analytics:'Statistiken', nav_library:'Bibliothek', nav_more:'Mehr',
     nav_achievements:'Erfolge',
     sort_newest:'Neueste', sort_score:'Score', sort_rating:'Bewertung', sort_duration:'Dauer',
@@ -718,3 +719,5 @@ export default {
     profile_dialin_converged_score:'Zwei Shots in Folge mit Score ≥80.',
     profile_dialin_safety_valve:'6 Runden ohne klare Konvergenz – ggf. reicht eine Profil-Anpassung allein nicht, Mahlgrad/Bohne prüfen.',
 };
+
+export default de;

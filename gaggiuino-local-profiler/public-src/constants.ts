@@ -1,3 +1,4 @@
+import type { Chart, ChartType, Plugin } from 'chart.js';
 import de from './i18n/de.js';
 import en from './i18n/en.js';
 import it from './i18n/it.js';
@@ -5,9 +6,17 @@ import fr from './i18n/fr.js';
 import es from './i18n/es.js';
 import nl from './i18n/nl.js';
 
-export const LOCALE_MAP = { de: 'de-DE', en: 'en-US', it: 'it-IT', fr: 'fr-FR', es: 'es-ES', nl: 'nl-NL' };
+// The corsair crosshair plugin stashes its transient {x,y,draw} state directly
+// on the chart instance, which Chart.js's own type has no member for.
+declare module 'chart.js' {
+  interface Chart {
+    corsair?: { x?: number; y?: number; draw?: boolean };
+  }
+}
 
-export const TRANSLATIONS = { de, en, it, fr, es, nl };
+export const LOCALE_MAP: Record<string, string> = { de: 'de-DE', en: 'en-US', it: 'it-IT', fr: 'fr-FR', es: 'es-ES', nl: 'nl-NL' };
+
+export const TRANSLATIONS: Record<string, unknown> = { de, en, it, fr, es, nl };
 
 // Single source of truth for "which BCP-47 locale does Intl/toLocale*()
 // get for the active UI language" — every call site used to inline its own
@@ -15,12 +24,12 @@ export const TRANSLATIONS = { de, en, it, fr, es, nl };
 // S.currentLang silently rendered dates/numbers in German for every user,
 // not just German ones. Falls back to English instead, matching the same
 // fallback fix applied to S.currentLang itself (state.js) and t() (i18n.js).
-export function localeFor(lang) {
+export function localeFor(lang: string): string {
   return LOCALE_MAP[lang] || LOCALE_MAP.en;
 }
 
 // ── Coffee origin countries (ISO 3166-1 alpha-2 + numeric for topojson) ───
-export const COFFEE_COUNTRIES = [
+export const COFFEE_COUNTRIES: { code: string; num: string }[] = [
   { code: 'AO', num: '024' }, { code: 'BI', num: '108' }, { code: 'BO', num: '068' },
   { code: 'BR', num: '076' }, { code: 'CD', num: '180' }, { code: 'CI', num: '384' },
   { code: 'CM', num: '120' }, { code: 'CN', num: '156' }, { code: 'CO', num: '170' },
@@ -42,7 +51,7 @@ export const COFFEE_COUNTRIES = [
 // Fallback map point per origin country [lon, lat] — used when a bean has no
 // geocoded region yet. Hand-picked toward the coffee-growing area rather than
 // the capital where it matters (US → Hawaii/Kona, not Washington DC).
-export const COUNTRY_CENTROIDS = {
+export const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
   AO: [17.87, -11.20], BI: [29.92, -3.37],  BO: [-63.59, -16.29], BR: [-51.93, -14.24],
   CD: [21.76, -4.04],  CI: [-5.55, 7.54],   CM: [12.35, 7.37],    CN: [101.5, 24.5],
   CO: [-74.30, 4.57],  CR: [-83.75, 9.75],  CU: [-77.78, 21.52],  DO: [-70.16, 18.74],
@@ -57,18 +66,18 @@ export const COUNTRY_CENTROIDS = {
   YE: [48.52, 15.55],  ZM: [27.85, -13.13], ZW: [29.15, -19.02],
 };
 
-export const VARIETY_SUGGESTIONS = ['Bourbon', 'Geisha',
+export const VARIETY_SUGGESTIONS: string[] = ['Bourbon', 'Geisha',
   'Typica', 'Caturra', 'Catuai', 'SL28', 'SL34', 'Pacamara', 'Maragogype'];
 
 // Coffee species — botanical, distinct from the cultivars/varieties above
 // (e.g. Red Bourbon is a cultivar within Arabica, not a separate species).
-export const SPECIES_OPTIONS = ['Arabica', 'Robusta', 'Liberica', 'Blend'];
+export const SPECIES_OPTIONS: string[] = ['Arabica', 'Robusta', 'Liberica', 'Blend'];
 
-export const PROCESS_SUGGESTIONS = ['Washed', 'Natural', 'Honey', 'Anaerobic'];
+export const PROCESS_SUGGESTIONS: string[] = ['Washed', 'Natural', 'Honey', 'Anaerobic'];
 
-const _isCountryCode = c => typeof c === 'string' && /^[A-Z]{2}$/.test(c);
+const _isCountryCode = (c: unknown): c is string => typeof c === 'string' && /^[A-Z]{2}$/.test(c);
 
-export function countryName(code, lang) {
+export function countryName(code: string | null | undefined, lang?: string): string {
   if (!_isCountryCode(code)) return code || '';
   try { return new Intl.DisplayNames([lang || 'en'], { type: 'region' }).of(code) || code; }
   catch { return code; }
@@ -87,7 +96,7 @@ export function countryName(code, lang) {
 // data — no consumer ever read MAINT_META[task].icon, since maintenance.js's
 // own taskIconSvg()/TASK_ICON_PATHS (#393) already renders the real stroke-SVG
 // task icons. Dropped rather than replaced.
-export const MAINT_META = {
+export const MAINT_META: Record<string, { key: string }> = {
   descaling:   { key: 'maint_descaling'   },
   backflush:   { key: 'maint_backflush'   },
   grouphead:   { key: 'maint_grouphead'   },
@@ -97,15 +106,28 @@ export const MAINT_META = {
 
 // Guided maintenance walkthroughs: i18n keys per step. Tasks without an entry
 // have no guide button.
-export const GUIDED_MAINT_STEPS = {
+export const GUIDED_MAINT_STEPS: Record<string, string[]> = {
   backflush: ['guided_backflush_1', 'guided_backflush_2', 'guided_backflush_3', 'guided_backflush_4', 'guided_backflush_5'],
   descaling: ['guided_descaling_1', 'guided_descaling_2', 'guided_descaling_3', 'guided_descaling_4', 'guided_descaling_5', 'guided_descaling_6'],
 };
 
 // phases[] -> {name, phaseType, t0, t1} ranges for phasePlugin's
 // gaggimatePhases option. Shared by the profile editor and shot chart.
-export function buildGmPhaseRanges(phases) {
-  const ranges = [];
+export interface GmPhaseInput {
+  duration?: number;
+  name?: string;
+  phase?: string;
+}
+
+export interface GmPhaseRange {
+  name: string;
+  phaseType: string;
+  t0: number;
+  t1: number;
+}
+
+export function buildGmPhaseRanges(phases: GmPhaseInput[] | null | undefined): GmPhaseRange[] {
+  const ranges: GmPhaseRange[] = [];
   let t = 0;
   (phases || []).forEach((ph, i) => {
     const dur = ph.duration || 5;
@@ -122,13 +144,25 @@ export function buildGmPhaseRanges(phases) {
 // divider) which disappeared against a light chart area. The translucent fills
 // are fine either way — a 10-13% tint reads as a tint on any ground — so only
 // the text and the divider switch.
-const PHASE_INK = {
+interface PhaseInk {
+  pre: string;
+  ext: string;
+  divider: string;
+}
+
+const PHASE_INK: Record<'dark' | 'light', PhaseInk> = {
   dark:  { pre: 'rgba(147,197,253,0.9)',  ext: 'rgba(251,191,36,0.9)',  divider: 'rgba(255,255,255,0.35)' },
   light: { pre: 'rgba(21,79,138,0.95)',   ext: 'rgba(124,72,4,0.95)',   divider: 'rgba(0,0,0,0.35)' },
 };
-const _currentInk = () => PHASE_INK[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
+const _currentInk = (): PhaseInk => PHASE_INK[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
 
-export const phasePlugin = {
+export interface PhasePluginOptions {
+  gaggimatePhases?: GmPhaseRange[];
+  preinfusion?: number;
+  extraction?: number;
+}
+
+export const phasePlugin: Plugin<ChartType, PhasePluginOptions> = {
   id: 'phases',
   beforeDatasetsDraw(chart, _args, opts) {
     const { ctx, chartArea: { top, bottom, left, right }, scales: { x } } = chart;
@@ -152,8 +186,9 @@ export const phasePlugin = {
     // Gaggiuino: two-region preinfusion/extraction shading.
     if (!opts?.preinfusion) return;
     const ink = _currentInk();
+    const extraction = opts.extraction ?? 0;
     const preEnd   = Math.min(Math.max(x.getPixelForValue(opts.preinfusion), left), right);
-    const totalEnd = Math.min(Math.max(x.getPixelForValue(opts.preinfusion + opts.extraction), left), right);
+    const totalEnd = Math.min(Math.max(x.getPixelForValue(opts.preinfusion + extraction), left), right);
 
     ctx.save();
 
@@ -254,25 +289,31 @@ export const phasePlugin = {
 };
 
 // ── Mobile: clear tooltip + crosshair on touchend ─────────────────────────
-export function clearChartOnTouchEnd(chart) {
+export function clearChartOnTouchEnd(chart: Chart): void {
   chart.canvas.addEventListener('touchend', () => {
     if (chart.corsair) chart.corsair = { draw: false };
-    chart.tooltip.setActiveElements([], { x: 0, y: 0 });
+    chart.tooltip?.setActiveElements([], { x: 0, y: 0 });
     chart.update('none');
   }, { passive: true });
 }
 
 // ── Corsair crosshair ─────────────────────────────────────────────────────
-export const corsairPlugin = {
+interface CorsairOptions {
+  width: number;
+  color: string;
+  dash: number[];
+}
+
+export const corsairPlugin: Plugin<ChartType, CorsairOptions> = {
   id: 'corsair',
   defaults: { width: 1, color: 'rgba(255,255,255,0.35)', dash: [4,4] },
   afterInit:  c => { c.corsair = { x: 0, y: 0 }; },
-  afterEvent: (c, args) => { c.corsair = { x: args.event.x, y: args.event.y, draw: args.inChartArea }; c.draw(); },
+  afterEvent: (c, args) => { c.corsair = { x: args.event.x ?? 0, y: args.event.y ?? 0, draw: args.inChartArea }; c.draw(); },
   beforeDatasetsDraw: (c, _a, opts) => {
     if (!c.corsair) return;
     const { ctx } = c;
     const { top, bottom } = c.chartArea;
-    const { x, draw } = c.corsair;
+    const { x = 0, draw } = c.corsair;
     if (!draw) return;
     ctx.save();
     ctx.beginPath();

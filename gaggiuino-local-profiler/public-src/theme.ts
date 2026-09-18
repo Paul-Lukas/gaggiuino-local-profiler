@@ -4,9 +4,12 @@
 // bootstrap touching dozens of element ids) that make importing it in a test
 // impractical; this module has none.
 import { THEME_CHANGE_EVENT } from './utils.js';
-import { THEME_PRESET_KEYS } from './shared/theme-presets.js';
+// @ts-expect-error -- shared/theme-presets.js is untyped until a later package converts it
+import { THEME_PRESET_KEYS as _THEME_PRESET_KEYS } from './shared/theme-presets.js';
 
-export const THEME_STORAGE_KEY = 'glp_theme';
+const THEME_PRESET_KEYS = _THEME_PRESET_KEYS as readonly string[];
+
+export const THEME_STORAGE_KEY: string = 'glp_theme';
 
 // #1019: maps the app's old, unrelated 6-swatch Settings -> Farbschema
 // values (amber/ocean/aurora/ember/forest/crema, see the now-retired
@@ -18,7 +21,7 @@ export const THEME_STORAGE_KEY = 'glp_theme';
 // rather than forced apart) and aurora on mulberry-mocha rather than
 // twilight-turkish (aurora's purple/pink leans closer to mulberry-mocha's
 // hue than twilight-turkish's cyan/indigo).
-const LEGACY_ACCENT_MAP = {
+const LEGACY_ACCENT_MAP: Record<string, string> = {
   amber:  'amber-americano',
   ember:  'ember-espresso',
   crema:  'copper-cortado',
@@ -32,16 +35,16 @@ const LEGACY_ACCENT_MAP = {
 // via the table above, and returns null for anything else (unset, or a
 // value from neither generation) so the caller can treat that the same as
 // "no preference recorded" and fall back to the default preset itself.
-export function migrateLegacyAccent(rawValue) {
-  if (THEME_PRESET_KEYS.includes(rawValue)) return rawValue;
-  return LEGACY_ACCENT_MAP[rawValue] || null;
+export function migrateLegacyAccent(rawValue: string | null | undefined): string | null {
+  if (typeof rawValue === 'string' && THEME_PRESET_KEYS.includes(rawValue)) return rawValue;
+  return (typeof rawValue === 'string' ? LEGACY_ACCENT_MAP[rawValue] : undefined) || null;
 }
 
 // 'auto' means "follow the OS/browser prefers-color-scheme" -- <html
 // data-theme> only ever renders the two concrete values, never 'auto'
 // itself. `prefersDark` is passed in rather than read here so this stays a
 // pure function.
-export function resolveTheme(theme, prefersDark) {
+export function resolveTheme(theme: string, prefersDark: boolean): string {
   return theme === 'auto' ? (prefersDark ? 'dark' : 'light') : theme;
 }
 
@@ -58,10 +61,10 @@ export function resolveTheme(theme, prefersDark) {
 // actual bug: an unscoped query also wired/matched those buttons, so
 // clicking one called this with theme=undefined, which matches neither
 // 'dark' nor 'light' and left both real buttons permanently un-highlighted.
-export function applyTheme(theme, { doc = document, win = window } = {}) {
+export function applyTheme(theme: string, { doc = document, win = window }: { doc?: Document; win?: Window & typeof globalThis } = {}): void {
   const prefersDark = !!win.matchMedia?.('(prefers-color-scheme: dark)')?.matches;
   doc.documentElement.dataset.theme = resolveTheme(theme, prefersDark);
-  doc.querySelectorAll('#themeToggleGroup .theme-btn').forEach(b =>
+  doc.querySelectorAll<HTMLElement>('#themeToggleGroup .theme-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.themeVal === theme));
   // #814: Chart.js resolves its colours once, at construction. Setting the
   // theme attribute repaints everything CSS controls but leaves every chart
@@ -75,7 +78,7 @@ export function applyTheme(theme, { doc = document, win = window } = {}) {
 // attaching/detaching one on every setTheme() call, and costs nothing while
 // idle. Returns the MediaQueryList (or undefined in an environment without
 // matchMedia) mainly so tests can drive it directly.
-export function watchSystemTheme({ win = window, storage = localStorage } = {}) {
+export function watchSystemTheme({ win = window, storage = localStorage }: { win?: Window & typeof globalThis; storage?: Storage } = {}): MediaQueryList | undefined {
   const mq = win.matchMedia?.('(prefers-color-scheme: dark)');
   mq?.addEventListener('change', () => {
     if ((storage.getItem(THEME_STORAGE_KEY) || 'dark') === 'auto') applyTheme('auto', { win });

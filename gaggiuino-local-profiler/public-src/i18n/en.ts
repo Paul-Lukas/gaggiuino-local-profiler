@@ -1,5 +1,6 @@
+import type { Translations } from '../i18n.js';
 import { BARCODE_ICON_SVG, LINK_ICON_SVG, GEAR_ICON_SVG, CLOCK_ICON_SVG, CLOSE_ICON_SVG } from '../icons.js';
-export default {
+const en: Translations = {
     nav_shots:'Shots', nav_live:'Live', nav_analytics:'Analytics', nav_library:'Library', nav_more:'More',
     nav_achievements:'Achievements',
     sort_newest:'Newest', sort_score:'Score', sort_rating:'Rating', sort_duration:'Duration',
@@ -736,3 +737,5 @@ export default {
     profile_dialin_converged_score:'Two shots in a row scored ≥80.',
     profile_dialin_safety_valve:'6 rounds without clear convergence — a profile tweak alone may not be enough, check grind/bean too.',
 };
+
+export default en;
