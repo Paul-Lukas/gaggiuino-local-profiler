@@ -17,6 +17,7 @@ import { calcShotScore } from './shots/utils.js';
 import { getShotCurve } from '../shot-curves.js';
 import { mapShotDatapoints } from '../utils.js';
 import { calcBestGrindCombosForBean, _miniShotChart, _parseGrindNum } from './shots/grind.js';
+import { normalizeGrindToNow } from '../grind-zero.js';
 import { calcNextGrindSuggestion, isConverged } from '../dialin-convergence.js';
 import { renderSidebar, updateSidebarHighlighting } from '../components/sidebar.js';
 
@@ -126,7 +127,8 @@ function _suggestStartGrind(beanName, grinderName, beanId) {
     const last = [...S.shots]
       .filter(s => (s.annotation?.grinder || '').toLowerCase() === grinderName.toLowerCase())
       .sort((a, b) => b.timestamp - a.timestamp)[0];
-    const g = _parseGrindNum(last?.annotation?.grindSetting);
+    const raw = _parseGrindNum(last?.annotation?.grindSetting);
+    const g = normalizeGrindToNow(S.coffeeLibrary?.grinders, grinderName, raw, last?.timestamp * 1000);
     if (g !== null) return g;
   }
   return null;
