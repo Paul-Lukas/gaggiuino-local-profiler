@@ -576,6 +576,7 @@ const it: Partial<Translations> = {
     profile_send_error:'Invio alla macchina non riuscito',
     profile_not_synced:'Non ancora sincronizzato con la macchina — avverrà automaticamente non appena sarà raggiungibile',
     profile_load_error:'Impossibile caricare il profilo',
+    profile_btn_duplicate:'Duplica', profile_duplicate_suffix:' (Copia)',
     profile_no_phases_error:'È richiesta almeno una fase',
     profile_editor_title:'Editor profilo',
     profile_form_name:'Nome *', profile_form_water_temp:'Temperatura acqua (°C)',

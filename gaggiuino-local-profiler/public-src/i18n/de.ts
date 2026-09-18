@@ -558,6 +558,7 @@ const de: Partial<Translations> = {
     profile_send_error:'Senden an die Maschine fehlgeschlagen',
     profile_not_synced:'Noch nicht mit der Maschine synchronisiert — wird automatisch nachgeholt, sobald sie erreichbar ist',
     profile_load_error:'Profil konnte nicht geladen werden',
+    profile_btn_duplicate:'Duplizieren', profile_duplicate_suffix:' (Kopie)',
     profile_no_phases_error:'Mindestens eine Phase ist erforderlich',
     profile_editor_title:'Profil-Editor',
     profile_form_name:'Name *', profile_form_water_temp:'Wassertemperatur (°C)',
