@@ -773,19 +773,6 @@ export async function reorderBags(beanId, bagIds) {
   renderBeanList();
 }
 
-export async function saveBeanStock(id) {
-  const val = parseFloat(document.getElementById(`stockEditInput${id}`)?.value);
-  if (isNaN(val) || val < 0) return;
-  const bean = S.coffeeLibrary.beans.find(b => b.id === id);
-  if (!bean) return;
-  const stock_g = remainingToStockG(bean, annotationDoseRows(), S.coffeeLibrary.beans, val);
-  const saved = await libraryApi.saveBean(id, { stock_g });
-  if (!saved) return;
-  const idx = S.coffeeLibrary.beans.findIndex(b => b.id === id);
-  if (idx !== -1) S.coffeeLibrary.beans[idx] = saved;
-  renderBeanList();
-}
-
 // Clicking a bean's name in the Library sets the sidebar's structured bean
 // filter (state.js S.beanFilter / sidebar.js setBeanFilter()) and jumps to
 // the Shots tab so the filtered history is immediately visible.

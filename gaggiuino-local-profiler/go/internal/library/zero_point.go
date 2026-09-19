@@ -112,8 +112,10 @@ func SetGrinderZeroPoint(repo *Repository, id int64, zeroPoint float64, since in
 		raw = append(raw, Entity{"zeroPoint": zeroPoint, "since": since})
 		// Keep sorted by since so zeroPointAtTime's linear scan stays correct.
 		sort.Slice(raw, func(i, j int) bool {
-			si, _ := idOf(raw[i].(Entity), "since")
-			sj, _ := idOf(raw[j].(Entity), "since")
+			ei, _ := raw[i].(Entity)
+			ej, _ := raw[j].(Entity)
+			si, _ := idOf(ei, "since")
+			sj, _ := idOf(ej, "since")
 			return si < sj
 		})
 		grinder["zeroPointHistory"] = raw
