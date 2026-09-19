@@ -1,6 +1,8 @@
 import { S }                              from '../../state/index.js';
 import { t }                              from '../../i18n.js';
-import { apiFetch }                       from '../../api.js';
+import { getMenu } from '../../api/system.js';
+import { deductMilk, adjustFrozenPortion, listMilks } from '../../api/library.js';
+import { annotateShot, getShotDefaults, postShotImage, deleteShotImage } from '../../api/shots.js';
 import { esc, germanToIso }              from '../../utils.js';
 import { renderSidebar, updateSidebarHighlighting } from '../../components/sidebar.js';
 import { calcBeanAgeAtShot, _roastDateFromLibrary } from './utils.js';
@@ -30,16 +32,12 @@ export function _maybeDeductMilk(shot, payload) {
   if (payload.milkType === prevMilkType && payload.drinkType === prevDrinkType) return;
   const menuItem = S.drinkMenu?.find(m => m.id === payload.drinkType);
   if (!(menuItem?.milkMl > 0)) return;
-  apiFetch(`api/library/milk/${payload.milkType}/deduct`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ml: menuItem.milkMl }),
-  }).then(r2 => {
-    if (r2.ok) r2.json().then(updated => {
-      if (S.milkTypes) {
-        const mi = S.milkTypes.findIndex(m => m.id === updated.id);
-        if (mi !== -1) S.milkTypes[mi] = updated;
-      }
-    });
+  deductMilk(payload.milkType, menuItem.milkMl).then(updated => {
+    if (!updated) return;
+    if (S.milkTypes) {
+      const mi = S.milkTypes.findIndex(m => m.id === updated.id);
+      if (mi !== -1) S.milkTypes[mi] = updated;
+    }
   }).catch(() => {});
 }
 
@@ -68,10 +66,7 @@ function _adjustFrozenPortionRemaining(portionId, delta) {
   const { bean, portion } = found;
   const current = Number.isFinite(portion.remainingCount) ? portion.remainingCount : portion.portionCount;
   const remainingCount = Math.min(Math.max(current + delta, 0), portion.portionCount);
-  apiFetch(`api/library/bean/${bean.id}/adjust-frozen-portion`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ portionId, remainingCount }),
-  }).then(r => r.ok ? r.json() : null).then(updated => {
+  adjustFrozenPortion(bean.id, { portionId, remainingCount }).then(updated => {
     if (!updated) return;
     const idx = S.coffeeLibrary.beans.findIndex(b => b.id === bean.id);
     if (idx !== -1) S.coffeeLibrary.beans[idx] = updated;
@@ -154,9 +149,7 @@ async function _performAnnotationSave() {
   const shot = S.shots.find(s => s.id === id);
   const payload = _buildAnnotationPayload(shot);
   try {
-    const r = await apiFetch(`api/shots/${id}/annotate`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-    });
+    const r = await annotateShot(id, payload);
     if (r.ok) {
       _maybeDeductMilk(shot, payload);
       _maybeAdjustFrozenPortion(shot, payload);
@@ -195,7 +188,7 @@ export function flushAutoSave() {
 
 export async function loadDrinkMenu() {
   try {
-    const r = await apiFetch('api/menu');
+    const r = await getMenu();
     if (r.ok) S.drinkMenu = await r.json();
   } catch { /* non-critical */ }
 }
@@ -206,8 +199,8 @@ export async function loadDrinkMenu() {
 // components/shot-defaults-settings.js whenever the Settings card saves.
 export async function loadShotDefaults() {
   try {
-    const r = await apiFetch('api/shots/defaults');
-    if (r.ok) S.shotDefaults = await r.json();
+    const defaults = await getShotDefaults();
+    if (defaults) S.shotDefaults = defaults;
   } catch { /* non-critical */ }
 }
 
@@ -235,8 +228,8 @@ export function _applyShotDefaults(ann) {
 
 export async function loadMilkTypes() {
   try {
-    const r = await apiFetch('api/library/milks');
-    if (r.ok) S.milkTypes = await r.json();
+    const milks = await listMilks();
+    if (milks) S.milkTypes = milks;
   } catch { /* non-critical */ }
 }
 
@@ -514,9 +507,7 @@ export async function uploadShotImage(input) {
   // eslint-disable-next-line require-atomic-updates -- `input` is a per-call function parameter (the DOM element passed in), not shared state
   input.value = '';
   if (!blob) return;
-  const r = await apiFetch(`api/shots/${id}/image`, {
-    method: 'POST', headers: { 'Content-Type': blob.type }, body: blob,
-  });
+  const r = await postShotImage(id, blob);
   if (!r.ok) { alert(t('error_generic', (await r.json().catch(() => ({}))).error || r.statusText)); return; }
   const saved = await r.json();
   const idx = S.shots.findIndex(s => s.id === id);
@@ -530,7 +521,7 @@ export async function uploadShotImage(input) {
 export async function removeShotImage() {
   if (!S.primaryShotId) return;
   const id = S.primaryShotId;
-  const r = await apiFetch(`api/shots/${id}/image`, { method: 'DELETE' });
+  const r = await deleteShotImage(id);
   if (!r.ok) return;
   const idx = S.shots.findIndex(s => s.id === id);
   if (idx !== -1) delete S.shots[idx].image;
