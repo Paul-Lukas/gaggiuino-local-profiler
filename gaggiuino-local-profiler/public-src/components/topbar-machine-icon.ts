@@ -20,7 +20,7 @@ import { esc } from '../utils.js';
 import { machineIconAnimatedSvg, setMachineIconMode, resolveMachineIconState,
          MACHINE_ICON_LIVE_CLASS } from '../machine-icon.js';
 
-function host() {
+function host(): HTMLElement | null {
   return document.getElementById('topbarMachineIcon');
 }
 
@@ -32,9 +32,9 @@ function host() {
 // look) until the next SSE tick or fallback poll re-applies the real state —
 // same brief transient views/live.js's own icon already has after a machine
 // switch, not a new regression here.
-let _iconFor = null;
+let _iconFor: unknown = null;
 
-export function renderTopbarMachineIcon() {
+export function renderTopbarMachineIcon(): void {
   const el = host();
   if (!el) return;
   const machine = (S.machines || []).find(m => m.id === S.activeMachineId)
@@ -48,21 +48,21 @@ export function renderTopbarMachineIcon() {
   }
 }
 
-let _lastPreheat = null;
+let _lastPreheat: unknown = null;
 
 // SSE push — registered once in main.js's bootstrap, independent of
 // live.js's own handlers for the same two event types (multiple listeners
 // per event are supported, see sse.js's onEvent()).
-export function handleTopbarLiveSnapshotEvent(msg) {
+export function handleTopbarLiveSnapshotEvent(msg: unknown): void {
   _applyState(msg);
 }
 
-export function handleTopbarPreheatUpdateEvent(preheat) {
+export function handleTopbarPreheatUpdateEvent(preheat: unknown): void {
   _lastPreheat = preheat;
   _applyState(null);
 }
 
-function _applyState(msg) {
+function _applyState(msg: unknown): void {
   const el = host();
   if (!el) return;
   const { mode, heatFraction } = resolveMachineIconState(msg, _lastPreheat);
@@ -77,7 +77,7 @@ function _applyState(msg) {
 // "on, detail unknown" — the same default resolveMachineIconState() itself
 // falls back to once a machine is reachable but reports neither isLive nor
 // an active preheat.
-export function syncTopbarMachineIconFallback(reachable) {
+export function syncTopbarMachineIconFallback(reachable: unknown): void {
   if (S.sseActive) return;
   const el = host();
   if (!el) return;
@@ -102,12 +102,12 @@ const RAINBOW_HUE_SPAN = 40;    // degrees between the two stops, keeps the two-
 const RAINBOW_SAT = 85;
 const RAINBOW_LIGHT = 50;
 
-function hslToHex(h, s, l) {
+function hslToHex(h: number, s: number, l: number): string {
   s /= 100; l /= 100;
-  const k = n => (n + h / 30) % 12;
+  const k = (n: number): number => (n + h / 30) % 12;
   const a = s * Math.min(l, 1 - l);
-  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-  const toHex = x => Math.round(255 * x).toString(16).padStart(2, '0');
+  const f = (n: number): number => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const toHex = (x: number): string => Math.round(255 * x).toString(16).padStart(2, '0');
   return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
 }
 
@@ -118,17 +118,24 @@ function hslToHex(h, s, l) {
 // prefers-reduced-motion by applying one static rainbow hue instead of
 // animating — matches this app's rule that decorative motion, not just
 // state-carrying motion, still needs a reduced-motion fallback.
-function animateGradientRainbow(el, { durationMs = null, onDone = null } = {}) {
+interface RainbowHandle {
+  stop: () => void;
+}
+
+function animateGradientRainbow(
+  el: Element,
+  { durationMs = null, onDone = null }: { durationMs?: number | null; onDone?: (() => void) | null } = {},
+): RainbowHandle | null {
   const stopA = el.querySelector('.mi-grad-a');
   const stopB = el.querySelector('.mi-grad-b');
   if (!stopA || !stopB) return null;
-  const origA = stopA.getAttribute('stop-color');
-  const origB = stopB.getAttribute('stop-color');
-  const restore = () => {
+  const origA = stopA.getAttribute('stop-color') ?? '';
+  const origB = stopB.getAttribute('stop-color') ?? '';
+  const restore = (): void => {
     stopA.setAttribute('stop-color', origA);
     stopB.setAttribute('stop-color', origB);
   };
-  const setHue = hue => {
+  const setHue = (hue: number): void => {
     stopA.setAttribute('stop-color', hslToHex((hue - RAINBOW_HUE_SPAN + 360) % 360, RAINBOW_SAT, RAINBOW_LIGHT));
     stopB.setAttribute('stop-color', hslToHex((hue + RAINBOW_HUE_SPAN) % 360, RAINBOW_SAT, RAINBOW_LIGHT));
   };
@@ -138,8 +145,8 @@ function animateGradientRainbow(el, { durationMs = null, onDone = null } = {}) {
     return { stop: restore };
   }
   const start = performance.now();
-  let rafId = null;
-  function tick(now) {
+  let rafId: number | null = null;
+  function tick(now: number): void {
     const elapsed = now - start;
     if (durationMs != null && elapsed >= durationMs) {
       restore();
@@ -153,10 +160,10 @@ function animateGradientRainbow(el, { durationMs = null, onDone = null } = {}) {
   return { stop() { if (rafId != null) cancelAnimationFrame(rafId); restore(); } };
 }
 
-let _clickTimes = [];
-let _topbarRainbow = null;
+let _clickTimes: number[] = [];
+let _topbarRainbow: RainbowHandle | null = null;
 
-export function handleTopbarMachineIconClick() {
+export function handleTopbarMachineIconClick(): void {
   const el = host();
   if (!el) return;
   const now = Date.now();
@@ -181,14 +188,14 @@ export function handleTopbarMachineIconClick() {
 // new persistent state, no analytics, nothing recorded — see this module's
 // top-of-file note and #845: intentionally never mentioned in
 // CHANGELOG.md/whats-new.js, it's meant to stay a secret.
-let _panelIconFor = null;
-let _panelRainbow = null;
+let _panelIconFor: unknown = null;
+let _panelRainbow: RainbowHandle | null = null;
 
-function panelHost() {
+function panelHost(): HTMLElement | null {
   return document.getElementById('easterEggPanelIcon');
 }
 
-function renderPanelIcon() {
+function renderPanelIcon(): void {
   const el = panelHost();
   if (!el) return;
   const machine = (S.machines || []).find(m => m.id === S.activeMachineId)
@@ -211,17 +218,18 @@ function renderPanelIcon() {
   setMachineIconMode(el, mode === 'off' ? 'hot' : mode, heatFraction || 1);
 }
 
-function machineLabel() {
+function machineLabel(): string {
   if (S.activeMachineId == null || S.activeMachineId === 'all') return t('machine_switcher_all');
   const machine = (S.machines || []).find(m => m.id === S.activeMachineId);
-  return machine?.name || t('machine_switcher_all');
+  const name = machine?.name;
+  return typeof name === 'string' ? name : t('machine_switcher_all');
 }
 
-function renderPanelStats() {
+function renderPanelStats(): void {
   const el = document.getElementById('easterEggPanelStats');
   if (!el) return;
   const version = document.getElementById('glpVersionBadge')?.textContent?.trim() || '–';
-  const rows = [
+  const rows: [string, string][] = [
     [t('easter_egg_stat_version'), version],
     [t('easter_egg_stat_connection'), S.sseActive ? t('easter_egg_stat_sse_live') : t('easter_egg_stat_sse_poll')],
     [t('machine_switcher_title'), machineLabel()],
@@ -230,7 +238,7 @@ function renderPanelStats() {
   el.innerHTML = rows.map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join('');
 }
 
-export function openEasterEggPanel() {
+export function openEasterEggPanel(): void {
   const panel = document.getElementById('easterEggPanel');
   if (!panel) return;
   renderPanelIcon();
@@ -244,7 +252,7 @@ export function openEasterEggPanel() {
   document.getElementById('easterEggPanelCloseBtn')?.focus();
 }
 
-export function closeEasterEggPanel() {
+export function closeEasterEggPanel(): void {
   const panel = document.getElementById('easterEggPanel');
   if (!panel) return;
   panel.style.display = 'none';
@@ -255,7 +263,7 @@ export function closeEasterEggPanel() {
 // Called once from main.js's bootstrap, not at module-import time — this
 // module is imported by test files (via machines-settings.js/status.js)
 // under Node/vitest, where `document` doesn't exist.
-export function bindEasterEggPanelEscape() {
+export function bindEasterEggPanelEscape(): void {
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     const panel = document.getElementById('easterEggPanel');

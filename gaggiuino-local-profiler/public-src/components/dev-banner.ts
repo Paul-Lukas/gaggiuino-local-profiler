@@ -14,7 +14,9 @@
 // container tag.
 import { WARNING_ICON_SVG } from '../icons.js';
 
-export function showDevBuildBanner(devBuild) {
+const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+
+export function showDevBuildBanner(devBuild?: string | null): void {
   if (document.getElementById('glpDevBanner')) return;
 
   const banner = document.createElement('div');
@@ -29,7 +31,7 @@ export function showDevBuildBanner(devBuild) {
   // #811: the ⚠ glyph becomes the drawn warning icon. innerHTML is safe here
   // -- devBuild comes from the build metadata, and is escaped anyway.
   banner.innerHTML = `${WARNING_ICON_SVG} UNSTABLE DEV BUILD` +
-    (devBuild ? ` (${String(devBuild).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))})` : '');
+    (devBuild ? ` (${String(devBuild).replace(/[&<>"]/g, c => HTML_ESCAPES[c])})` : '');
   document.body.insertAdjacentElement('afterbegin', banner);
   // #683 follow-up: body is `height: 100vh; overflow: hidden` with global
   // `box-sizing: border-box` (style.css), so padding-top here shrinks the
@@ -56,6 +58,6 @@ export function showDevBuildBanner(devBuild) {
 // Other fixed banners (update-available, machine-unreachable) stack off of
 // each other's offsetHeight -- this is the topmost one, so callers computing
 // their own `top` offset should add this alongside glpUpdateBanner's height.
-export function devBannerHeight() {
+export function devBannerHeight(): number {
   return document.getElementById('glpDevBanner')?.offsetHeight || 0;
 }

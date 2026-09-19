@@ -17,14 +17,15 @@
 
 // ── Pure filtering logic (kept separate from DOM so it's unit-testable
 // under vitest's node environment) ──────────────────────────────────────
-export function filterSuggestions(list, query, limit = 8) {
-  const pool = Array.from(new Set((list || []).filter(v => typeof v === 'string' && v.trim())));
-  const trimmedQuery = (query || '').trim();
+export function filterSuggestions(list: unknown, query: unknown, limit = 8): string[] {
+  const source = Array.isArray(list) ? list : [];
+  const pool = Array.from(new Set(source.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)));
+  const trimmedQuery = (typeof query === 'string' ? query : '').trim();
   const q = trimmedQuery.toLowerCase();
   if (!q) return pool.slice(0, limit);
 
-  const startsWith = [];
-  const contains = [];
+  const startsWith: string[] = [];
+  const contains: string[] = [];
   for (const item of pool) {
     // Case-sensitive exact match only — a case-insensitive one would also
     // hide a suggestion that differs only in casing (e.g. typed "bourbon",
@@ -40,6 +41,17 @@ export function filterSuggestions(list, query, limit = 8) {
 
 let _uid = 0;
 
+export interface AutocompleteHandle {
+  refresh: () => void;
+  close: () => void;
+}
+
+declare global {
+  interface HTMLInputElement {
+    _autocomplete?: AutocompleteHandle;
+  }
+}
+
 // Wires a text input to a suggestion dropdown. `getOptions` is called fresh
 // on every open/keystroke so it should return the current full candidate
 // list (e.g. `() => S.coffeeLibrary.beans.map(b => b.name)`) — no separate
@@ -47,16 +59,21 @@ let _uid = 0;
 //
 // Returns a handle ({ refresh, close }) and is idempotent: calling it again
 // on an already-attached input just returns the existing handle.
-export function attachAutocomplete(input, getOptions, opts = {}) {
-  if (!input) return null;
-  if (input._autocomplete) return input._autocomplete;
+export function attachAutocomplete(
+  inputArg: HTMLInputElement | null,
+  getOptions?: (() => unknown) | null,
+  opts: { limit?: number } = {},
+): AutocompleteHandle | null {
+  if (!inputArg) return null;
+  if (inputArg._autocomplete) return inputArg._autocomplete;
+  const input = inputArg;
 
   const limit = opts.limit ?? 8;
   const doc = input.ownerDocument || document;
 
   const wrap = doc.createElement('div');
   wrap.className = 'autocomplete-wrap';
-  input.parentNode.insertBefore(wrap, input);
+  input.parentNode?.insertBefore(wrap, input);
   wrap.appendChild(input);
 
   const list = doc.createElement('ul');
@@ -72,16 +89,16 @@ export function attachAutocomplete(input, getOptions, opts = {}) {
   input.setAttribute('aria-controls', list.id);
   input.setAttribute('autocomplete', 'off');
 
-  let items = [];
+  let items: string[] = [];
   let activeIndex = -1;
   let suppressOpen = false;
 
-  function computeItems() {
+  function computeItems(): void {
     const options = getOptions ? getOptions() : [];
     items = filterSuggestions(options, input.value, limit);
   }
 
-  function render() {
+  function render(): void {
     if (!items.length) { close(); return; }
     list.innerHTML = '';
     items.forEach((val, i) => {
@@ -101,14 +118,14 @@ export function attachAutocomplete(input, getOptions, opts = {}) {
     input.setAttribute('aria-expanded', 'true');
   }
 
-  function close() {
+  function close(): void {
     list.hidden = true;
     input.setAttribute('aria-expanded', 'false');
     input.removeAttribute('aria-activedescendant');
     activeIndex = -1;
   }
 
-  function select(val) {
+  function select(val: string): void {
     input.value = val;
     close();
     // Dispatched so other listeners (autosave, etc.) see the change like
@@ -122,7 +139,7 @@ export function attachAutocomplete(input, getOptions, opts = {}) {
     input.focus();
   }
 
-  function setActive(i) {
+  function setActive(i: number): void {
     const opts_ = [...list.children];
     opts_.forEach(el => el.classList.remove('active'));
     activeIndex = i;
@@ -135,7 +152,7 @@ export function attachAutocomplete(input, getOptions, opts = {}) {
     }
   }
 
-  function openFresh() {
+  function openFresh(): void {
     if (suppressOpen) return;
     computeItems();
     render();
@@ -144,7 +161,7 @@ export function attachAutocomplete(input, getOptions, opts = {}) {
   // Re-renders currently visible suggestions against fresh data (e.g. after
   // a library save/delete elsewhere changed the candidate list). A no-op if
   // this field isn't focused/open right now.
-  function refresh() {
+  function refresh(): void {
     if (list.hidden) return;
     openFresh();
   }

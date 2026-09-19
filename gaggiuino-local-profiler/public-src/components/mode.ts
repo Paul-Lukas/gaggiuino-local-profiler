@@ -2,7 +2,7 @@ import { S } from '../state/index.js';
 import { updateMobileShotSidebarVisibility } from './sidebar.js';
 import { applyBottomNavActiveState } from './bottom-nav.js';
 
-export function goToShot(id) {
+export function goToShot(id: number): void {
   switchMode('shots');
   if (window.selectShot) window.selectShot(id);
   setTimeout(() => {
@@ -11,22 +11,22 @@ export function goToShot(id) {
   }, 50);
 }
 
-export function switchMode(mode) {
+export function switchMode(mode: string): void {
   // #430: flush any pending debounced annotation save before leaving Shots —
   // the annotation panel (and its auto-save) only exists there, so this is
   // the mode-switch equivalent of the blur/visibilitychange flushes wired in
   // main.js.
   if (S.currentMode === 'shots' && mode !== 'shots' && window.flushAutoSave) window.flushAutoSave();
   S.currentMode = mode;
-  document.getElementById('btnShots').classList.toggle('active',       mode === 'shots');
-  document.getElementById('btnLive').classList.toggle('active',        mode === 'live');
-  document.getElementById('btnAnalytics').classList.toggle('active',   mode === 'analytics');
-  document.getElementById('btnDialin').classList.toggle('active',      mode === 'dialin');
-  document.getElementById('btnLibrary').classList.toggle('active',     mode === 'library');
-  document.getElementById('btnMaintenance').classList.toggle('active', mode === 'maintenance');
-  document.getElementById('btnAchievements').classList.toggle('active', mode === 'achievements');
-  document.getElementById('btnOrders').classList.toggle('active',      mode === 'orders');
-  document.getElementById('btnSettings').classList.toggle('active',    mode === 'settings');
+  (document.getElementById('btnShots') as HTMLElement).classList.toggle('active',       mode === 'shots');
+  (document.getElementById('btnLive') as HTMLElement).classList.toggle('active',        mode === 'live');
+  (document.getElementById('btnAnalytics') as HTMLElement).classList.toggle('active',   mode === 'analytics');
+  (document.getElementById('btnDialin') as HTMLElement).classList.toggle('active',      mode === 'dialin');
+  (document.getElementById('btnLibrary') as HTMLElement).classList.toggle('active',     mode === 'library');
+  (document.getElementById('btnMaintenance') as HTMLElement).classList.toggle('active', mode === 'maintenance');
+  (document.getElementById('btnAchievements') as HTMLElement).classList.toggle('active', mode === 'achievements');
+  (document.getElementById('btnOrders') as HTMLElement).classList.toggle('active',      mode === 'orders');
+  (document.getElementById('btnSettings') as HTMLElement).classList.toggle('active',    mode === 'settings');
 
   // Bottom nav (#403, #443, mobile) — mirrors the rail's active state above.
   // Which bn* id is active vs. which container it's currently rendered in
@@ -35,15 +35,15 @@ export function switchMode(mode) {
   // instead of a hardcoded mode-name list here.
   applyBottomNavActiveState(mode);
 
-  document.getElementById('shots-view').style.display       = mode === 'shots'       ? 'flex' : 'none';
-  document.getElementById('live-view').style.display        = mode === 'live'        ? 'flex' : 'none';
-  document.getElementById('analytics-view').style.display   = mode === 'analytics'   ? 'flex' : 'none';
-  document.getElementById('dialin-view').style.display      = mode === 'dialin'      ? 'flex' : 'none';
-  document.getElementById('library-view').style.display     = mode === 'library'     ? 'flex' : 'none';
-  document.getElementById('maintenance-view').style.display = mode === 'maintenance' ? 'flex' : 'none';
-  document.getElementById('achievements-view').style.display = mode === 'achievements' ? 'flex' : 'none';
-  document.getElementById('orders-view').style.display      = mode === 'orders'      ? 'flex' : 'none';
-  document.getElementById('settings-view').style.display    = mode === 'settings'    ? 'grid' : 'none';
+  (document.getElementById('shots-view') as HTMLElement).style.display       = mode === 'shots'       ? 'flex' : 'none';
+  (document.getElementById('live-view') as HTMLElement).style.display        = mode === 'live'        ? 'flex' : 'none';
+  (document.getElementById('analytics-view') as HTMLElement).style.display   = mode === 'analytics'   ? 'flex' : 'none';
+  (document.getElementById('dialin-view') as HTMLElement).style.display      = mode === 'dialin'      ? 'flex' : 'none';
+  (document.getElementById('library-view') as HTMLElement).style.display     = mode === 'library'     ? 'flex' : 'none';
+  (document.getElementById('maintenance-view') as HTMLElement).style.display = mode === 'maintenance' ? 'flex' : 'none';
+  (document.getElementById('achievements-view') as HTMLElement).style.display = mode === 'achievements' ? 'flex' : 'none';
+  (document.getElementById('orders-view') as HTMLElement).style.display      = mode === 'orders'      ? 'flex' : 'none';
+  (document.getElementById('settings-view') as HTMLElement).style.display    = mode === 'settings'    ? 'grid' : 'none';
 
   if (mode === 'live') {
     if (window.populateRefSelector) window.populateRefSelector();
@@ -70,7 +70,7 @@ export function switchMode(mode) {
     if (window.stopOrdersPolling) window.stopOrdersPolling();
   }
 
-  const modeMap = {
+  const modeMap: Record<string, string> = {
     shots: 'btnShots', live: 'btnLive', analytics: 'btnAnalytics',
     dialin: 'btnDialin', library: 'btnLibrary', maintenance: 'btnMaintenance',
     achievements: 'btnAchievements', orders: 'btnOrders', settings: 'btnSettings'

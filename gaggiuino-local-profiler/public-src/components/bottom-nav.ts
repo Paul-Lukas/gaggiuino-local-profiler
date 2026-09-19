@@ -14,13 +14,22 @@ import { switchMode } from './mode.js';
 export const STORAGE_KEY = 'glp_bottom_nav_config';
 export const MAX_MAIN_BAR = 4;
 
+export interface NavItem {
+  id: string;
+  i18nKey: string;
+  label: string;
+  iconPaths: string;
+  hasLiveDot?: boolean;
+  hiddenByDefault?: boolean;
+}
+
 // Canonical list of all 8 possible nav destinations, in the same order
 // they appeared in the old static markup (main-bar 4, then Mehr-sheet 4).
 // iconPaths is the raw inner SVG markup (paths/circles only) so the same
 // icon can be wrapped differently for a main-bar button (.bn-icon, 20px,
 // class "rail-icon") vs. a Mehr-sheet row (class "rail-icon sm") without
 // duplicating the vector data.
-export const NAV_ITEMS = [
+export const NAV_ITEMS: NavItem[] = [
   { id: 'shots', i18nKey: 'nav_shots', label: 'Shots',
     iconPaths: '<path d="M17 8h1a3 3 0 0 1 0 6h-1M4 8h13v7a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8z"/><path d="M8 2v2M12 2v2"/>' },
   { id: 'live', i18nKey: 'nav_live', label: 'Live', hasLiveDot: true, hiddenByDefault: true,
@@ -51,14 +60,14 @@ export const NAV_ITEMS = [
     iconPaths: '<path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2"/><circle cx="8" cy="16" r="2"/>' },
 ];
 
-const NAV_ITEM_MAP = Object.fromEntries(NAV_ITEMS.map(i => [i.id, i]));
+const NAV_ITEM_MAP: Record<string, NavItem> = Object.fromEntries(NAV_ITEMS.map(i => [i.id, i]));
 export const ALL_IDS = NAV_ITEMS.map(i => i.id);
 
 // Today's fixed set, reproduced exactly whenever the stored config is
 // missing, empty or corrupted — the regression-safety-net default.
 export const DEFAULT_MAIN_BAR = ['shots', 'live', 'library', 'analytics'];
 
-function bnDomId(id) {
+function bnDomId(id: string): string {
   return 'bn' + id.charAt(0).toUpperCase() + id.slice(1);
 }
 
@@ -67,16 +76,16 @@ function bnDomId(id) {
 // mandatory primary mobile screen), and caps the result at MAX_MAIN_BAR.
 // Same JSON-blob-with-try/catch-fallback convention as state/index.ts's
 // dialinSession/profileDialinSession.
-export function getBottomNavConfig() {
-  let parsed = null;
+export function getBottomNavConfig(): string[] {
+  let parsed: unknown = null;
   try {
     parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
   } catch { /* leave parsed at its null initializer */ }
   if (!Array.isArray(parsed) || parsed.length === 0) return [...DEFAULT_MAIN_BAR];
 
-  const seen = new Set();
-  const valid = [];
-  for (const id of parsed) {
+  const seen = new Set<string>();
+  const valid: string[] = [];
+  for (const id of parsed as unknown[]) {
     if (typeof id !== 'string' || !NAV_ITEM_MAP[id] || seen.has(id)) continue;
     seen.add(id);
     valid.push(id);
@@ -87,10 +96,10 @@ export function getBottomNavConfig() {
   return ['shots', ...withoutShots].slice(0, MAX_MAIN_BAR);
 }
 
-export function setBottomNavConfig(ids) {
-  const normalized = Array.isArray(ids) ? ids : [];
-  const seen = new Set();
-  const valid = [];
+export function setBottomNavConfig(ids: unknown): string[] {
+  const normalized: unknown[] = Array.isArray(ids) ? ids : [];
+  const seen = new Set<string>();
+  const valid: string[] = [];
   for (const id of normalized) {
     if (typeof id !== 'string' || !NAV_ITEM_MAP[id] || seen.has(id)) continue;
     seen.add(id);
@@ -102,12 +111,12 @@ export function setBottomNavConfig(ids) {
   return finalIds;
 }
 
-function buildIcon(item, sizeClass) {
+function buildIcon(item: NavItem, sizeClass: string): string {
   const dot = item.hasLiveDot ? '<span class="live-dot"></span>' : '';
   return `<svg class="${sizeClass}" viewBox="0 0 24 24" aria-hidden="true">${item.iconPaths}</svg>${dot}`;
 }
 
-function buildMainBarButton(item) {
+function buildMainBarButton(item: NavItem): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.className = 'bottom-nav-btn';
   btn.id = bnDomId(item.id);
@@ -117,7 +126,7 @@ function buildMainBarButton(item) {
   return btn;
 }
 
-function buildMoreSheetButton(item) {
+function buildMoreSheetButton(item: NavItem): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.className = 'more-sheet-item';
   btn.id = bnDomId(item.id);
@@ -128,23 +137,23 @@ function buildMoreSheetButton(item) {
 
 // "Mehr" sheet open/close (#403, mobile) — moved here from main.js since the
 // sheet is now owned by this module's render function.
-export function toggleMoreSheet() {
-  const open = document.getElementById('moreSheet').classList.toggle('open');
-  document.getElementById('more-sheet-backdrop').classList.toggle('visible', open);
-  document.getElementById('bnMore').setAttribute('aria-expanded', open ? 'true' : 'false');
+export function toggleMoreSheet(): void {
+  const open = (document.getElementById('moreSheet') as HTMLElement).classList.toggle('open');
+  (document.getElementById('more-sheet-backdrop') as HTMLElement).classList.toggle('visible', open);
+  (document.getElementById('bnMore') as HTMLElement).setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 
-export function closeMoreSheet() {
-  document.getElementById('moreSheet').classList.remove('open');
-  document.getElementById('more-sheet-backdrop').classList.remove('visible');
-  document.getElementById('bnMore').setAttribute('aria-expanded', 'false');
+export function closeMoreSheet(): void {
+  (document.getElementById('moreSheet') as HTMLElement).classList.remove('open');
+  (document.getElementById('more-sheet-backdrop') as HTMLElement).classList.remove('visible');
+  (document.getElementById('bnMore') as HTMLElement).setAttribute('aria-expanded', 'false');
 }
 
-function onNavClick(id) {
+function onNavClick(id: string): void {
   switchMode(id);
 }
 
-function onMoreSheetClick(id) {
+function onMoreSheetClick(id: string): void {
   closeMoreSheet();
   switchMode(id);
 }
@@ -165,7 +174,7 @@ function onMoreSheetClick(id) {
 // bn* button was showing .active), and mode.js had its own separate,
 // hardcoded copy of the same logic; keeping one implementation avoids the
 // two copies drifting out of sync.
-export function applyBottomNavActiveState(mode) {
+export function applyBottomNavActiveState(mode: string): void {
   ALL_IDS.forEach(id => {
     document.getElementById(bnDomId(id))?.classList.toggle('active', mode === id);
   });
@@ -183,7 +192,7 @@ export function applyBottomNavActiveState(mode) {
 // status.js's updateStatus()/updatePowerButton() (which run right after
 // this on every load, and again on every ~30s poll) apply the real
 // show/hide state on top, same as before.
-export function renderBottomNav() {
+export function renderBottomNav(): void {
   const bar = document.getElementById('bottom-nav');
   const sheet = document.getElementById('moreSheet');
   if (!bar || !sheet) return;
@@ -205,9 +214,9 @@ export function renderBottomNav() {
   sheet.innerHTML = '';
   moreSheetIds.forEach(id => sheet.appendChild(buildMoreSheetButton(NAV_ITEM_MAP[id])));
 
-  mainBarIds.forEach(id => document.getElementById(bnDomId(id)).addEventListener('click', () => onNavClick(id)));
+  mainBarIds.forEach(id => (document.getElementById(bnDomId(id)) as HTMLElement).addEventListener('click', () => onNavClick(id)));
   moreBtn.addEventListener('click', toggleMoreSheet);
-  moreSheetIds.forEach(id => document.getElementById(bnDomId(id)).addEventListener('click', () => onMoreSheetClick(id)));
+  moreSheetIds.forEach(id => (document.getElementById(bnDomId(id)) as HTMLElement).addEventListener('click', () => onMoreSheetClick(id)));
 
   applyBottomNavActiveState(S.currentMode);
 }
@@ -220,7 +229,16 @@ export function renderBottomNav() {
 // once 4 are selected, rather than silently bumping the oldest pick out — a
 // disabled control is a visible, predictable limit, whereas an
 // auto-evicted earlier choice would look like Max's own selection got lost.
-export function computeSettingsRows(selected = getBottomNavConfig()) {
+export interface SettingsRow {
+  id: string;
+  isSelected: boolean;
+  isShots: boolean;
+  checkDisabled: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+}
+
+export function computeSettingsRows(selected: string[] = getBottomNavConfig()): SettingsRow[] {
   const unselected = ALL_IDS.filter(id => !selected.includes(id));
   return [...selected, ...unselected].map(id => {
     const isSelected = selected.includes(id);
@@ -238,7 +256,7 @@ export function computeSettingsRows(selected = getBottomNavConfig()) {
   });
 }
 
-function moveSelectedItem(id, dir) {
+function moveSelectedItem(id: string, dir: 'up' | 'down'): void {
   const cur = getBottomNavConfig();
   const i = cur.indexOf(id);
   if (i <= 0) return; // not selected, or "shots" (always index 0)
@@ -250,7 +268,7 @@ function moveSelectedItem(id, dir) {
   renderBottomNavSettings();
 }
 
-function buildReorderButton(dir, row, label) {
+function buildReorderButton(dir: 'up' | 'down', row: SettingsRow, label: string): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'bottom-nav-reorder-btn';
@@ -264,7 +282,7 @@ function buildReorderButton(dir, row, label) {
 
 // Settings view "Mobile Navigationsleiste" card (#443): a checkbox +
 // up/down reorder pair per destination, built from computeSettingsRows().
-export function renderBottomNavSettings() {
+export function renderBottomNavSettings(): void {
   const container = document.getElementById('bottomNavConfigList');
   if (!container) return;
 

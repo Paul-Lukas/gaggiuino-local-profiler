@@ -3,16 +3,29 @@ import { t } from '../i18n.js';
 import { devBannerHeight } from './dev-banner.js';
 import { CLOSE_ICON_SVG } from '../icons.js';
 
-export async function checkForUpdate() {
+interface UpdateAvailablePayload {
+    update_available?: boolean;
+    current?: string;
+    latest?: string;
+    release_url?: string;
+}
+
+export async function checkForUpdate(): Promise<void> {
     try {
         const r = await getVersion();
         if (!r.ok) return;
-        const data = await r.json();
-        if (data.update_available) showUpdateBanner(data);
+        const data = await r.json() as UpdateAvailablePayload;
+        if (data.update_available) {
+            showUpdateBanner({
+                current: data.current ?? '',
+                latest: data.latest ?? '',
+                release_url: data.release_url ?? '',
+            });
+        }
     } catch { /* ignore */ }
 }
 
-function showUpdateBanner({ current, latest, release_url }) {
+function showUpdateBanner({ current, latest, release_url }: { current: string; latest: string; release_url: string }): void {
     if (document.getElementById('glpUpdateBanner')) return;
 
     const banner = document.createElement('div');

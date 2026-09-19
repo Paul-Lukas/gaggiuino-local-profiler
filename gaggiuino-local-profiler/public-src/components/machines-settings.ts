@@ -16,30 +16,54 @@ import { migrateLegacyAccent } from '../theme.js';
 import { machineIconSvg, machineIconMiniSvg } from '../machine-icon.js';
 import { renderTopbarMachineIcon } from './topbar-machine-icon.js';
 import { esc as escapeHtml } from '../utils.js';
+import type { MachineRecord } from '../state/index.js';
+import type { FirmwareVersion, MachineSaveInput } from '../api/types.js';
+
+// The edit form's theme selection (a preset key, or custom {a,b} stops), the
+// theme preset shape resolveTheme()/getThemePreset() hand back, and the
+// machine fields this card reads off S.machines.
+interface ThemeSelection { preset?: string; a?: string; b?: string }
+interface ThemePreset { key?: string; a: string; b: string }
+interface MachineView extends MachineRecord {
+  name?: string;
+  type?: string;
+  theme?: ThemeSelection | null;
+  host?: string;
+  switchEntity?: string | null;
+  hasWaterSensor?: boolean;
+  isDefault?: boolean;
+}
+interface FirmwareProgress { status?: string; progress?: number | string; type?: string }
+interface FirmwarePoll {
+  timer?: ReturnType<typeof setTimeout>;
+  ticks: number;
+  failCount: number;
+  seenActive: boolean;
+}
 
 // preset key -> i18n label key, e.g. 'ember-espresso' -> 'theme_preset_ember_espresso'.
-export function presetLabelKey(key) {
+export function presetLabelKey(key: string): string {
   return `theme_preset_${key.replace(/-/g, '_')}`;
 }
 
 // Theme currently selected in the (single, static) machine form — kept as
 // module state rather than re-read from the DOM since it isn't a plain
 // input value (preset key vs. {a,b} custom colours). Reset in openMachineForm().
-let _selectedTheme = null;
+let _selectedTheme: ThemeSelection | null = null;
 
 // #1044: the currently-editing gaggiuino machine's full 'system' settings
 // category, as last fetched by loadReleaseChannel() -- kept so
 // _saveReleaseChannel() can post the whole object back with only
 // releaseChannel changed (see that function's own comment for why a full
 // round trip, not a bare {releaseChannel} partial).
-let _machineSystemSettings = null;
+let _machineSystemSettings: Record<string, unknown> | null = null;
 
 (function restoreActiveMachine() {
   const stored = localStorage.getItem('glp_active_machine');
   if (stored) S.activeMachineId = stored === 'all' ? 'all' : parseInt(stored, 10);
 })();
 
-export function setActiveMachine(id) {
+export function setActiveMachine(id: number | 'all'): void {
   setState('activeMachineId', id);
   try { localStorage.setItem('glp_active_machine', String(id)); } catch { /* ignore */ }
 }
@@ -47,7 +71,7 @@ export function setActiveMachine(id) {
 // The default machine's id, or null before /api/machines has ever loaded —
 // used by views/live.js to decide whether the currently active machine has
 // real live-polling support (only the default machine does, in this round).
-export function getDefaultMachineId() {
+export function getDefaultMachineId(): number | null {
   return (S.machines || []).find(m => m.isDefault)?.id ?? null;
 }
 
@@ -58,8 +82,8 @@ export function getDefaultMachineId() {
 // when a stale/removed id no longer matches anything. Reads S.machines/
 // S.activeMachineId live on every call, never cached, since both can change
 // independently of each other (machine list reload vs. topbar switch).
-export function getActiveMachine() {
-  const machines = S.machines || [];
+export function getActiveMachine(): MachineView | null {
+  const machines = (S.machines || []) as unknown as MachineView[];
   const defaultMachine = machines.find(m => m.isDefault) || null;
   const active = S.activeMachineId;
   if (active == null || active === 'all') return defaultMachine;
@@ -70,7 +94,7 @@ export function getActiveMachine() {
 // lib/validation/schemas.js — theme.a/b are guaranteed hex by the time they
 // reach here) into {r,g,b}, or null for anything else.
 const HEX_RE = /^#([0-9a-f]{6})$/i;
-function hexToRgb(hex) {
+function hexToRgb(hex: string | null | undefined): { r: number; g: number; b: number } | null {
   const m = HEX_RE.exec(hex || '');
   if (!m) return null;
   const n = parseInt(m[1], 16);
@@ -81,8 +105,8 @@ function hexToRgb(hex) {
 // (GLP-SHARED:contrast v1, sibling glp-lovelace-card repo) — sRGB channels
 // linearized then weighted per WCAG. Reused here on raw {r,g,b} rather than
 // via a computed-style probe since theme.a/b are already known-hex.
-function relativeLuminance({ r, g, b }) {
-  const lin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+function relativeLuminance({ r, g, b }: { r: number; g: number; b: number }): number {
+  const lin = (c: number): number => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
@@ -98,7 +122,7 @@ function relativeLuminance({ r, g, b }) {
 // on --raised) and mulberry-mocha (7.18:1) already clear the floor
 // unmodified and are absent deliberately, not by oversight — see
 // test/theme-contrast.test.js.
-const LIGHT_ACCENT_INK_OVERRIDES = {
+const LIGHT_ACCENT_INK_OVERRIDES: Record<string, string> = {
   'amber-americano':   '#905c06',
   'copper-cortado':    '#975730',
   'twilight-turkish':  '#06708a',
@@ -117,7 +141,7 @@ const LIGHT_ACCENT_INK_OVERRIDES = {
 // accents). Dark theme, an unaudited/custom key, or a preset that already
 // clears the floor raw all fall back to `accentHex` itself, i.e. the same
 // var(--accent) alias --accent-ink used everywhere before this audit.
-export function resolveAccentInk(presetKey, accentHex, isLightTheme) {
+export function resolveAccentInk(presetKey: string | null, accentHex: string, isLightTheme: boolean): string {
   if (!isLightTheme || !presetKey) return accentHex;
   return LIGHT_ACCENT_INK_OVERRIDES[presetKey] || accentHex;
 }
@@ -152,7 +176,7 @@ export function resolveAccentInk(presetKey, accentHex, isLightTheme) {
 // is that colour used as text on a near-white light-theme surface, not
 // paired with a #000/#fff/low-alpha counterpart — hence the hand-audited
 // LIGHT_ACCENT_INK_OVERRIDES table above instead of a formula here.
-export function applyActiveMachineAccentTheme() {
+export function applyActiveMachineAccentTheme(): void {
   const root = document.documentElement;
   // Some test doubles for `document` (and, in principle, any non-browser
   // caller) don't provide documentElement — a no-op here rather than a
@@ -160,7 +184,7 @@ export function applyActiveMachineAccentTheme() {
   // applyActiveMachineChange() right after this call regardless.
   if (!root) return;
   const machine = getActiveMachine();
-  const machineThemeRaw = machine?.theme || null;
+  const machineThemeRaw = (machine?.theme || null);
   const machineTheme = resolveTheme(machineThemeRaw);
   const swatchesEl = document.getElementById('accentSwatches');
   const noteEl = document.getElementById('accentMachineThemeNote');
@@ -169,13 +193,13 @@ export function applyActiveMachineAccentTheme() {
   // THEME_PRESETS entry, so this chain always resolves — there is no
   // "no accent at all" case left to handle.
   const savedKey = migrateLegacyAccent(localStorage.getItem('glp_accent_theme')) || 'amber-americano';
-  const resolved = machineTheme || getThemePreset(savedKey) || getThemePreset('amber-americano');
+  const resolved = (machineTheme || getThemePreset(savedKey) || getThemePreset('amber-americano')) as ThemePreset;
   const rgbA = hexToRgb(resolved.a);
   const rgbB = hexToRgb(resolved.b);
   root.style.setProperty('--accent', resolved.a);
   root.style.setProperty('--accent-from', resolved.a);
   root.style.setProperty('--accent-to', resolved.b);
-  const luminances = [rgbA, rgbB].filter(Boolean).map(relativeLuminance);
+  const luminances = [rgbA, rgbB].filter((c): c is { r: number; g: number; b: number } => c !== null).map(relativeLuminance);
   const darkest = luminances.length ? Math.min(...luminances) : null;
   if (darkest != null) root.style.setProperty('--accent-text', darkest > 0.179 ? '#000' : '#fff');
   if (rgbA) root.style.setProperty('--accent-glow', `rgba(${rgbA.r},${rgbA.g},${rgbA.b},.15)`);
@@ -195,14 +219,14 @@ export function applyActiveMachineAccentTheme() {
   if (noteEl) noteEl.style.display = machineTheme ? '' : 'none';
 }
 
-export async function loadMachines() {
+export async function loadMachines(): Promise<void> {
   try {
     const machines = await machinesApi.listMachines();
     if (!machines) return;
-    setState('machines', machines);
+    setState('machines', machines as unknown as MachineRecord[]);
     if (!S.activeMachineId) {
       const def = machines.find(m => m.isDefault) || machines[0];
-      if (def) setActiveMachine(def.id);
+      if (def?.id != null) setActiveMachine(def.id);
     }
     renderMachinesList();
     renderMachineSwitcher();
@@ -234,8 +258,8 @@ export async function loadMachines() {
 // Topbar switcher (#325) — only shown once >1 machine is registered, so a
 // single-machine install never sees it. "All machines" is always the first
 // option once the switcher is visible.
-export function renderMachineSwitcher() {
-  const el = document.getElementById('machineSwitcher');
+export function renderMachineSwitcher(): void {
+  const el = document.getElementById('machineSwitcher') as HTMLSelectElement | null;
   if (!el) return;
   // #411: the switcher lives in #content-topbar now (moved out of the old
   // horizontal #mode-bar, removed in the rail redesign) — this element only
@@ -243,7 +267,7 @@ export function renderMachineSwitcher() {
   // hosts #expandSidebarBtn) rather than collapsing itself away, since that
   // visibility would depend on two independently-changing things (this and
   // the sidebar's own collapsed state) for one thin, low-cost bar.
-  const machines = S.machines || [];
+  const machines = (S.machines || []) as unknown as MachineView[];
   if (machines.length < 2) {
     el.style.display = 'none'; el.innerHTML = '';
     return;
@@ -256,7 +280,7 @@ export function renderMachineSwitcher() {
   el.style.display = '';
 }
 
-export function switchActiveMachine(rawValue) {
+export function switchActiveMachine(rawValue: string): void {
   const value = rawValue === 'all' ? 'all' : parseInt(rawValue, 10);
   setActiveMachine(value);
   renderTopbarMachineIcon();
@@ -270,7 +294,7 @@ export function switchActiveMachine(rawValue) {
 // Re-filters the cached shot list and refreshes whichever view is
 // currently open (#325) — called after switchActiveMachine() and once
 // machines first finish loading.
-export function applyActiveMachineChange() {
+export function applyActiveMachineChange(): void {
   S.shots = filterShotsByMachine(S.allShots || [], S.activeMachineId);
   if (window.renderSidebar) window.renderSidebar();
   if (S.shots.length && !S.shots.some(s => s.id === S.primaryShotId)) {
@@ -295,10 +319,10 @@ export function applyActiveMachineChange() {
   // #464: the topbar status dot/hostname (#railStatusDot/#railMachineName)
   // used to keep showing the default machine's state until the next 30s
   // poll — refresh immediately, scoped to the newly active machine.
-  updateStatus(S.activeMachineId);
+  void updateStatus(S.activeMachineId);
 }
 
-export function renderMachinesList() {
+export function renderMachinesList(): void {
   const list = document.getElementById('machinesList');
   if (!list) return;
   // #1046: any firmware-update poll still running belongs to a row that's
@@ -306,7 +330,7 @@ export function renderMachinesList() {
   // them writing into detached DOM.
   stopAllFirmwarePolls();
   list.innerHTML = '';
-  (S.machines || []).forEach(m => {
+  ((S.machines || []) as unknown as MachineView[]).forEach(m => {
     // #334: per-machine shot count, computed client-side from S.allShots
     // (already carries machineId per shot, see ShotRepository) — no backend
     // change needed. A shot with no machineId at all belongs to the default
@@ -328,12 +352,12 @@ export function renderMachinesList() {
         ${!m.isDefault ? `<button type="button" class="machine-set-default-btn">${t('settings_machine_set_default')}</button>` : ''}
         <button type="button" class="machine-delete-btn">${t('settings_machine_delete')}</button>
       </span>`;
-    row.querySelector('.machine-edit-btn').addEventListener('click', () => openMachineForm(m));
-    row.querySelector('.machine-set-default-btn')?.addEventListener('click', () => setDefaultMachine(m.id));
-    row.querySelector('.machine-delete-btn')?.addEventListener('click', () => deleteMachine(m.id, m.isDefault));
+    (row.querySelector('.machine-edit-btn') as HTMLElement).addEventListener('click', () => openMachineForm(m));
+    row.querySelector('.machine-set-default-btn')?.addEventListener('click', () => void setDefaultMachine(m.id));
+    row.querySelector('.machine-delete-btn')?.addEventListener('click', () => void deleteMachine(m.id, m.isDefault));
     if (isGaggiuino) {
-      row.querySelector('.machine-row-firmware-badge').addEventListener('click', () => toggleMachineFirmwarePanel(row));
-      loadFirmwareStatus(m.id, row);
+      (row.querySelector('.machine-row-firmware-badge') as HTMLElement).addEventListener('click', () => toggleMachineFirmwarePanel(row));
+      void loadFirmwareStatus(m.id, row);
     }
     list.appendChild(row);
   });
@@ -344,7 +368,7 @@ export function renderMachinesList() {
 // handlers — cheap enough (10 buttons) to fully re-render on every selection
 // change rather than hand-tracking which button needs its `active` class
 // toggled.
-function renderThemeSwatches() {
+function renderThemeSwatches(): void {
   const wrap = document.getElementById('machineThemeSwatches');
   if (!wrap) return;
   const isCustom = !!(_selectedTheme && !_selectedTheme.preset);
@@ -352,7 +376,7 @@ function renderThemeSwatches() {
     <button type="button" class="machine-theme-swatch machine-theme-swatch-none${!_selectedTheme ? ' active' : ''}" data-theme-action="none" title="${escapeHtml(t('settings_machine_theme_none'))}" aria-label="${escapeHtml(t('settings_machine_theme_none'))}"></button>
     ${THEME_PRESETS.map(p => `<button type="button" class="machine-theme-swatch${_selectedTheme?.preset === p.key ? ' active' : ''}" data-theme-action="preset" data-preset-key="${escapeHtml(p.key)}" style="${p.a === p.b ? `background-color:${p.a}` : `background-image:linear-gradient(135deg,${p.a},${p.b})`}" title="${escapeHtml(t(presetLabelKey(p.key)))}" aria-label="${escapeHtml(t(presetLabelKey(p.key)))}"></button>`).join('')}
     <button type="button" class="machine-theme-swatch machine-theme-swatch-custom${isCustom ? ' active' : ''}" data-theme-action="custom" title="${escapeHtml(t('settings_machine_theme_custom'))}" aria-label="${escapeHtml(t('settings_machine_theme_custom'))}"></button>`;
-  wrap.querySelectorAll('[data-theme-action]').forEach(btn => {
+  wrap.querySelectorAll<HTMLElement>('[data-theme-action]').forEach(btn => {
     btn.addEventListener('click', () => {
       const action = btn.dataset.themeAction;
       if (action === 'none') _selectedTheme = null;
@@ -373,21 +397,21 @@ function renderThemeSwatches() {
 // persisted to localStorage as .active and wires each button straight to
 // window.setAccentTheme() -- there's nothing static left for main.js to
 // delegate a single click listener from, unlike the old swatches.
-export function renderAccentSwatches() {
+export function renderAccentSwatches(): void {
   const wrap = document.getElementById('accentSwatches');
   if (!wrap) return;
   const current = migrateLegacyAccent(localStorage.getItem('glp_accent_theme')) || 'amber-americano';
   wrap.innerHTML = THEME_PRESETS.map(p => `<button type="button" class="accent-swatch${current === p.key ? ' active' : ''}" data-preset-key="${escapeHtml(p.key)}" style="${p.a === p.b ? `background-color:${p.a}` : `background-image:linear-gradient(135deg,${p.a},${p.b})`}" title="${escapeHtml(t(presetLabelKey(p.key)))}" aria-label="${escapeHtml(t(presetLabelKey(p.key)))}"></button>`).join('');
-  wrap.querySelectorAll('[data-preset-key]').forEach(btn => {
-    // eslint-disable-next-line no-undef -- setAccentTheme is assigned onto window in main.js (Object.assign), resolves as a global at runtime
-    btn.addEventListener('click', () => setAccentTheme(btn.dataset.presetKey));
+  wrap.querySelectorAll<HTMLElement>('[data-preset-key]').forEach(btn => {
+    // setAccentTheme is assigned onto window in main.js (Object.assign).
+    btn.addEventListener('click', () => window.setAccentTheme?.(btn.dataset.presetKey ?? ''));
   });
 }
 
 // Keeps the swatch active-states and the custom colour inputs in sync with
 // _selectedTheme — called after every selection change (swatch click or
 // custom colour/gradient-toggle edit).
-function syncThemeFormUI() {
+function syncThemeFormUI(): void {
   renderThemeSwatches();
   const preview = document.getElementById('machineThemePreview');
   // Reads the type select directly (rather than a second module-level
@@ -395,48 +419,48 @@ function syncThemeFormUI() {
   // set #machineFormType to the machine's own type (or the 'gaggiuino'
   // default for a new machine), so the DOM value is always current by the
   // time the preview is (re-)rendered.
-  const previewType = document.getElementById('machineFormType')?.value;
+  const previewType = (document.getElementById('machineFormType') as HTMLSelectElement | null)?.value;
   if (preview) preview.innerHTML = machineIconSvg(_selectedTheme, previewType);
   const customWrap = document.getElementById('machineThemeCustomInputs');
   const isCustom = !!(_selectedTheme && !_selectedTheme.preset);
   if (customWrap) customWrap.style.display = isCustom ? '' : 'none';
-  if (!isCustom) return;
-  const aInput = document.getElementById('machineThemeCustomA');
-  const bInput = document.getElementById('machineThemeCustomB');
-  const gradToggle = document.getElementById('machineThemeGradientToggle');
+  if (!isCustom || !_selectedTheme) return;
+  const aInput = document.getElementById('machineThemeCustomA') as HTMLInputElement | null;
+  const bInput = document.getElementById('machineThemeCustomB') as HTMLInputElement | null;
+  const gradToggle = document.getElementById('machineThemeGradientToggle') as HTMLInputElement | null;
   const isGradient = _selectedTheme.a !== _selectedTheme.b;
-  if (aInput) aInput.value = _selectedTheme.a;
-  if (bInput) { bInput.value = _selectedTheme.b; bInput.style.display = isGradient ? '' : 'none'; }
+  if (aInput) aInput.value = _selectedTheme.a ?? '';
+  if (bInput) { bInput.value = _selectedTheme.b ?? ''; bInput.style.display = isGradient ? '' : 'none'; }
   if (gradToggle) gradToggle.checked = isGradient;
 }
 
 // Static custom-colour input wiring (#machineThemeCustomA/B, the gradient
 // toggle) — called once from main.js's DOMContentLoaded handler, same
 // pattern as the other machine form buttons wired there.
-export function onThemeCustomColorAChange() {
+export function onThemeCustomColorAChange(): void {
   if (!_selectedTheme || _selectedTheme.preset) return;
-  const aInput = document.getElementById('machineThemeCustomA');
-  const gradToggle = document.getElementById('machineThemeGradientToggle');
+  const aInput = document.getElementById('machineThemeCustomA') as HTMLInputElement;
+  const gradToggle = document.getElementById('machineThemeGradientToggle') as HTMLInputElement;
   _selectedTheme.a = aInput.value;
-  if (!gradToggle?.checked) _selectedTheme.b = aInput.value;
+  if (!gradToggle.checked) _selectedTheme.b = aInput.value;
   syncThemeFormUI();
 }
 
-export function onThemeCustomColorBChange() {
+export function onThemeCustomColorBChange(): void {
   if (!_selectedTheme || _selectedTheme.preset) return;
-  _selectedTheme.b = document.getElementById('machineThemeCustomB').value;
+  _selectedTheme.b = (document.getElementById('machineThemeCustomB') as HTMLInputElement).value;
   syncThemeFormUI();
 }
 
-export function onThemeGradientToggleChange() {
+export function onThemeGradientToggleChange(): void {
   if (!_selectedTheme || _selectedTheme.preset) return;
-  const gradToggle = document.getElementById('machineThemeGradientToggle');
+  const gradToggle = document.getElementById('machineThemeGradientToggle') as HTMLInputElement;
   if (!gradToggle.checked) _selectedTheme.b = _selectedTheme.a;
   syncThemeFormUI();
 }
 
-function syncWaterSensorRowVisibility() {
-  const type = document.getElementById('machineFormType')?.value;
+function syncWaterSensorRowVisibility(): void {
+  const type = (document.getElementById('machineFormType') as HTMLSelectElement | null)?.value;
   const row = document.getElementById('machineWaterSensorRow');
   if (row) row.style.display = type === 'gaggimate' ? '' : 'none';
 }
@@ -451,15 +475,15 @@ function syncWaterSensorRowVisibility() {
 // (#1046 moved the firmware-update section that used to live alongside this
 // out to each machine's own row in renderMachinesList() above -- see the
 // "Firmware update" block below for its row-scoped replacement.)
-function syncGaggiuinoOnlyRowsVisibility() {
-  const type = document.getElementById('machineFormType')?.value;
-  const id = document.getElementById('machineFormId')?.value;
+function syncGaggiuinoOnlyRowsVisibility(): void {
+  const type = (document.getElementById('machineFormType') as HTMLSelectElement | null)?.value;
+  const id = (document.getElementById('machineFormId') as HTMLInputElement | null)?.value;
   const show = type === 'gaggiuino' && !!id;
   const channelRow = document.getElementById('machineReleaseChannelRow');
   if (channelRow) channelRow.style.display = show ? '' : 'none';
 }
 
-export function onMachineTypeChange() {
+export function onMachineTypeChange(): void {
   syncWaterSensorRowVisibility();
   syncGaggiuinoOnlyRowsVisibility();
 }
@@ -471,14 +495,15 @@ export function onMachineTypeChange() {
 // of that page's full opaque-JSON-textarea round trip. Keeps the whole
 // fetched object in _machineSystemSettings so _saveReleaseChannel() below
 // can post it back with only releaseChannel changed.
-async function loadReleaseChannel(machineId) {
-  const select = document.getElementById('machineFormReleaseChannel');
+async function loadReleaseChannel(machineId: number): Promise<void> {
+  const select = document.getElementById('machineFormReleaseChannel') as HTMLSelectElement | null;
   if (!select) return;
   try {
     const settings = await machinesApi.getMachineSettings(machineId, 'system');
     if (!settings) return;
-    _machineSystemSettings = settings;
-    const ch = Number(_machineSystemSettings.releaseChannel);
+    const sys = settings as Record<string, unknown>;
+    _machineSystemSettings = sys;
+    const ch = Number(sys.releaseChannel);
     select.value = [0, 1, 2].includes(ch) ? String(ch) : '0';
   } catch { /* offline/unreachable -- leave the select at its default */ }
 }
@@ -488,9 +513,9 @@ async function loadReleaseChannel(machineId) {
 // isn't currently shown (GaggiMate, or a machine that hasn't been saved
 // yet -- see syncGaggiuinoOnlyRowsVisibility() above), so this is safe to
 // call unconditionally on every save.
-async function _saveReleaseChannel(machineId) {
+async function _saveReleaseChannel(machineId: string | number): Promise<void> {
   const row = document.getElementById('machineReleaseChannelRow');
-  const select = document.getElementById('machineFormReleaseChannel');
+  const select = document.getElementById('machineFormReleaseChannel') as HTMLSelectElement | null;
   if (!row || !select || row.style.display === 'none') return;
   const channel = parseInt(select.value, 10);
   const payload = { ...(_machineSystemSettings || {}), machineId: Number(machineId), releaseChannel: channel };
@@ -519,9 +544,9 @@ const FIRMWARE_POLL_MAX_TICKS = 300;
 // can poll independently now that this lives in the list rather than the
 // single-machine-at-a-time edit form, so a Map replaces the old
 // _firmwarePollTimer/_firmwarePollMachineId single-poll pair.
-const _firmwarePolls = new Map();
+const _firmwarePolls = new Map<number, FirmwarePoll>();
 
-function stopFirmwarePolling(machineId) {
+function stopFirmwarePolling(machineId: number): void {
   const poll = _firmwarePolls.get(machineId);
   if (poll) { clearTimeout(poll.timer); _firmwarePolls.delete(machineId); }
 }
@@ -530,12 +555,12 @@ function stopFirmwarePolling(machineId) {
 // poll still running against a row that's about to be replaced would just
 // keep writing into now-detached DOM, so all of them are stopped up front
 // rather than left to leak.
-function stopAllFirmwarePolls() {
+function stopAllFirmwarePolls(): void {
   _firmwarePolls.forEach(poll => clearTimeout(poll.timer));
   _firmwarePolls.clear();
 }
 
-async function loadFirmwareStatus(machineId, row) {
+async function loadFirmwareStatus(machineId: number, row: HTMLElement): Promise<void> {
   try {
     renderFirmwareRow(machineId, row, await machinesApi.getFirmwareVersion(machineId));
   } catch {
@@ -547,10 +572,10 @@ async function loadFirmwareStatus(machineId, row) {
 // update is actually available, lazily inserts the expand panel (update
 // banner + trigger button + progress bar) right after it -- most rows never
 // need that markup at all, since most machines are already up to date.
-function renderFirmwareRow(machineId, row, data) {
-  const badge = row.querySelector('.machine-row-firmware-badge');
+function renderFirmwareRow(machineId: number, row: HTMLElement, data: FirmwareVersion | null): void {
+  const badge = row.querySelector<HTMLElement>('.machine-row-firmware-badge');
   if (!badge) return; // row was already replaced by a later renderMachinesList() call
-  let panel = row.querySelector('.machine-row-firmware-panel');
+  let panel = row.querySelector<HTMLElement>('.machine-row-firmware-panel');
   if (!data || !data.installed) {
     badge.textContent = data ? t('settings_machine_firmware_unknown') : t('settings_machine_firmware_check_failed');
     badge.className = 'machine-row-firmware-badge machine-row-firmware-badge-muted';
@@ -564,11 +589,12 @@ function renderFirmwareRow(machineId, row, data) {
     badge.className = 'machine-row-firmware-badge machine-row-firmware-badge-update';
     if (!panel) {
       badge.insertAdjacentHTML('afterend', renderFirmwarePanelHtml());
-      panel = row.querySelector('.machine-row-firmware-panel');
-      panel.querySelector('.machine-firmware-update-btn').addEventListener('click', () => triggerMachineFirmwareUpdate(machineId, row));
+      panel = row.querySelector<HTMLElement>('.machine-row-firmware-panel');
+      if (!panel) return;
+      (panel.querySelector('.machine-firmware-update-btn') as HTMLElement).addEventListener('click', () => void triggerMachineFirmwareUpdate(machineId, row));
     }
     const msgEl = panel.querySelector('.machine-firmware-update-msg');
-    const linkEl = panel.querySelector('.machine-firmware-changelog-link');
+    const linkEl = panel.querySelector<HTMLAnchorElement>('.machine-firmware-changelog-link');
     if (msgEl) msgEl.textContent = t('settings_machine_firmware_update_available', data.latest);
     if (linkEl) linkEl.href = data.releaseUrl || '#';
   } else {
@@ -579,7 +605,7 @@ function renderFirmwareRow(machineId, row, data) {
   }
 }
 
-function renderFirmwarePanelHtml() {
+function renderFirmwarePanelHtml(): string {
   return `<span class="machine-row-firmware-panel" style="display:none">
     <span class="machine-firmware-update-banner">
       <span class="machine-firmware-update-msg"></span>
@@ -595,22 +621,22 @@ function renderFirmwarePanelHtml() {
 
 // Wired to every Gaggiuino row's firmware badge -- a no-op unless an update
 // is actually available (the only state that ever grows a panel to expand).
-function toggleMachineFirmwarePanel(row) {
-  const panel = row.querySelector('.machine-row-firmware-panel');
+function toggleMachineFirmwarePanel(row: HTMLElement): void {
+  const panel = row.querySelector<HTMLElement>('.machine-row-firmware-panel');
   if (!panel) return;
-  const badge = row.querySelector('.machine-row-firmware-badge');
+  const badge = row.querySelector<HTMLElement>('.machine-row-firmware-badge');
   const show = panel.style.display === 'none';
   panel.style.display = show ? '' : 'none';
   badge?.setAttribute('aria-expanded', String(show));
 }
 
-async function triggerMachineFirmwareUpdate(machineId, row) {
-  const btn = row.querySelector('.machine-firmware-update-btn');
+async function triggerMachineFirmwareUpdate(machineId: number, row: HTMLElement): Promise<void> {
+  const btn = row.querySelector<HTMLButtonElement>('.machine-firmware-update-btn');
   if (btn) btn.disabled = true;
   try {
     const r = await machinesApi.triggerFirmwareUpdate(machineId);
     if (!r.ok) {
-      const data = await r.json().catch(() => ({}));
+      const data = await r.json().catch(() => ({})) as { error?: string; id?: number; reachable?: boolean };
       if (window.showToast) window.showToast(t('settings_machine_firmware_trigger_failed', data.error || r.status));
       if (btn) btn.disabled = false;
       return;
@@ -622,13 +648,13 @@ async function triggerMachineFirmwareUpdate(machineId, row) {
   }
 }
 
-function startFirmwarePolling(machineId, row) {
+function startFirmwarePolling(machineId: number, row: HTMLElement): void {
   stopFirmwarePolling(machineId);
-  const btn = row.querySelector('.machine-firmware-update-btn');
+  const btn = row.querySelector<HTMLButtonElement>('.machine-firmware-update-btn');
   if (btn) btn.disabled = true;
-  const poll = { timer: null, ticks: 0, failCount: 0, seenActive: false };
+  const poll: FirmwarePoll = { ticks: 0, failCount: 0, seenActive: false };
   _firmwarePolls.set(machineId, poll);
-  _pollFirmwareProgressTick(machineId, row, poll);
+  void _pollFirmwareProgressTick(machineId, row, poll);
 }
 
 // #1044: the machine reboots to apply the OTA near the end of a real
@@ -636,14 +662,14 @@ function startFirmwarePolling(machineId, row) {
 // progress is the expected "device is rebooting" shape, not a genuine
 // error -- treated as success below. A failure run with no active progress
 // ever observed (machine simply unreachable) is a genuine failure instead.
-async function _pollFirmwareProgressTick(machineId, row, poll) {
+async function _pollFirmwareProgressTick(machineId: number, row: HTMLElement, poll: FirmwarePoll): Promise<void> {
   // A stale cycle (row replaced by a later renderMachinesList() call, or a
   // second trigger click that restarted polling for this machine) must not
   // keep writing into now-irrelevant DOM/state -- mirrors _testMachine()'s
   // own still-current-machine guard.
   if (_firmwarePolls.get(machineId) !== poll) return;
   let ok = false;
-  let progress = null;
+  let progress: FirmwareProgress | null = null;
   try {
     progress = await machinesApi.getFirmwareProgress(machineId);
     ok = progress !== null;
@@ -653,7 +679,7 @@ async function _pollFirmwareProgressTick(machineId, row, poll) {
   if (!ok || !progress) {
     poll.failCount++;
     if (poll.failCount >= 3) { finishFirmwarePolling(machineId, row, poll.seenActive); return; }
-    poll.timer = setTimeout(() => _pollFirmwareProgressTick(machineId, row, poll), FIRMWARE_POLL_INTERVAL_MS);
+    poll.timer = setTimeout(() => void _pollFirmwareProgressTick(machineId, row, poll), FIRMWARE_POLL_INTERVAL_MS);
     return;
   }
   poll.failCount = 0;
@@ -672,19 +698,19 @@ async function _pollFirmwareProgressTick(machineId, row, poll) {
 
   poll.ticks++;
   if (poll.ticks >= FIRMWARE_POLL_MAX_TICKS) { finishFirmwarePolling(machineId, row, null); return; }
-  poll.timer = setTimeout(() => _pollFirmwareProgressTick(machineId, row, poll), FIRMWARE_POLL_INTERVAL_MS);
+  poll.timer = setTimeout(() => void _pollFirmwareProgressTick(machineId, row, poll), FIRMWARE_POLL_INTERVAL_MS);
 }
 
 // success: true = update completed, false = genuinely unreachable/failed,
 // null = gave up inconclusively (safety-cap timeout) without claiming either.
-function finishFirmwarePolling(machineId, row, success) {
+function finishFirmwarePolling(machineId: number, row: HTMLElement, success: boolean | null): void {
   stopFirmwarePolling(machineId);
   renderFirmwareProgressBar(row, null);
-  const btn = row.querySelector('.machine-firmware-update-btn');
+  const btn = row.querySelector<HTMLButtonElement>('.machine-firmware-update-btn');
   if (btn) btn.disabled = false;
   if (success === true) {
     if (window.showToast) window.showToast(t('settings_machine_firmware_update_success_toast'));
-    loadFirmwareStatus(machineId, row);
+    void loadFirmwareStatus(machineId, row);
   } else if (success === false) {
     if (window.showToast) window.showToast(t('settings_machine_firmware_update_failed_toast'));
   } else {
@@ -698,7 +724,7 @@ function finishFirmwarePolling(machineId, row, success) {
 // (GET /api/firmware/progress, field notes): C_FW | F_FW | F_FS. Without
 // naming the stage, a component boundary reads as the bar silently
 // resetting to 0% (#1085).
-const FIRMWARE_STAGE_KEYS = {
+const FIRMWARE_STAGE_KEYS: Record<string, string> = {
   C_FW: 'settings_machine_firmware_stage_c_fw',
   F_FW: 'settings_machine_firmware_stage_f_fw',
   F_FS: 'settings_machine_firmware_stage_f_fs',
@@ -707,7 +733,7 @@ const FIRMWARE_STAGE_KEYS = {
 // Named stage when the firmware reports a type this build knows, the plain
 // "updating firmware" label otherwise -- an unrecognised (or absent) type
 // must still render something sane rather than an empty label.
-export function firmwareProgressLabel(progress, pct) {
+export function firmwareProgressLabel(progress: FirmwareProgress | null | undefined, pct: number): string {
   const stageKey = FIRMWARE_STAGE_KEYS[String(progress?.type || '').toUpperCase()];
   return stageKey
     ? t('settings_machine_firmware_progress_stage_label', t(stageKey), pct)
@@ -718,40 +744,40 @@ export function firmwareProgressLabel(progress, pct) {
 // hide-when-null / label+fill-width shape, reusing that file's own
 // .sync-progress-track/.sync-progress-fill classes (style.css), just
 // against this row panel's own bar/label elements instead of the sidebar's.
-function renderFirmwareProgressBar(row, progress) {
-  const bar = row.querySelector('.machine-firmware-progress-bar');
+function renderFirmwareProgressBar(row: HTMLElement, progress: FirmwareProgress | null): void {
+  const bar = row.querySelector<HTMLElement>('.machine-firmware-progress-bar');
   if (!bar) return;
   if (!progress) { bar.style.display = 'none'; return; }
   const label = bar.querySelector('.machine-firmware-progress-label');
-  const fill = bar.querySelector('.sync-progress-fill');
+  const fill = bar.querySelector<HTMLElement>('.sync-progress-fill');
   const pct = Math.round(Math.max(0, Math.min(100, Number(progress.progress) || 0)));
   if (fill) fill.style.width = `${pct}%`;
   if (label) label.textContent = firmwareProgressLabel(progress, pct);
   bar.style.display = '';
 }
 
-export function openMachineForm(machine) {
+export function openMachineForm(machine?: MachineView | null): void {
   const card = document.getElementById('machineFormCard');
   if (!card) return;
-  document.getElementById('machineFormId').value = machine?.id || '';
-  document.getElementById('machineFormName').value = machine?.name || '';
-  document.getElementById('machineFormType').value = machine?.type || 'gaggiuino';
-  document.getElementById('machineFormHost').value = machine?.host || '';
-  document.getElementById('machineFormSwitch').value = machine?.switchEntity || '';
-  document.getElementById('machineFormWaterSensor').checked = machine?.hasWaterSensor || false;
-  document.getElementById('machineFormTestResult').textContent = '';
+  (document.getElementById('machineFormId') as HTMLInputElement).value = String(machine?.id || '');
+  (document.getElementById('machineFormName') as HTMLInputElement).value = machine?.name || '';
+  (document.getElementById('machineFormType') as HTMLSelectElement).value = machine?.type || 'gaggiuino';
+  (document.getElementById('machineFormHost') as HTMLInputElement).value = machine?.host || '';
+  (document.getElementById('machineFormSwitch') as HTMLInputElement).value = machine?.switchEntity || '';
+  (document.getElementById('machineFormWaterSensor') as HTMLInputElement).checked = machine?.hasWaterSensor || false;
+  (document.getElementById('machineFormTestResult') as HTMLElement).textContent = '';
   _selectedTheme = machine?.theme || null;
   syncThemeFormUI();
   syncWaterSensorRowVisibility();
   syncGaggiuinoOnlyRowsVisibility();
   _machineSystemSettings = null;
   if (machine?.id && machine.type === 'gaggiuino') {
-    loadReleaseChannel(machine.id);
+    void loadReleaseChannel(machine.id);
   }
   card.style.display = '';
 }
 
-export function closeMachineForm() {
+export function closeMachineForm(): void {
   const card = document.getElementById('machineFormCard');
   if (card) card.style.display = 'none';
 }
@@ -771,28 +797,28 @@ export function closeMachineForm() {
 // a `?sync=0` query param rather than a body field: machineSchema/
 // machineSchema.partial() (lib/validation/schemas.js) validate the body
 // strictly, so an extra JSON field would be unclean at best.
-async function _saveMachine({ triggerSync = true } = {}) {
-  const id = document.getElementById('machineFormId').value;
-  const type = document.getElementById('machineFormType').value;
+async function _saveMachine({ triggerSync = true }: { triggerSync?: boolean } = {}): Promise<string | number | null> {
+  const id = (document.getElementById('machineFormId') as HTMLInputElement).value;
+  const type = (document.getElementById('machineFormType') as HTMLSelectElement).value;
   const payload = {
-    name: document.getElementById('machineFormName').value.trim(),
+    name: (document.getElementById('machineFormName') as HTMLInputElement).value.trim(),
     type,
-    host: document.getElementById('machineFormHost').value.trim(),
-    switchEntity: document.getElementById('machineFormSwitch').value.trim() || null,
+    host: (document.getElementById('machineFormHost') as HTMLInputElement).value.trim(),
+    switchEntity: (document.getElementById('machineFormSwitch') as HTMLInputElement).value.trim() || null,
     theme: _selectedTheme,
-    hasWaterSensor: type === 'gaggimate' ? (document.getElementById('machineFormWaterSensor')?.checked || false) : false,
+    hasWaterSensor: type === 'gaggimate' ? ((document.getElementById('machineFormWaterSensor') as HTMLInputElement | null)?.checked || false) : false,
   };
   if (!payload.name || !payload.host) return null;
   const resultEl = document.getElementById('machineFormTestResult');
-  const r = await machinesApi.saveMachine(id || null, payload, { triggerSync });
+  const r = await machinesApi.saveMachine(id || null, payload as unknown as MachineSaveInput, { triggerSync });
   if (r.ok) {
-    const data = await r.json().catch(() => ({}));
+    const data = await r.json().catch(() => ({})) as { error?: string; id?: number; reachable?: boolean };
     return id || data?.id || null;
   }
   // #336: used to fail silently here (no visible error at all), which made
   // the SSRF-guard-blocks-LAN-hosts bug far harder to diagnose than it
   // needed to be — always surface the server's actual error now.
-  const data = await r.json().catch(() => ({}));
+  const data = await r.json().catch(() => ({})) as { error?: string; id?: number; reachable?: boolean };
   if (resultEl) resultEl.textContent = t('settings_machine_save_error', data.error || r.status);
   return null;
 }
@@ -808,45 +834,45 @@ async function _saveMachine({ triggerSync = true } = {}) {
 // showing the machine that was actually tested. Re-check #machineFormId
 // still matches before writing the result, so a stale in-flight test can't
 // land its result under the wrong machine's name/host.
-async function _testMachine(id) {
+async function _testMachine(id: string | number): Promise<void> {
   const resultEl = document.getElementById('machineFormTestResult');
   if (!resultEl) return;
   resultEl.textContent = t('settings_machine_testing');
   try {
     const r = await machinesApi.testMachine(id);
-    const data = await r.json().catch(() => ({}));
-    if (String(document.getElementById('machineFormId').value) !== String(id)) return;
+    const data = await r.json().catch(() => ({})) as { error?: string; id?: number; reachable?: boolean };
+    if (String((document.getElementById('machineFormId') as HTMLInputElement).value) !== String(id)) return;
     resultEl.innerHTML = data.reachable
       ? `${CHECK_ICON_SVG} ${t('settings_machine_test_ok')}`
       : `${CLOSE_ICON_SVG} ${t('settings_machine_test_fail')}`;
   } catch {
-    if (String(document.getElementById('machineFormId').value) !== String(id)) return;
+    if (String((document.getElementById('machineFormId') as HTMLInputElement).value) !== String(id)) return;
     resultEl.innerHTML = `${CLOSE_ICON_SVG} ${t('settings_machine_test_fail')}`;
   }
 }
 
-export async function saveMachineForm() {
+export async function saveMachineForm(): Promise<void> {
   const id = await _saveMachine();
   if (id !== null) {
     // #1044: a no-op unless the release-channel row is actually shown (see
     // syncGaggiuinoOnlyRowsVisibility()) -- safe to call unconditionally.
     await _saveReleaseChannel(id);
     closeMachineForm();
-    loadMachines();
+    void loadMachines();
     // #748: dedicated signal for an *explicit* save, separate from the
     // generic 'machines' state that testMachineForm()'s implicit
     // save-before-test also triggers via loadMachines() — the setup wizard
     // subscribes to this one so "Test connection" can't prematurely close it.
-    setState('machineExplicitSave', id);
+    setState('machineExplicitSave' as Parameters<typeof setState>[0], id);
   }
 }
 
 // #753: reassigns the default machine, then reloads so both this list's
 // badge/actions and getDefaultMachineId() consumers (views/live.js,
 // applyDefaultMachineAccentTheme() below) pick up the change.
-export async function setDefaultMachine(id) {
+export async function setDefaultMachine(id: number): Promise<void> {
   const r = await machinesApi.setDefaultMachine(id);
-  if (r.ok) loadMachines();
+  if (r.ok) void loadMachines();
 }
 
 // #753: deleting the current default is more consequential (reassigns
@@ -856,12 +882,12 @@ export async function setDefaultMachine(id) {
 // stale read, or the last remaining machine) -- that error is surfaced via
 // showToast rather than silently doing nothing, same as the sync-failed
 // toast pattern in components/status.js.
-export async function deleteMachine(id, isDefault) {
+export async function deleteMachine(id: number, isDefault?: boolean): Promise<void> {
   const confirmKey = isDefault ? 'settings_machine_delete_default_confirm' : 'settings_machine_delete_confirm';
   if (!confirm(t(confirmKey))) return;
   const r = await machinesApi.deleteMachine(id);
-  if (r.ok) { loadMachines(); return; }
-  const body = await r.json().catch(() => ({}));
+  if (r.ok) { void loadMachines(); return; }
+  const body = await r.json().catch(() => ({})) as { error?: string };
   if (window.showToast) window.showToast(body.error || t('settings_machine_delete_failed'));
 }
 
@@ -887,16 +913,18 @@ export async function deleteMachine(id, isDefault) {
 // even a concurrent second call would PUT, not POST again), and the button
 // itself is disabled for the whole in-flight window so a second click can't
 // start a second call in the first place.
-export async function testMachineForm() {
-  const btn = document.getElementById('machineFormTestBtn');
+export async function testMachineForm(): Promise<void> {
+  const btn = document.getElementById('machineFormTestBtn') as HTMLButtonElement | null;
   if (btn) btn.disabled = true;
   const id = await _saveMachine({ triggerSync: false });
   if (id === null) {
     if (btn) btn.disabled = false;
     return;
   }
-  document.getElementById('machineFormId').value = id;
+  // #730: raw (uncoerced) write-back — the DOM stringifies it anyway, and the
+  // id may still be the server's numeric one on create.
+  (document.getElementById('machineFormId') as HTMLInputElement).value = id as unknown as string;
   await _testMachine(id);
-  loadMachines();
+  void loadMachines();
   if (btn) btn.disabled = false;
 }

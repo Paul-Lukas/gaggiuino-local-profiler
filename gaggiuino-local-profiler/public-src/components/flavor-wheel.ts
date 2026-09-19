@@ -1,4 +1,5 @@
 import { FLAVOR_WHEEL } from '../flavor-data.js';
+import type { FlavorNode } from '../flavor-data.js';
 import { matchFlavors, markLit, colorForNode, parentIdOf, nodeById, pathToNode, findAutoZoomTarget } from '../flavor-match.js';
 import { S } from '../state/index.js';
 import { t } from '../i18n.js';
@@ -7,6 +8,30 @@ import { loadBeanImageBlobUrl } from '../bean-image.js';
 
 export { matchFlavors, normalizeFlavor } from '../flavor-match.js';
 
+type FlavorLang = 'en' | 'de' | 'it' | 'fr' | 'es' | 'nl';
+
+interface SunburstEntry {
+  id: string;
+  name: string;
+  value?: number;
+  children?: SunburstEntry[];
+  itemStyle: {
+    color: string;
+    borderColor: string;
+    borderWidth: number;
+    shadowBlur?: number;
+    shadowColor?: string;
+  };
+  label: {
+    show: boolean | undefined;
+    color: string;
+    textBorderColor: string;
+    textBorderWidth: number;
+    fontSize: number;
+    fontWeight: string;
+  };
+}
+
 // ── Sunburst rendering ──────────────────────────────────────────────────────
 
 const WHEEL_ROOT_ID = '__flavor_wheel_root__'; // virtual root name (see SunburstSeries: {name, children: data})
@@ -14,30 +39,32 @@ const WHEEL_ROOT_ID = '__flavor_wheel_root__'; // virtual root name (see Sunburs
 // Modal background the muted/unmatched fills blend toward — read once per
 // render from the actual modal box so it tracks the active dark/light theme
 // instead of a hardcoded guess.
-function rgbStringToHex(rgbStr, fallback) {
+function rgbStringToHex(rgbStr: string | null | undefined, fallback: string): string {
   const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(rgbStr || '');
   if (!m) return fallback;
-  const hex = n => Number(n).toString(16).padStart(2, '0');
+  const hex = (n: string): string => Number(n).toString(16).padStart(2, '0');
   return `#${hex(m[1])}${hex(m[2])}${hex(m[3])}`;
 }
 
-function resolveModalBgHex(container) {
+function resolveModalBgHex(container: Element | null | undefined): string {
   const modalBox = container?.closest?.('.flavor-wheel-modal');
   const bg = modalBox ? getComputedStyle(modalBox).backgroundColor : null;
   return rgbStringToHex(bg, '#18181b');
 }
 
 // Alpha-blends `hex` toward `bgHex` by `amount` (0 = unchanged, 1 = fully bg).
-function muteHex(hex, bgHex, amount) {
-  const c = h => /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(h || '') || [];
-  const [, r1, g1, b1] = c(hex);
-  const [, r2, g2, b2] = c(bgHex);
-  if (!r1 || !r2) return hex;
-  const mix = (a, b) => Math.round(parseInt(a, 16) * (1 - amount) + parseInt(b, 16) * amount).toString(16).padStart(2, '0');
+function muteHex(hex: string, bgHex: string, amount: number): string {
+  const c = (h: string): RegExpExecArray | null => /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(h || '');
+  const m1 = c(hex);
+  const m2 = c(bgHex);
+  if (!m1 || !m2) return hex;
+  const [, r1, g1, b1] = m1;
+  const [, r2, g2, b2] = m2;
+  const mix = (a: string, b: string): string => Math.round(parseInt(a, 16) * (1 - amount) + parseInt(b, 16) * amount).toString(16).padStart(2, '0');
   return `#${mix(r1, r2)}${mix(g1, g2)}${mix(b1, b2)}`;
 }
 
-function toSunburstData(node, depth, lang, bgHex) {
+function toSunburstData(node: FlavorNode, depth: number, lang: FlavorLang, bgHex: string): SunburstEntry {
   const label = node[lang] || node.en;
   const lit   = node._lit;
   const realColor = colorForNode(node.id);
@@ -61,9 +88,9 @@ function toSunburstData(node, depth, lang, bgHex) {
     fontSize: (depth === 1 ? 11 : depth === 3 ? 9 : 10) + 1,
     fontWeight: 'bold',
   };
-  const itemStyle = { color: fillColor, borderColor: lit ? '#fff' : '#111113', borderWidth: lit ? 3 : 1 };
-  if (lit) itemStyle.shadowBlur = 12, itemStyle.shadowColor = realColor;
-  const entry = {
+  const itemStyle: SunburstEntry['itemStyle'] = { color: fillColor, borderColor: lit ? '#fff' : '#111113', borderWidth: lit ? 3 : 1 };
+  if (lit) { itemStyle.shadowBlur = 12; itemStyle.shadowColor = realColor; }
+  const entry: SunburstEntry = {
     id: node.id,
     name: label,
     itemStyle,
@@ -77,10 +104,25 @@ function toSunburstData(node, depth, lang, bgHex) {
   return entry;
 }
 
-let _chart = null;
-let _rootId = null; // currently zoomed-to node id, or null for the full overview
-let _lang = 'en';
-let _breadcrumbEl = null;
+interface FlavorChartClickParams {
+  data?: { id?: string; name?: string };
+}
+
+// Minimal structural view of the echarts instance this module drives; the
+// dynamic import's own richer type is only needed to call init() (see
+// renderFlavorWheel).
+interface FlavorChart {
+  dispose(): void;
+  setOption(option: Record<string, unknown>): void;
+  dispatchAction(action: Record<string, unknown>): void;
+  off(event: string): void;
+  on(event: string, handler: (params: FlavorChartClickParams) => void): void;
+}
+
+let _chart: FlavorChart | null = null;
+let _rootId: string | null = null; // currently zoomed-to node id, or null for the full overview
+let _lang: FlavorLang = 'en';
+let _breadcrumbEl: HTMLElement | null = null;
 
 // #797: echarts (~370 kB gzip) only ships once a wheel is actually opened.
 // _echartsPromise caches the in-flight import so re-opening while it's
@@ -88,10 +130,10 @@ let _breadcrumbEl = null;
 // analytics.js world-map guard (#648) — it invalidates a still-pending
 // renderFlavorWheel() call once a newer open (or a close) has taken over,
 // so a late-arriving chunk never calls echarts.init() on a stale container.
-let _echartsPromise = null;
+let _echartsPromise: Promise<typeof import('echarts')> | null = null;
 let _renderReqToken = 0;
 
-function renderBreadcrumb() {
+function renderBreadcrumb(): void {
   if (!_breadcrumbEl) return;
   const ids = _rootId ? pathToNode(_rootId) : [];
   const crumbs = [`<button type="button" class="fw-crumb" data-action="zoom-flavor-wheel" data-zoom-id="">${esc(t('flavor_wheel_overview'))}</button>`];
@@ -104,20 +146,20 @@ function renderBreadcrumb() {
   _breadcrumbEl.innerHTML = crumbs.join('');
 }
 
-function zoomTo(id) {
+function zoomTo(id: string | null): void {
   _rootId = id;
-  _chart.dispatchAction({ type: 'sunburstRootToNode', targetNode: id || WHEEL_ROOT_ID });
+  _chart?.dispatchAction({ type: 'sunburstRootToNode', targetNode: id || WHEEL_ROOT_ID });
   renderBreadcrumb();
 }
 
 // Called from the global data-action click delegate (main.js) when a
 // breadcrumb crumb is clicked; `id` is '' for the overview crumb.
-export function zoomFlavorWheelTo(id) {
+export function zoomFlavorWheelTo(id: string | null | undefined): void {
   if (!_chart) return;
   zoomTo(id || null);
 }
 
-export async function renderFlavorWheel(container, flavors, lang, breadcrumbEl) {
+export async function renderFlavorWheel(container: HTMLElement, flavors: unknown, lang: FlavorLang, breadcrumbEl: HTMLElement | null): Promise<boolean> {
   const { matched } = matchFlavors(flavors);
   FLAVOR_WHEEL.forEach(cat => markLit(cat, matched));
   const bgHex = resolveModalBgHex(container);
@@ -128,12 +170,11 @@ export async function renderFlavorWheel(container, flavors, lang, breadcrumbEl) 
   if (_chart) { _chart.dispose(); _chart = null; }
 
   const token = ++_renderReqToken;
-  let echarts;
+  let echarts: typeof import('echarts');
   try {
     if (!_echartsPromise) _echartsPromise = import('echarts');
     echarts = await _echartsPromise;
   } catch {
-    // eslint-disable-next-line require-atomic-updates -- a concurrent call resetting the same promise to null is idempotent, not a real race
     _echartsPromise = null; // don't cache a rejected promise — allow a retry on the next open
     return false;
   }
@@ -142,13 +183,11 @@ export async function renderFlavorWheel(container, flavors, lang, breadcrumbEl) 
   // that no longer belongs to this call.
   if (token !== _renderReqToken) return true;
 
-  // eslint-disable-next-line require-atomic-updates -- guarded above by the token check; not a real race
   container.innerHTML = ''; // clear the loading message before echarts takes over this node
-  // eslint-disable-next-line require-atomic-updates -- guarded above by the token check; not a real race
-  _chart = echarts.init(container);
+  _chart = echarts.init(container) as unknown as FlavorChart;
   _chart.setOption({
     backgroundColor: 'transparent',
-    tooltip: { formatter: params => (params.name === WHEEL_ROOT_ID ? '' : esc(params.name)) },
+    tooltip: { formatter: (params: { name?: string }) => (params.name === WHEEL_ROOT_ID ? '' : esc(params.name)) },
     series: [{
       type: 'sunburst', name: WHEEL_ROOT_ID, radius: ['14%', '92%'], center: ['50%', '50%'],
       data, sort: null,
@@ -189,7 +228,7 @@ export async function renderFlavorWheel(container, flavors, lang, breadcrumbEl) 
   });
 
   _chart.off('click');
-  _chart.on('click', params => {
+  _chart.on('click', (params: FlavorChartClickParams) => {
     const clickedId = params?.data?.id;
     if (!clickedId) {
       // The wrapper ring (see WHEEL_ROOT_ID above) has no `id` — clicking it
@@ -219,7 +258,7 @@ export async function renderFlavorWheel(container, flavors, lang, breadcrumbEl) 
   return true;
 }
 
-export function disposeFlavorWheel() {
+export function disposeFlavorWheel(): void {
   ++_renderReqToken; // invalidate a still-pending renderFlavorWheel() chunk load, if any
   if (_chart) { _chart.dispose(); _chart = null; }
   _rootId = null;
@@ -228,32 +267,32 @@ export function disposeFlavorWheel() {
 
 // ── Modal wiring ─────────────────────────────────────────────────────────
 
-export async function openFlavorWheel(beanId) {
+export async function openFlavorWheel(beanId: unknown): Promise<void> {
   const bean = S.coffeeLibrary?.beans?.find(b => b.id === beanId);
   if (!bean) return;
   const modal = document.getElementById('flavorWheelModal');
   if (!modal) return;
 
-  document.getElementById('flavorWheelTitle').textContent = bean.name;
-  const imgEl = document.getElementById('flavorWheelImage');
+  (document.getElementById('flavorWheelTitle') as HTMLElement).textContent = bean.name as string;
+  const imgEl = document.getElementById('flavorWheelImage') as HTMLImageElement | null;
   if (imgEl) {
     imgEl.style.display = 'none';
     if (bean.image) {
-      loadBeanImageBlobUrl(bean.id).then(url => { if (url) { imgEl.src = url; imgEl.style.display = ''; } });
+      void loadBeanImageBlobUrl(bean.id).then(url => { if (url) { imgEl.src = url; imgEl.style.display = ''; } });
     }
   }
 
   const { unmatched } = matchFlavors(bean.flavors);
-  const unmatchedWrap = document.getElementById('flavorWheelUnmatched');
+  const unmatchedWrap = document.getElementById('flavorWheelUnmatched') as HTMLElement;
   unmatchedWrap.innerHTML = unmatched.length
     ? `<div class="fw-unmatched-label">${t('flavor_wheel_unmatched')}</div>
        <div class="fw-unmatched-chips">${unmatched.map(f => `<span class="flavor-chip flavor-chip-static">${esc(f)}</span>`).join('')}</div>`
     : '';
 
   modal.style.display = 'flex';
-  const container = document.getElementById('flavorWheelCanvas');
+  const container = document.getElementById('flavorWheelCanvas') as HTMLElement;
   const breadcrumbEl = document.getElementById('flavorWheelBreadcrumb');
-  const lang = ['de', 'en', 'it', 'fr', 'es', 'nl'].includes(S.currentLang) ? S.currentLang : 'en';
+  const lang: FlavorLang = (['de', 'en', 'it', 'fr', 'es', 'nl'] as FlavorLang[]).includes(S.currentLang as FlavorLang) ? S.currentLang as FlavorLang : 'en';
   // echarts is a dynamic import now (#797) — show a loading state while its
   // chunk downloads instead of leaving the canvas blank.
   container.innerHTML = `<p class="empty-note" style="text-align:center">${t('flavor_wheel_loading')}</p>`;
@@ -264,7 +303,7 @@ export async function openFlavorWheel(beanId) {
   }
 }
 
-export function closeFlavorWheel() {
+export function closeFlavorWheel(): void {
   const modal = document.getElementById('flavorWheelModal');
   if (modal) modal.style.display = 'none';
   disposeFlavorWheel();

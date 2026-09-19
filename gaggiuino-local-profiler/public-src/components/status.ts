@@ -14,11 +14,40 @@ import { showDevBuildBanner } from './dev-banner.js';
 import { syncInstallId } from '../views/setup-wizard.js';
 import { syncTopbarMachineIconFallback } from './topbar-machine-icon.js';
 
+// /api/status and /api/switch responses are plain fetch Responses, so their
+// parsed bodies are named here rather than left as `any`.
+interface SyncProgressEntry { machineId: number; current: number; total: number }
+interface SyncProgressEvent { machineId: number; current: number; total: number }
+interface SyncCompleteEvent { machineId: number; total: number; success: boolean }
+interface ProgressButton { textContent: string | null; disabled: boolean }
+interface SwitchPayload { configured?: boolean; state?: boolean | null }
+
+// Shape of the /api/status body this module reads (Response.json() is `any`,
+// so naming it here keeps the untyped boundary in one place).
+interface StatusPayload {
+  installId?: string | null;
+  shotCount?: number;
+  syncProgress?: SyncProgressEntry[] | null;
+  exposeApiPort?: boolean;
+  machineOn?: boolean;
+  machineOnSince?: number | null;
+  lastSync?: string | number | null;
+  lastSyncError?: string | null;
+  machineReachable?: boolean | null;
+  machineHostname?: string | null;
+  machineVersion?: string | null;
+  glpVersion?: string | null;
+  devBuild?: string | null;
+  ordersFeature?: boolean;
+  isDemo?: boolean;
+  legacyMachineOptionsPending?: boolean;
+}
+
 // Tracks the server-side shot count as of the last status poll, so the periodic
 // poll below can detect a newly-finished shot even when the user isn't on the
 // shots view (and thus never got the live.js post-brew loadData() trigger) —
 // see #296.
-let knownShotCount = null;
+let knownShotCount: number | null = null;
 
 // #731/#735: active shot-import progress entries as last seen by the
 // *polling fallback* (pollSyncProgressFallback() below, only exercised when
@@ -37,14 +66,14 @@ let knownShotCount = null;
 // session opened). Entirely separate from _pushSyncProgress below -- the two
 // paths never share state, so a mid-session S.sseActive flip can't leave
 // either one with stale/duplicate data.
-let _lastSyncProgress = new Map();
+const _lastSyncProgress = new Map<number, SyncProgressEntry>();
 
 // #735: same per-machine tracking as _lastSyncProgress above, but driven
 // purely by SSE push (handleSyncProgressEvent/handleSyncCompleteEvent) --
 // used only to pick which machine's bar to render when more than one is
 // backfilling, since a "complete" push has no list to fall back to the way
 // the polling fallback's /api/status response does.
-const _pushSyncProgress = new Map();
+const _pushSyncProgress = new Map<number, { current: number; total: number }>();
 
 // #742 review: two machines can genuinely backfill concurrently (syncShots()/
 // syncMachineShots() are not mutually exclusive, see lib/sync.js) -- an
@@ -66,10 +95,10 @@ const _pushSyncProgress = new Map();
 // backfilling -- stays fixed while anything is still mid-sync, so a second
 // machine joining in never re-samples S.shots.length out from under an
 // already-in-progress display. Reserved for the SSE push path only.
-let _midSyncCurrent = new Map();
-let _globalBaseline = null;
+const _midSyncCurrent = new Map<number, number>();
+let _globalBaseline: number | null = null;
 
-function displaySyncCount() {
+function displaySyncCount(): void {
   let sum = 0;
   for (const c of _midSyncCurrent.values()) sum += c;
   setShotCountDisplay((_globalBaseline ?? S.shots.length) + sum);
@@ -79,14 +108,14 @@ function displaySyncCount() {
 // flattened it to a single element -- without going through the full
 // renderSidebar()/loadData() cycle, which would be far too expensive to run
 // on every SYNC_PROGRESS tick (as fast as per-shot).
-function setShotCountDisplay(n) {
+function setShotCountDisplay(n: number): void {
   if (window.updateFlapCounter) window.updateFlapCounter(n);
 }
 
 // #735: shared bar-rendering helper -- both the polling fallback and the
 // SSE push handlers need to render "this machine's import is at
 // current/total" (or hide the bar entirely) the exact same way.
-function renderSyncProgressBar(entry) {
+function renderSyncProgressBar(entry: { current: number; total: number } | null): void {
   const syncProgressBar = document.getElementById('syncProgressBar');
   if (!syncProgressBar) return;
   if (!entry) {
@@ -95,7 +124,7 @@ function renderSyncProgressBar(entry) {
   }
   const { current, total } = entry;
   const label = document.getElementById('syncProgressLabel');
-  const fill  = syncProgressBar.querySelector('.sync-progress-fill');
+  const fill  = syncProgressBar.querySelector<HTMLElement>('.sync-progress-fill');
   if (label) label.textContent = t('sync_progress_label', current, total);
   if (fill) fill.style.width = `${Math.min(100, (current / total) * 100)}%`;
   syncProgressBar.style.display = '';
@@ -108,7 +137,7 @@ function renderSyncProgressBar(entry) {
 // polls, which is why it needs the toast/list bookkeeping below; the SSE
 // push path (handleSyncCompleteEvent) doesn't need any of this, since the
 // backend tells it directly.
-function pollSyncProgressFallback(list, machineId) {
+function pollSyncProgressFallback(list: SyncProgressEntry[], machineId: string | number | null | undefined): void {
   // #731: toast every previously-tracked machine whose entry is gone from
   // this poll's list -- independent of whichever single entry the bar
   // itself ends up showing below, so machine B finishing while A is still
@@ -138,7 +167,7 @@ function pollSyncProgressFallback(list, machineId) {
 // tells us directly when a backfill finishes and whether it succeeded, so
 // there's no "entry vanished between two polls" inference and no #731/#734
 // class of race to guard against.
-export function handleSyncProgressEvent({ machineId, current, total }) {
+export function handleSyncProgressEvent({ machineId, current, total }: SyncProgressEvent): void {
   _pushSyncProgress.set(machineId, { current, total });
   renderSyncProgressBar(_pickPushEntry());
 
@@ -162,7 +191,7 @@ export function handleSyncProgressEvent({ machineId, current, total }) {
   displaySyncCount();
 }
 
-export function handleSyncCompleteEvent({ machineId, total, success }) {
+export function handleSyncCompleteEvent({ machineId, total, success }: SyncCompleteEvent): void {
   _pushSyncProgress.delete(machineId);
   // #742 review: fold this machine's final `current` into the shared base
   // instead of just dropping its entry -- those shots are already saved to
@@ -188,14 +217,15 @@ export function handleSyncCompleteEvent({ machineId, total, success }) {
   // can drift from the truth (interleaved multi-machine backfills, a missed
   // tick) -- window.loadData() also calls renderSidebar() internally, so
   // this corrects the displayed count too, not just S.shots itself.
-  if (success && window.loadData) window.loadData();
+  if (success && window.loadData) void window.loadData();
 }
 
 // Same "prefer the active machine, fall back to the first active entry"
 // convention pollSyncProgressFallback() above uses for the REST list.
-function _pickPushEntry() {
+function _pickPushEntry(): { current: number; total: number } | null {
   if (!_pushSyncProgress.size) return null;
-  return _pushSyncProgress.get(S.activeMachineId) ?? _pushSyncProgress.values().next().value;
+  const key = typeof S.activeMachineId === 'number' ? S.activeMachineId : null;
+    return (key != null ? _pushSyncProgress.get(key) : undefined) ?? _pushSyncProgress.values().next().value ?? null;
 }
 
 // #734 review: updateStatus() can now be triggered from three independent
@@ -216,7 +246,7 @@ let _statusUpdateInFlight = false;
 // convention views/live.js and views/maintenance.js already use for the
 // 'all' switcher value — so single-machine installs and the unparameterized
 // 30s poll are unaffected.
-export async function updateStatus(machineId) {
+export async function updateStatus(machineId?: string | number | null): Promise<void> {
   if (_statusUpdateInFlight) return;
   _statusUpdateInFlight = true;
   try {
@@ -225,7 +255,7 @@ export async function updateStatus(machineId) {
       getSwitch().catch(() => null)
     ]);
     if (!statusRes.ok) return;
-    const s = await statusRes.json();
+    const s = await statusRes.json() as StatusPayload;
     // Update the machine-unreachable banner and onboarding panel first, right after
     // the status response is parsed, so a later exception in this function (e.g. from
     // DOM lookups or JSON parsing further below) can never leave them stuck in a stale
@@ -238,7 +268,7 @@ export async function updateStatus(machineId) {
     syncInstallId(s.installId);
     if (typeof s.shotCount === 'number') {
       if (knownShotCount !== null && s.shotCount > knownShotCount && window.loadData) {
-        window.loadData();
+        void window.loadData();
       }
       knownShotCount = s.shotCount;
     }
@@ -263,9 +293,9 @@ export async function updateStatus(machineId) {
     // (it removes itself again if the option is turned back on and a token
     // arrives), same always-run/self-correct convention as the banners above.
     updateApiPortClosedBanner();
-    const dot = document.getElementById('statusDot');
+    const dot = document.getElementById('statusDot') as HTMLElement;
     const railDot = document.getElementById('railStatusDot');
-    const timeEl = document.getElementById('syncTime');
+    const timeEl = document.getElementById('syncTime') as HTMLElement;
     // #681: while the machine is on, show how long it's been on instead of
     // the last shot-sync clock time -- machineOnSince is the same
     // runtime.switchOnAt lib/preheat.js already tracks for its elapsed-time
@@ -349,10 +379,10 @@ export async function updateStatus(machineId) {
     const bnOrders = document.getElementById('bnOrders');
     if (bnOrders) bnOrders.style.display = s.ordersFeature ? '' : 'none';
     if ('isDemo' in s) updateDemoBadge(s.isDemo);
-    if (switchRes?.ok) updatePowerButton(await switchRes.json());
+    if (switchRes?.ok) updatePowerButton(await switchRes.json() as SwitchPayload);
     else updatePowerButton({ configured: false });
   } catch { /* ignore */ }
-  // eslint-disable-next-line require-atomic-updates -- intentional single-flight guard; last-writer-wins reset is fine, the guard only needs to be false again once no call is in flight
+  // Single-flight guard (#734): the reset below runs on every path, and last-writer-wins is fine -- the guard only needs to be false again once no call is in flight.
   finally { _statusUpdateInFlight = false; }
 }
 
@@ -366,7 +396,7 @@ export async function updateStatus(machineId) {
 // state shows as the button's own label ("Downloading… 42%") while the
 // button is disabled — the minimal idiomatic choice for a dev-only card.
 // Restores the button's text/disabled state on every exit.
-function withButtonProgress(btn, work) {
+function withButtonProgress<T>(btn: ProgressButton, work: (setLabel: (text: string) => void) => Promise<T>): Promise<T> {
   const prevText = btn.textContent;
   const prevDisabled = btn.disabled;
   btn.disabled = true;
@@ -378,8 +408,8 @@ function withButtonProgress(btn, work) {
     .then((v) => { restore(); return v; }, (err) => { restore(); throw err; });
 }
 
-export async function exportDevDb() {
-  const btn = document.getElementById('devExportDbBtn') || { textContent: '', disabled: false };
+export async function exportDevDb(): Promise<void> {
+  const btn = (document.getElementById('devExportDbBtn') || { textContent: '', disabled: false }) as ProgressButton;
   try {
     await withButtonProgress(btn, async (setLabel) => {
       const res = await exportDevDbRequest((received, total) => setLabel(total
@@ -390,7 +420,7 @@ export async function exportDevDb() {
         return;
       }
       const d = new Date();
-      const pad = n => String(n).padStart(2, '0');
+      const pad = (n: number): string => String(n).padStart(2, '0');
       const filename = `glp-db-export-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_` +
         `${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}.db`;
       await shareOrDownloadBlob(res.blob, filename, { title: filename });
@@ -411,20 +441,20 @@ export async function exportDevDb() {
 // after a manual restart of the add-on, which this tells the user about
 // via alert() since there's no toast/notification system wired into this
 // dev-only diagnostic card.
-export async function importDevDb(file) {
+export async function importDevDb(file: File): Promise<void> {
   if (!file) return;
   if (!confirm(t('settings_devtools_import_db_confirm'))) return;
-  const input = document.getElementById('devImportDbInput');
-  const label = document.querySelector('#devToolsCard label span[data-i18n="settings_devtools_import_db"]')
-    || { textContent: '', disabled: false };
+  const input = document.getElementById('devImportDbInput') as HTMLInputElement | null;
+  const label = (document.querySelector('#devToolsCard label span[data-i18n="settings_devtools_import_db"]')
+    || { textContent: '', disabled: false }) as ProgressButton;
   if (input) input.disabled = true;
   try {
     await withButtonProgress(label, async (setLabel) => {
       const res = await importDevDbRequest(await file.arrayBuffer(), (sent, total) => setLabel(sent >= total
         ? t('backup_progress_restoring')
         : t('backup_progress_upload', Math.floor((sent / total) * 100))));
-      let body = {};
-      try { body = JSON.parse(res.text || '{}'); } catch { /* non-JSON body */ }
+      let body: { error?: string } = {};
+      try { body = JSON.parse(res.text || '{}') as { error?: string }; } catch { /* non-JSON body */ }
       if (!res.ok) { alert(body.error || t('settings_devtools_import_db_failed')); return; }
       alert(t('settings_devtools_import_db_done'));
     });
@@ -435,11 +465,11 @@ export async function importDevDb(file) {
   }
 }
 
-export function updatePowerButton(sw) {
-  const btn = document.getElementById('powerBtn');
+export function updatePowerButton(sw: SwitchPayload): void {
+  const btn = document.getElementById('powerBtn') as HTMLButtonElement;
   // #914: mobile topbar duplicate of #powerBtn -- see index.html comment.
-  const railBtn = document.getElementById('railPowerBtn');
-  const liveBtn = document.getElementById('btnLive');
+  const railBtn = document.getElementById('railPowerBtn') as HTMLButtonElement | null;
+  const liveBtn = document.getElementById('btnLive') as HTMLButtonElement;
   const bnLive  = document.getElementById('bnLive');
   if (!sw.configured) {
     btn.style.display = 'none';
@@ -453,7 +483,7 @@ export function updatePowerButton(sw) {
   }
   btn.style.display = '';
   if (railBtn) railBtn.style.display = '';
-  S.machinePowerState = sw.state;
+  S.machinePowerState = (sw.state ?? null) as unknown as string | null;
   btn.className = sw.state === true  ? 'machine-on'
                 : sw.state === false ? 'machine-off' : '';
   btn.title = sw.state === true  ? 'Maschine AN – zum Ausschalten klicken'
@@ -472,21 +502,21 @@ export function updatePowerButton(sw) {
   }
 }
 
-export async function toggleMachinePower() {
-  const btn = document.getElementById('powerBtn');
+export async function toggleMachinePower(): Promise<void> {
+  const btn = document.getElementById('powerBtn') as HTMLButtonElement;
   // #914: mobile topbar duplicate of #powerBtn -- kept disabled in lockstep
   // so a tap on either surface can't double-fire the toggle.
-  const railBtn = document.getElementById('railPowerBtn');
+  const railBtn = document.getElementById('railPowerBtn') as HTMLButtonElement | null;
   btn.disabled = true;
   if (railBtn) railBtn.disabled = true;
   try {
     const r = await toggleSwitch();
     if (r.ok) {
-      const result = await r.json();
+      const result = await r.json() as SwitchPayload;
       updatePowerButton({ configured: true, state: result.state });
       setTimeout(async () => {
         const sr = await getSwitch().catch(() => null);
-        if (sr?.ok) updatePowerButton(await sr.json());
+        if (sr?.ok) updatePowerButton(await sr.json() as SwitchPayload);
       }, 2000);
     }
   } catch (e) { console.error('Power toggle Fehler:', e); }
@@ -496,14 +526,14 @@ export async function toggleMachinePower() {
   }
 }
 
-export async function triggerSync() {
-  const btn = document.getElementById('syncBtn');
+export async function triggerSync(): Promise<void> {
+  const btn = document.getElementById('syncBtn') as HTMLButtonElement;
   btn.disabled = true;
   btn.textContent = '↻ …';
   try {
     const r = await triggerSyncRequest();
     if (r.status === 429) {
-      const d = await r.json();
+      const d = await r.json() as { error?: string };
       btn.textContent = d.error || t('please_wait');
       setTimeout(() => { btn.textContent = t('btn_sync'); btn.disabled = false; }, 3000);
       return;
