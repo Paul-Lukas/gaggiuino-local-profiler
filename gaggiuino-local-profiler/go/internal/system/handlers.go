@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -61,6 +62,8 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/switch/toggle", h.postSwitchToggle)
 	mux.HandleFunc("GET /api/openapi.json", h.getOpenAPI)
 	mux.HandleFunc("POST /api/sync", h.postSync)
+	mux.HandleFunc("GET /api/sync/shot/{id}/preview", h.getResyncShotPreview)
+	mux.HandleFunc("POST /api/sync/shot/{id}", h.postResyncShot)
 }
 
 // postSync ports routes/system.js's POST /api/sync: a 30s-cooldown manual
@@ -76,6 +79,73 @@ func (h *Handlers) postSync(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	httputil.SafeGo("system: manual sync", func() { h.poller.RunManualSync(context.Background()) })
+}
+
+// getResyncShotPreview fetches a shot from the machine without writing to the
+// DB. Returns a slim summary (id, timestamp, profileName, duration, weight)
+// alongside the same fields from the existing local DB row so the frontend
+// can show a before/after comparison before the user commits.
+func (h *Handlers) getResyncShotPreview(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "Ungültige Shot-ID")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	shot, err := h.poller.FetchShotFromMachine(ctx, id)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("Shot %d konnte nicht von der Maschine geladen werden: %v", id, err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "machine": shotSummary(shot)})
+}
+
+// postResyncShot writes a previously-previewed shot to the local database.
+// Body: { "keepBoth": true|false }. keepBoth=false overwrites the existing
+// row; keepBoth=true inserts as a new row so the old entry is preserved.
+func (h *Handlers) postResyncShot(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "Ungültige Shot-ID")
+		return
+	}
+	rawBody, ok := decodeOptionalJSONBody(w, r)
+	if !ok {
+		return
+	}
+	keepBoth, _ := rawBody["keepBoth"].(bool)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	shot, ferr := h.poller.FetchShotFromMachine(ctx, id)
+	if ferr != nil {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("Shot %d konnte nicht von der Maschine geladen werden: %v", id, ferr))
+		return
+	}
+	storedID, serr := h.poller.StoreFetchedShot(ctx, shot, keepBoth)
+	if serr != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Fehler beim Speichern: %v", serr))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "storedId": storedID})
+}
+
+// shotSummary extracts a display-friendly subset of a shot map.
+func shotSummary(s map[string]any) map[string]any {
+	get := func(key string) any { return s[key] }
+	summary := map[string]any{
+		"id":          get("id"),
+		"timestamp":   get("timestamp"),
+		"profileName": get("profileName"),
+		"duration":    get("duration"),
+	}
+	// final weight: GaggiMate stores it top-level; Gaggiuino puts it in datapoints.
+	if w := get("gaggimateFinalWeight"); w != nil {
+		summary["weight"] = w
+	}
+	return summary
 }
 
 // machineStatus ports GET /api/machine/status: the default machine's

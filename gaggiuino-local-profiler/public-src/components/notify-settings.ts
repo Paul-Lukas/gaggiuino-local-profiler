@@ -9,35 +9,42 @@
 // toggles; that route isn't gated on enable_orders, only the Orders nav
 // tab/panel is. Loaded once at app init (main.js), same as mqtt-settings.js,
 // so it doesn't depend on views/orders.js's code ever having run.
-import { apiFetch } from '../api.js';
+import { getOrdersSettings, postOrdersSettings } from '../api/orders.js';
+import type { OrdersSettings, OrdersSettingsUpdate } from '../api/types.js';
 import { t } from '../i18n.js';
 import { CHECK_ICON_SVG } from '../icons.js';
 
-const KEYS = ['notify_preheat_ready', 'notify_low_stock'];
+// The boolean toggles this card owns (the remaining order-specific ones live
+// in views/orders.js's saveNotifyToggles()).
+type NotifyKey =
+  | 'notify_preheat_ready'
+  | 'notify_low_stock'
+  | 'notify_shop_state'
+  | 'notify_new_order'
+  | 'notify_order_status';
 
-export async function loadNotifySettingsCard() {
+const KEYS: NotifyKey[] = ['notify_preheat_ready', 'notify_low_stock'];
+
+export async function loadNotifySettingsCard(): Promise<void> {
   const list = document.getElementById('notifySettingsList');
   if (!list) return;
-  const settings = await apiFetch('api/orders/settings').then(r => r.json()).catch(() => ({}));
+  const settings: OrdersSettings = await getOrdersSettings().catch(() => ({}));
   KEYS.forEach(key => {
-    const cb = list.querySelector(`[data-notify-key="${key}"]`);
+    const cb = list.querySelector<HTMLInputElement>(`[data-notify-key="${key}"]`);
     if (cb) cb.checked = settings[key] !== false;
   });
 }
 
-export async function saveNotifySettings() {
+export async function saveNotifySettings(): Promise<void> {
   const list = document.getElementById('notifySettingsList');
   if (!list) return;
-  const settings = await apiFetch('api/orders/settings').then(r => r.json()).catch(() => ({}));
-  const body = { enabled: settings.enabled ?? true };
-  list.querySelectorAll('[data-notify-key]').forEach(cb => {
-    body[cb.dataset.notifyKey] = cb.checked;
+  const settings: OrdersSettings = await getOrdersSettings().catch(() => ({}));
+  const body: OrdersSettingsUpdate = { enabled: settings.enabled ?? true };
+  list.querySelectorAll<HTMLInputElement>('[data-notify-key]').forEach(cb => {
+    const key = cb.dataset.notifyKey as NotifyKey;
+    body[key] = cb.checked;
   });
-  await apiFetch('api/orders/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  await postOrdersSettings(body);
   const btn = document.getElementById('notifySettingsSaveBtn');
   if (btn) {
     btn.innerHTML = `${CHECK_ICON_SVG} ${t('orders_types_saved')}`;

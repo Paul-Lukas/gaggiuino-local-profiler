@@ -4,6 +4,26 @@ import { localeFor } from '../constants.js';
 import { esc, scoreClass, formatTimeLabel, groupShotsByDay } from '../utils.js';
 import { STAR_ICON_SVG , SNOWFLAKE_ICON_SVG, CLOSE_ICON_SVG} from '../icons.js';
 import { resolveBeanForAnnotation } from '../views/shots/utils.js';
+import type { ShotMeta } from '../state/index.js';
+
+// state/index.ts types shot rows as metadata-only `ShotMeta` with an index
+// signature; these local aliases name the fields the sidebar actually reads.
+interface ShotAnnotation {
+  dose?: string | number | null;
+  coffee?: string | null;
+  grinder?: string | null;
+  rating?: number | null;
+  notes?: string | null;
+  grindSetting?: string | null;
+  frozenPortionId?: number | null;
+}
+
+interface SidebarShot extends ShotMeta {
+  profile?: { name?: string | null } | null;
+  profileName?: string | null;
+  duration?: number | null;
+  annotation?: ShotAnnotation | null;
+}
 
 // These are imported lazily via window to avoid circular dependencies
 // updateView is on window, calcShotScore/getShotData are set from shots.js
@@ -14,10 +34,10 @@ import { resolveBeanForAnnotation } from '../views/shots/utils.js';
 // here. toggleMonthGroup() drains its entry on first expand; an active search
 // in filterShots() drains the whole map. Module-level rather than on the DOM
 // node because a dataset can't hold objects.
-const _pendingMonthShots = new Map();
+const _pendingMonthShots = new Map<string, SidebarShot[]>();
 
-export function renderSidebar() {
-  const el = document.getElementById('shots');
+export function renderSidebar(): void {
+  const el = document.getElementById('shots') as HTMLElement;
   el.innerHTML = '';
   _pendingMonthShots.clear(); // #969: repopulated below for whatever stays collapsed this render
   updateFlapCounter(S.shots.length);
@@ -30,8 +50,8 @@ export function renderSidebar() {
     shots.forEach(shot => el.appendChild(_buildShotWrapper(shot)));
   } else {
     const locale = localeFor(S.currentLang);
-    const formatRecent = d => d.toLocaleDateString(locale, { weekday: 'long', day: '2-digit', month: '2-digit' });
-    const formatOlder = d => d.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+    const formatRecent = (d: Date): string => d.toLocaleDateString(locale, { weekday: 'long', day: '2-digit', month: '2-digit' });
+    const formatOlder = (d: Date): string => d.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
     const groups = groupShotsByDay(shots, new Date(), t('day_today'), t('day_yesterday'), formatRecent, formatOlder);
     groups.forEach(group => {
       if (group.tier === 'month') {
@@ -78,7 +98,7 @@ export function renderSidebar() {
   if (S.currentFilter || S.beanFilter) filterShots(S.currentFilter);
 }
 
-function _buildShotWrapper(shot) {
+function _buildShotWrapper(shot: SidebarShot): HTMLElement {
     const wrapper = document.createElement('div');
     wrapper.className = 'shot-wrapper';
     wrapper.id = `wrapper-${shot.id}`;
@@ -102,14 +122,14 @@ function _buildShotWrapper(shot) {
       ? `<span class="sidebar-score ${scoreClass(sc)}">${sc}</span>`
       : '';
 
-    const dose = parseFloat(ann.dose);
+      const dose = parseFloat(String(ann.dose ?? ''));
     const durLabel = shot.duration ? formatTimeLabel(shot.duration / 10) : null;
     const line2 = [ann.coffee || null, dose ? `${dose.toFixed(1)} g` : null].filter(Boolean).join(' · ') || durLabel || '';
     // #502: which frozen-portion batch (if any) this shot's dose came from —
     // an explicit annotation-panel choice, shown at a glance in the list too.
     const frozenBadge = ann.frozenPortionId ? `<span class="shot-frozen-badge" title="${esc(t('ann_frozen_portion'))}">${SNOWFLAKE_ICON_SVG}</span>` : '';
 
-    const rating = parseInt(ann.rating) || 0;
+      const rating = parseInt(String(ann.rating ?? '')) || 0;
     const starsHtml = rating > 0
       ? `<span class="stars">${STAR_ICON_SVG.repeat(rating)}<span class="off">${STAR_ICON_SVG.repeat(5 - rating)}</span></span>`
       : '';
@@ -126,8 +146,9 @@ function _buildShotWrapper(shot) {
     // more than one machine registered — a machine-scoped list already
     // implies every visible shot is from that machine, so the badge would
     // be redundant noise there.
-    const machineBadge = (S.machines?.length > 1 && S.activeMachineId === 'all' && shot.machineId != null)
-      ? `<span class="shot-machine-badge">${esc((S.machines.find(m => m.id === shot.machineId) || {}).name || '?')}</span>` : '';
+    const machineRec = S.machines.find(m => m.id === shot.machineId) as { name?: string } | undefined;
+    const machineBadge = ((S.machines?.length ?? 0) > 1 && S.activeMachineId === 'all' && shot.machineId != null)
+      ? `<span class="shot-machine-badge">${esc(machineRec?.name || '?')}</span>` : '';
     // #816: the bean-photo/avatar circle (.shot-thumb) is gone — the
     // prototype's rail-item mockup is text-only, no image or colored circle
     // (Border-Diät extends to photos, not just boxes). The photo itself is
@@ -153,7 +174,7 @@ function _buildShotWrapper(shot) {
         // away from before its DOM fields get overwritten by the new shot.
         if (S.primaryShotId !== shot.id && window.flushAutoSave) window.flushAutoSave();
         S.primaryShotId = shot.id; S.compareShotId = null;
-        localStorage.setItem('glp_primaryShotId', shot.id);
+        localStorage.setItem('glp_primaryShotId', String(shot.id));
         localStorage.removeItem('glp_compareShotId');
         updateSidebarHighlighting();
         if (S.currentMode !== 'shots' && window.switchMode) window.switchMode('shots');
@@ -191,7 +212,7 @@ function _buildShotWrapper(shot) {
 // display and the header's chevron, and tracks expanded state in the
 // in-memory S._expandedMonths Set so it survives renderSidebar() re-renders
 // within the session (never persisted to localStorage).
-export function toggleMonthGroup(key) {
+export function toggleMonthGroup(key: string): void {
   const body = document.getElementById(`monthGroup-${key}`);
   const btn = document.querySelector(`[data-action="toggle-month-group"][data-id="${key}"]`);
   if (!body) return;
@@ -199,8 +220,9 @@ export function toggleMonthGroup(key) {
   // #969: a collapsed month's rows are built lazily — materialise the stashed
   // shots the first time it opens, then drop the stash. Subsequent toggles
   // just flip display, as before.
-  if (willExpand && _pendingMonthShots.has(key)) {
-    _pendingMonthShots.get(key).forEach(shot => body.appendChild(_buildShotWrapper(shot)));
+  const pending = willExpand ? _pendingMonthShots.get(key) : undefined;
+  if (pending) {
+    pending.forEach(shot => body.appendChild(_buildShotWrapper(shot)));
     _pendingMonthShots.delete(key);
   }
   body.style.display = willExpand ? '' : 'none';
@@ -208,16 +230,16 @@ export function toggleMonthGroup(key) {
   if (willExpand) S._expandedMonths.add(key); else S._expandedMonths.delete(key);
 }
 
-export function toggleCompare(id) {
+export function toggleCompare(id: number): void {
   if (S.primaryShotId === id) return;
   S.compareShotId = (S.compareShotId === id) ? null : id;
-  if (S.compareShotId) localStorage.setItem('glp_compareShotId', S.compareShotId);
+  if (S.compareShotId) localStorage.setItem('glp_compareShotId', String(S.compareShotId));
   else localStorage.removeItem('glp_compareShotId');
   updateSidebarHighlighting();
   if (window.updateView) window.updateView();
 }
 
-export function updateSidebarHighlighting() {
+export function updateSidebarHighlighting(): void {
   document.querySelectorAll('.shot-wrapper').forEach(x => {
     x.classList.remove('active', 'compare-active');
     const id = parseInt(x.id.replace('wrapper-', ''));
@@ -231,19 +253,19 @@ export function updateSidebarHighlighting() {
 // search below rather than replacing it, mirroring how the machine filter
 // (filterShotsByMachine, state/index.ts) sits alongside search instead of
 // competing with it. Indicator lives in the sidebar's search area.
-export function setBeanFilter(id, name) {
+export function setBeanFilter(id: number, name: string): void {
   S.beanFilter = { id, name };
   updateBeanFilterIndicator();
   filterShots(S.currentFilter);
 }
 
-export function clearBeanFilter() {
+export function clearBeanFilter(): void {
   S.beanFilter = null;
   updateBeanFilterIndicator();
   filterShots(S.currentFilter);
 }
 
-function updateBeanFilterIndicator() {
+function updateBeanFilterIndicator(): void {
   const el = document.getElementById('beanFilterIndicator');
   if (!el) return;
   if (!S.beanFilter) { el.style.display = 'none'; el.innerHTML = ''; return; }
@@ -252,7 +274,7 @@ function updateBeanFilterIndicator() {
     `<button type="button" class="bean-filter-clear" data-action="clear-bean-filter" title="${t('bean_filter_clear')}">${CLOSE_ICON_SVG}</button>`;
 }
 
-function shotMatchesBeanFilter(shot) {
+function shotMatchesBeanFilter(shot: SidebarShot): boolean {
   if (!S.beanFilter) return true;
   const resolved = resolveBeanForAnnotation(shot.annotation, S.coffeeLibrary?.beans);
   if (resolved) return resolved.id === S.beanFilter.id;
@@ -266,7 +288,7 @@ function shotMatchesBeanFilter(shot) {
 // until first expand). A search reads each body's children and force-opens
 // every group, so the deferred wrappers have to exist first — otherwise a
 // match nested in a never-expanded month is silently missed.
-function _buildPendingMonthBodies() {
+function _buildPendingMonthBodies(): void {
   if (!_pendingMonthShots.size) return;
   for (const [key, shots] of _pendingMonthShots) {
     const body = document.getElementById(`monthGroup-${key}`);
@@ -275,15 +297,15 @@ function _buildPendingMonthBodies() {
   _pendingMonthShots.clear();
 }
 
-export function filterShots(query) {
+export function filterShots(query: string): void {
   S.currentFilter = query;
   const q = query.trim().toLowerCase();
   if (q) _buildPendingMonthBodies();
   // #969: one id->shot lookup instead of a linear S.shots.find() per wrapper
   // — the per-row find made filtering O(n^2) over the whole list on every
   // keystroke.
-  const shotsById = new Map(S.shots.map(s => [s.id, s]));
-  document.querySelectorAll('#shots .shot-wrapper').forEach(wrapper => {
+  const shotsById = new Map<number, SidebarShot>(S.shots.map(s => [s.id, s as SidebarShot]));
+  document.querySelectorAll<HTMLElement>('#shots .shot-wrapper').forEach(wrapper => {
     const id = parseInt(wrapper.id.replace('wrapper-', ''));
     const shot = shotsById.get(id);
     if (!shot) { wrapper.style.display = 'none'; return; }
@@ -303,12 +325,12 @@ export function filterShots(query) {
   // end). Month-tier siblings are skipped here (handled separately below)
   // rather than counted as "visible", since their own display isn't a
   // signal about this day-sep's shots.
-  document.querySelectorAll('#shots .day-sep').forEach(sep => {
-    let sib = sep.nextElementSibling;
+  document.querySelectorAll<HTMLElement>('#shots .day-sep').forEach(sep => {
+    let sib = sep.nextElementSibling as HTMLElement | null;
     let hasVisible = false;
     while (sib && !sib.classList.contains('day-sep') && !sib.classList.contains('sidebar-month-header')) {
       if (sib.classList.contains('shot-wrapper') && sib.style.display !== 'none') { hasVisible = true; break; }
-      sib = sib.nextElementSibling;
+      sib = sib.nextElementSibling as HTMLElement | null;
     }
     sep.style.display = hasVisible ? '' : 'none';
   });
@@ -317,21 +339,21 @@ export function filterShots(query) {
   // header+body pair entirely if none of its shots match, and restore the
   // session's collapse state once the query is cleared (parity with the
   // pre-#399 behavior).
-  document.querySelectorAll('#shots .sidebar-month-body').forEach(body => {
+  document.querySelectorAll<HTMLElement>('#shots .sidebar-month-body').forEach(body => {
     const key = body.id.replace('monthGroup-', '');
     const header = document.querySelector(`[data-action="toggle-month-group"][data-id="${key}"]`);
     if (q) {
-      const hasVisible = [...body.children].some(c => c.style.display !== 'none');
+      const hasVisible = [...body.children].some(c => (c as HTMLElement).style.display !== 'none');
       body.style.display = hasVisible ? '' : 'none';
-      if (header) header.style.display = hasVisible ? '' : 'none';
+      if (header) (header as HTMLElement).style.display = hasVisible ? '' : 'none';
     } else {
       body.style.display = S._expandedMonths.has(key) ? '' : 'none';
-      if (header) header.style.display = '';
+      if (header) (header as HTMLElement).style.display = '';
     }
   });
 }
 
-export function setSortMode(mode) {
+export function setSortMode(mode: string): void {
   if (S.currentSort === mode) {
     S.sortAsc = !S.sortAsc;
   } else {
@@ -339,9 +361,9 @@ export function setSortMode(mode) {
     S.sortAsc = false;
   }
   const arrow = S.sortAsc ? ' ↑' : ' ↓';
-  const labels = { newest: t('sort_newest'), score: t('sort_score'), rating: `${STAR_ICON_SVG} ${t('sort_rating')}`, duration: t('sort_duration') };
+  const labels: Record<string, string> = { newest: t('sort_newest'), score: t('sort_score'), rating: `${STAR_ICON_SVG} ${t('sort_rating')}`, duration: t('sort_duration') };
   document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
-  const map = { newest: 'sortNewest', score: 'sortScore', rating: 'sortRating', duration: 'sortDur' };
+  const map: Record<string, string> = { newest: 'sortNewest', score: 'sortScore', rating: 'sortRating', duration: 'sortDur' };
   const activeBtn = document.getElementById(map[mode]);
   if (activeBtn) {
     activeBtn.classList.add('active');
@@ -350,8 +372,8 @@ export function setSortMode(mode) {
   renderSidebar();
 }
 
-export function sortedShots() {
-  const list = [...S.shots];
+export function sortedShots(): SidebarShot[] {
+  const list = [...S.shots] as SidebarShot[];
   const dir = S.sortAsc ? 1 : -1;
   if (S.currentSort === 'newest')
     return S.sortAsc ? list : list.reverse();
@@ -377,18 +399,18 @@ export function sortedShots() {
 // here on purpose, not silently: a plain textContent write is synchronous
 // and unconditional, so whichever call runs last always wins — the same
 // property the guard existed to simulate for the flap animation.
-export function updateFlapCounter(count) {
+export function updateFlapCounter(count: number): void {
   const el = document.getElementById('flapDigits');
   if (!el) return;
   el.textContent = String(count).padStart(Math.max(String(count).length, 4), '0');
 }
 
 // ── Desktop sidebar collapse ──────────────────────────────────────────────
-export function toggleDesktopSidebar() {
+export function toggleDesktopSidebar(): void {
   const sidebar = document.getElementById('sidebar');
   const expandBtn = document.getElementById('expandSidebarBtn');
   const collapseBtn = document.getElementById('collapseBtn');
-  const collapsed = sidebar.classList.toggle('desktop-collapsed');
+  const collapsed = (sidebar as HTMLElement).classList.toggle("desktop-collapsed");
   if (expandBtn) expandBtn.classList.toggle('visible', collapsed);
   if (collapseBtn) collapseBtn.textContent = collapsed ? '›' : '‹';
   if (!collapsed) setTimeout(() => { if (window.updateView) window.updateView(); }, 320);
@@ -435,9 +457,9 @@ export function updateMobileShotSidebarVisibility() {
 // the drawer just layers #sidebar on top as an overlay with a backdrop,
 // then hands back to updateMobileShotSidebarVisibility() once fully closed
 // so whatever the current mode/subview would normally show resumes.
-let _drawerTouchStartX = null;
+let _drawerTouchStartX: number | null = null;
 
-export function openShotDrawer() {
+export function openShotDrawer(): void {
   const sidebar = document.getElementById('sidebar');
   const backdrop = document.getElementById('sidebar-drawer-backdrop');
   const btn = document.getElementById('mobileDrawerBtn');
@@ -446,7 +468,7 @@ export function openShotDrawer() {
   // status.js poll to keep S.shots fresh — but that poll can lag or get
   // throttled while the tab is backgrounded, so a shot finished just before
   // opening the drawer could be missing. Refresh on open instead of waiting.
-  if (window.loadData) window.loadData();
+  if (window.loadData) void window.loadData();
   sidebar.classList.add('sidebar-drawer-mode');
   sidebar.style.display = 'flex';
   backdrop?.classList.add('visible');
@@ -456,7 +478,7 @@ export function openShotDrawer() {
   requestAnimationFrame(() => sidebar.classList.add('sidebar-drawer-open'));
 }
 
-export function closeShotDrawer() {
+export function closeShotDrawer(): void {
   const sidebar = document.getElementById('sidebar');
   const backdrop = document.getElementById('sidebar-drawer-backdrop');
   const btn = document.getElementById('mobileDrawerBtn');
@@ -470,13 +492,13 @@ export function closeShotDrawer() {
   }, 260); // matches the CSS slide transition duration
 }
 
-export function handleDrawerTouchStart(e) {
+export function handleDrawerTouchStart(e: TouchEvent): void {
   const sidebar = document.getElementById('sidebar');
   if (!sidebar?.classList.contains('sidebar-drawer-open')) return;
   _drawerTouchStartX = e.touches[0].clientX;
 }
 
-export function handleDrawerTouchEnd(e) {
+export function handleDrawerTouchEnd(e: TouchEvent): void {
   if (_drawerTouchStartX == null) return;
   const deltaX = e.changedTouches[0].clientX - _drawerTouchStartX;
   _drawerTouchStartX = null;
@@ -493,9 +515,9 @@ export function handleDrawerTouchEnd(e) {
 // check here prevents double-handling once handleDrawerTouchStart/End above
 // take over for an already-open drawer.
 const EDGE_SWIPE_ZONE_PX = 24;
-let _edgeSwipeStartX = null;
+let _edgeSwipeStartX: number | null = null;
 
-export function handleEdgeSwipeStart(e) {
+export function handleEdgeSwipeStart(e: TouchEvent): void {
   if (window.innerWidth > 768) return;
   const sidebar = document.getElementById('sidebar');
   if (sidebar?.classList.contains('sidebar-drawer-open')) return;
@@ -503,7 +525,7 @@ export function handleEdgeSwipeStart(e) {
   _edgeSwipeStartX = x <= EDGE_SWIPE_ZONE_PX ? x : null;
 }
 
-export function handleEdgeSwipeEnd(e) {
+export function handleEdgeSwipeEnd(e: TouchEvent): void {
   if (_edgeSwipeStartX == null) return;
   const deltaX = e.changedTouches[0].clientX - _edgeSwipeStartX;
   _edgeSwipeStartX = null;
@@ -511,11 +533,11 @@ export function handleEdgeSwipeEnd(e) {
 }
 
 // ── selectShot (used from dialin onclick) ────────────────────────────────
-export function selectShot(id) {
+export function selectShot(id: number): void {
   if (S.primaryShotId !== id && window.flushAutoSave) window.flushAutoSave(); // #430
   S.primaryShotId = id;
   S.compareShotId = null;
-  localStorage.setItem('glp_primaryShotId', id);
+  localStorage.setItem('glp_primaryShotId', String(id));
   localStorage.removeItem('glp_compareShotId');
   updateSidebarHighlighting();
   if (window.updateView) window.updateView();

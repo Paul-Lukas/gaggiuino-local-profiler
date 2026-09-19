@@ -7,7 +7,7 @@
 import { getWhatsNewEntries } from '../shared/whats-new.js';
 import { esc as escapeHtml } from '../utils.js';
 
-export function renderWhatsNewCard() {
+export function renderWhatsNewCard(): void {
   const list = document.getElementById('whatsNewList');
   if (!list) return;
   list.innerHTML = getWhatsNewEntries().map(entry => `

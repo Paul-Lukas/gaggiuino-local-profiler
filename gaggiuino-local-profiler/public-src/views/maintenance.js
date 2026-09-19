@@ -1,6 +1,9 @@
 import { S } from '../state/index.js';
 import { t } from '../i18n.js';
-import { apiFetch } from '../api.js';
+import {
+  getMaintenance, markMaintenanceDone, saveMaintenanceThreshold,
+  getMaintenanceLog, addMaintenanceLogEntry, deleteMaintenanceLogEntry,
+} from '../api/maintenance.js';
 import { MAINT_META, GUIDED_MAINT_STEPS, localeFor } from '../constants.js';
 import { esc } from '../utils.js';
 
@@ -153,7 +156,7 @@ export async function loadMaintenanceView() {
   container.innerHTML = `<div class="loading-state">${t('loading')}</div>`;
   try {
     const scope = _effectiveScope();
-    const r = await apiFetch(`api/maintenance?machineId=${scope}`);
+    const r = await getMaintenance(scope);
     const data = await r.json();
     renderMaintenanceDashboard(data, scope);
   } catch {
@@ -418,7 +421,7 @@ export async function submitGuidedMaint() {
 
 export async function markMaintDone(task, machineId) {
   try {
-    await apiFetch(`api/maintenance/${task}/done?machineId=${_writeMachineId(machineId)}`, { method: 'POST' });
+    await markMaintenanceDone(task, _writeMachineId(machineId));
     await loadMaintenanceView();
   } catch { /* ignore */ }
 }
@@ -427,11 +430,7 @@ export async function saveMaintThreshold(task, field, value, machineId) {
   // empty string → null (clears the threshold)
   const parsed = value === '' || value == null ? null : parseInt(value, 10);
   try {
-    await apiFetch(`api/maintenance/${task}/threshold?machineId=${_writeMachineId(machineId)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [field]: parsed }),
-    });
+    await saveMaintenanceThreshold(task, _writeMachineId(machineId), { [field]: parsed });
   } catch { /* ignore */ }
 }
 
@@ -445,9 +444,7 @@ export async function setMaintMode(task, mode, machineId, currentShots, currentD
              : mode === 'g'     ? { threshold_shots: null,     threshold_days: null, threshold_g: defG }
              :                    { threshold_shots: defShots, threshold_days: defDays, threshold_g: null };
   try {
-    await apiFetch(`api/maintenance/${task}/threshold?machineId=${_writeMachineId(machineId)}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
+    await saveMaintenanceThreshold(task, _writeMachineId(machineId), body);
     await loadMaintenanceView();
     if (expandedTask) {
       document.querySelector(`.maint-detail-toggle[data-task="${CSS.escape(expandedTask)}"]`)
@@ -458,11 +455,7 @@ export async function setMaintMode(task, mode, machineId, currentShots, currentD
 
 export async function toggleMaintDisabled(task, machineId, disabled) {
   try {
-    await apiFetch(`api/maintenance/${task}/threshold?machineId=${_writeMachineId(machineId)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ disabled }),
-    });
+    await saveMaintenanceThreshold(task, _writeMachineId(machineId), { disabled });
     await loadMaintenanceView();
   } catch { /* ignore */ }
 }
@@ -520,7 +513,7 @@ export async function loadMaintLog() {
   if (!el) return;
   try {
     const scope = _effectiveScope();
-    const entries = await apiFetch(`api/maintenance/log?machineId=${scope}`).then(r => r.json());
+    const entries = await getMaintenanceLog(scope).then(r => r.json());
     renderMaintLog(entries);
   } catch { el.innerHTML = ''; }
 }
@@ -614,11 +607,7 @@ export async function submitMaintLogEntry() {
   const notes = document.getElementById('maintLogNotes').value.trim();
   if (!task || !date) return;
   try {
-    await apiFetch(`api/maintenance/log?machineId=${_writeMachineId()}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ task, date, notes }),
-    });
+    await addMaintenanceLogEntry(_writeMachineId(), { task, date, notes });
     closeMaintLogForm();
     loadMaintLog();
   } catch { /* ignore */ }
@@ -627,7 +616,7 @@ export async function submitMaintLogEntry() {
 export async function deleteMaintLogEntry(id) {
   if (!confirm(t('maint_log_confirm_delete'))) return;
   try {
-    await apiFetch(`api/maintenance/log/${id}`, { method: 'DELETE' });
+    await deleteMaintenanceLogEntry(id);
     loadMaintLog();
   } catch { /* ignore */ }
 }

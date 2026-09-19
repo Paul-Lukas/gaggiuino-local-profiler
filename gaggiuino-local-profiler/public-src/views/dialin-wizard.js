@@ -11,7 +11,8 @@
 // data lives on the shot itself via the normal annotate endpoint.
 import { S }                     from '../state/index.js';
 import { t }                     from '../i18n.js';
-import { apiFetch }              from '../api.js';
+import { saveBeanKnownGrind } from '../api/library.js';
+import { annotateShot }          from '../api/shots.js';
 import { esc, detectChanneling, calcBrewRatio, scoreColor } from '../utils.js';
 import { calcShotScore } from './shots/utils.js';
 import { getShotCurve } from '../shot-curves.js';
@@ -255,9 +256,7 @@ export async function dialinConfirmShot(shotId, isMatch) {
     dose: s.dose || null, recipeId: s.recipeId || null,
   };
   try {
-    const r = await apiFetch(`api/shots/${shotId}/annotate`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-    });
+    const r = await annotateShot(shotId, payload);
     if (r.ok) {
       const idx = S.shots.findIndex(sh => sh.id === shotId);
       if (idx !== -1) S.shots[idx].annotation = { ...S.shots[idx].annotation, ...payload };
@@ -285,12 +284,8 @@ export async function dialinSaveKnownGrind() {
     : S.coffeeLibrary?.beans?.find(b => b.name === s.bean);
   const best = _bestRound(s.rounds);
   if (!bean || !best) return;
-  const r = await apiFetch(`api/library/bean/${bean.id}/known-grind`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ grinder: s.grinder, grindSetting: best.grindSetting }),
-  });
-  if (r.ok) {
-    const updated = await r.json();
+  const updated = await saveBeanKnownGrind(bean.id, { grinder: s.grinder, grindSetting: best.grindSetting });
+  if (updated) {
     const idx = S.coffeeLibrary.beans.findIndex(b => b.id === bean.id);
     if (idx !== -1) S.coffeeLibrary.beans[idx] = updated;
     window.showToast?.(t('dialin_wizard_save_known_done'));

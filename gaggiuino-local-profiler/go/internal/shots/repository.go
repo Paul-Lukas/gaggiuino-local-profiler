@@ -257,6 +257,21 @@ func (r *Repository) MaxNativeShotID(machineID int64) (int64, error) {
 	return maxID.Int64, nil
 }
 
+// NextAvailableID returns MAX(id)+1 across the entire shots table (including
+// trashed rows so we never reuse a deleted id), used by StoreFetchedShot's
+// keepBoth path to assign a fresh synthetic id to a machine copy.
+func (r *Repository) NextAvailableID() (int64, error) {
+	var maxID sql.NullInt64
+	err := r.db.QueryRow(`SELECT MAX(id) FROM shots`).Scan(&maxID)
+	if err != nil {
+		return 0, fmt.Errorf("shots: getting max id: %w", err)
+	}
+	if !maxID.Valid {
+		return 1, nil
+	}
+	return maxID.Int64 + 1, nil
+}
+
 // Count ports ShotRepository.js's count(): a plain `SELECT COUNT(*) FROM
 // shots`, deliberately including trashed rows (no `NOT IN (SELECT shot_id
 // FROM trash)` filter — mirrors the Node original exactly, not

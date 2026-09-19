@@ -41,7 +41,7 @@ if ('serviceWorker' in navigator && document.querySelector('link[rel="manifest"]
 }
 
 import { S } from './state/index.js';
-import { initToken, apiFetch } from './api.js';
+import { initToken, apiFetch } from './api/transport.js';
 import { t, setLang, applyTranslations } from './i18n.js';
 import { connectEvents, onEvent, EVENTS } from './sse.js';
 import { generateBeanQR } from './glp-qr.js';
@@ -103,7 +103,7 @@ import { loadOrdersView, startOrdersPolling, stopOrdersPolling, setOrdersEnabled
 
 import { loadLibrary, updateLibraryDatalist, switchLibTab, renderBeanList, renderGrinderList,
          openBeanForm, closeBeanForm, editBean, saveBean, saveBeanNoBag, saveBeanAddBag, deleteBean, toggleBeanActive, uploadBeanImage,
-         openGrinderForm, closeGrinderForm, editGrinder, saveGrinder, deleteGrinder, uploadGrinderImage, resetGrinderBurrs,
+         openGrinderForm, closeGrinderForm, editGrinder, saveGrinder, deleteGrinder, uploadGrinderImage, resetGrinderBurrs, deleteGrinderZeroPointEntry,
          toggleBeanQR,
          openNewBagForm, closeNewBagForm, saveNewBag, deleteBag,
          openEditBag, closeEditBag, saveEditBag,
@@ -881,6 +881,91 @@ document.addEventListener('DOMContentLoaded', () => {
   // main.js, but this modal's actions depend on which flow opened it).
   document.getElementById('backupRestoreInput').addEventListener('change', e => openBackupRestoreModal(e.target));
   document.getElementById('backupDownloadBtn').addEventListener('click', openBackupExportModal);
+  {
+    let _resyncMachineShot: any = null;
+    let _resyncShotId = 0;
+
+    const fmtShotInfo = (s: any, locale: string): string => {
+      if (!s) return t('settings_resync_no_local');
+      const date = s.timestamp ? new Date(s.timestamp * 1000).toLocaleString(locale) : '—';
+      const dur  = s.duration  ? `${(s.duration / 10).toFixed(1)} s` : '';
+      const wt   = s.weight    ? `${parseFloat(s.weight).toFixed(1)} g` : '';
+      const name = s.profileName || '';
+      return [date, name, dur, wt].filter(Boolean).join(' · ');
+    };
+
+    const setResyncStatus = (msg: string, isErr = false) => {
+      const el = document.getElementById('resyncShotStatus') as HTMLElement;
+      el.textContent = msg;
+      el.style.color = isErr ? 'var(--c-danger, red)' : '';
+      el.style.display = msg ? '' : 'none';
+    };
+
+    const hidePreview = () => {
+      (document.getElementById('resyncPreviewArea') as HTMLElement).style.display = 'none';
+      _resyncMachineShot = null;
+      _resyncShotId = 0;
+    };
+
+    document.getElementById('resyncPreviewBtn')?.addEventListener('click', async () => {
+      const input = document.getElementById('resyncShotInput') as HTMLInputElement;
+      const id = parseInt(input.value, 10);
+      if (!id || id <= 0) return;
+      const btn = document.getElementById('resyncPreviewBtn') as HTMLButtonElement;
+      btn.disabled = true;
+      setResyncStatus('');
+      hidePreview();
+      try {
+        const r = await apiFetch(`api/sync/shot/${id}/preview`);
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          setResyncStatus(t('settings_resync_err', body.error || r.statusText), true);
+          return;
+        }
+        const data = await r.json();
+        _resyncMachineShot = data.machine;
+        _resyncShotId = id;
+        const locale = navigator.language || 'de-DE';
+        const localShot = S.shots?.find((s: any) => s.id === id || s.nativeId === id) ?? null;
+        (document.getElementById('resyncMachineInfo') as HTMLElement).textContent = fmtShotInfo(data.machine, locale);
+        (document.getElementById('resyncLocalInfo') as HTMLElement).textContent   = fmtShotInfo(localShot, locale);
+        (document.getElementById('resyncPreviewArea') as HTMLElement).style.display = '';
+      } catch (e: any) {
+        setResyncStatus(t('settings_resync_err', e.message ?? String(e)), true);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    const doResync = async (keepBoth: boolean) => {
+      if (!_resyncMachineShot || !_resyncShotId) return;
+      const id = _resyncShotId;
+      [document.getElementById('resyncReplaceBtn'), document.getElementById('resyncKeepBothBtn')].forEach(b => { if (b) (b as HTMLButtonElement).disabled = true; });
+      try {
+        const r = await apiFetch(`api/sync/shot/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keepBoth }) });
+        if (r.ok) {
+          const data = await r.json();
+          if (keepBoth) {
+            setResyncStatus(t('settings_resync_ok_keep_both', data.storedId, id));
+          } else {
+            setResyncStatus(t('settings_resync_ok_replace', id));
+          }
+          hidePreview();
+        } else {
+          const body = await r.json().catch(() => ({}));
+          setResyncStatus(t('settings_resync_err', body.error || r.statusText), true);
+        }
+      } catch (e: any) {
+        setResyncStatus(t('settings_resync_err', e.message ?? String(e)), true);
+      } finally {
+        [document.getElementById('resyncReplaceBtn'), document.getElementById('resyncKeepBothBtn')].forEach(b => { if (b) (b as HTMLButtonElement).disabled = false; });
+      }
+    };
+
+    document.getElementById('resyncReplaceBtn')?.addEventListener('click',  () => doResync(false));
+    document.getElementById('resyncKeepBothBtn')?.addEventListener('click', () => doResync(true));
+    document.getElementById('resyncCancelBtn')?.addEventListener('click',   () => { hidePreview(); setResyncStatus(''); });
+  }
   document.getElementById('devExportDbBtn')?.addEventListener('click', exportDevDb);
   document.getElementById('devImportDbInput')?.addEventListener('change', e => {
     importDevDb(e.target.files[0]);
@@ -938,6 +1023,7 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'save-bag-stock-edit':  saveBagStock(Number(el.dataset.beanId), Number(el.dataset.bagId)); break;
       case 'mark-bag-empty':       markBagEmpty(Number(el.dataset.beanId), Number(el.dataset.bagId)); break;
       case 'toggle-bag-card':      toggleBagCard(Number(el.dataset.bagId)); break;
+      case 'toggle-past-bags':     togglePastBags(numId()); break;
       case 'open-freeze-form':   openFreezeForm(numId()); break;
       case 'close-freeze-form':  closeFreezeForm(numId()); break;
       case 'save-freeze-form':   saveFreezePortions(numId()); break;
@@ -954,6 +1040,7 @@ document.addEventListener('DOMContentLoaded', () => {
       case 'edit-grinder':       editGrinder(numId()); break;
       case 'delete-grinder':     deleteGrinder(numId()); break;
       case 'reset-grinder-burrs': resetGrinderBurrs(numId()); break;
+      case 'delete-grinder-zero-point': deleteGrinderZeroPointEntry(numId(), Number(el.dataset.since)); break;
       case 'edit-recipe':        editRecipe(numId()); break;
       case 'delete-recipe':      deleteRecipe(numId()); break;
       case 'remove-recipe-step': removeRecipeStep(Number(el.dataset.idx)); break;

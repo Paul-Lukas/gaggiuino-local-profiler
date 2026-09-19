@@ -10,17 +10,22 @@ const EXPORT_SIZE   = 480; // exported square buffer, reasonable thumbnail size
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 
-function dist(a, b) {
+interface Point {
+  x: number;
+  y: number;
+}
+
+function dist(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 // Computes the zoom/pan → source-rect crop math shared between the live
 // preview draw and the final export. Kept pure so it's unit-testable.
-export function coverBaseScale(naturalW, naturalH, boxSize) {
+export function coverBaseScale(naturalW: number, naturalH: number, boxSize: number): number {
   return Math.max(boxSize / naturalW, boxSize / naturalH);
 }
 
-export function clampOffset(offsetX, offsetY, naturalW, naturalH, scale, boxSize) {
+export function clampOffset(offsetX: number, offsetY: number, naturalW: number, naturalH: number, scale: number, boxSize: number): Point {
   const scaledW = naturalW * scale;
   const scaledH = naturalH * scale;
   const minX = boxSize - scaledW;
@@ -36,7 +41,7 @@ export function clampOffset(offsetX, offsetY, naturalW, naturalH, scale, boxSize
 // consistent with how object-fit:cover + border-radius renders thumbnails
 // elsewhere in the app.
 // Resolves with a Blob on Apply, or null on Cancel / load failure.
-export function openImageCropEditor(file, { shape = 'circle' } = {}) {
+export function openImageCropEditor(file: Blob, { shape = 'circle' }: { shape?: 'circle' | 'square' } = {}): Promise<Blob | null> {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onerror = () => resolve(null);
@@ -44,13 +49,13 @@ export function openImageCropEditor(file, { shape = 'circle' } = {}) {
       const img = new Image();
       img.onerror = () => resolve(null);
       img.onload = () => _buildEditor(img, shape, resolve);
-      img.src = reader.result;
+      img.src = reader.result as string;
     };
     reader.readAsDataURL(file);
   });
 }
 
-function _buildEditor(img, shape, resolve) {
+function _buildEditor(img: HTMLImageElement, shape: 'circle' | 'square', resolve: (value: Blob | null) => void): void {
   const naturalW = img.naturalWidth;
   const naturalH = img.naturalHeight;
   const baseScale = coverBaseScale(naturalW, naturalH, PREVIEW_SIZE);
@@ -78,23 +83,23 @@ function _buildEditor(img, shape, resolve) {
     </div>`;
   document.body.appendChild(overlay);
 
-  const canvas = overlay.querySelector('.crop-editor-canvas');
-  const ctx = canvas.getContext('2d');
-  const slider = overlay.querySelector('.crop-editor-zoom-slider');
+  const canvas = overlay.querySelector('.crop-editor-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+  const slider = overlay.querySelector('.crop-editor-zoom-slider') as HTMLInputElement;
 
-  function draw() {
+  function draw(): void {
     ctx.clearRect(0, 0, PREVIEW_SIZE, PREVIEW_SIZE);
     const scale = baseScale * zoom;
     ctx.drawImage(img, offsetX, offsetY, naturalW * scale, naturalH * scale);
   }
 
-  function applyClamp() {
+  function applyClamp(): void {
     const scale = baseScale * zoom;
     const c = clampOffset(offsetX, offsetY, naturalW, naturalH, scale, PREVIEW_SIZE);
     offsetX = c.x; offsetY = c.y;
   }
 
-  function setZoom(newZoom, focusX, focusY) {
+  function setZoom(newZoom: number, focusX: number, focusY: number): void {
     newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, newZoom));
     const oldScale = baseScale * zoom;
     const newScale = baseScale * newZoom;
@@ -123,12 +128,12 @@ function _buildEditor(img, shape, resolve) {
   }, { passive: false });
 
   // ── Pan (drag) + pinch-zoom via Pointer Events (mouse + touch) ───────
-  const pointers = new Map();
-  let panLast = null;
-  let pinchStartDist = null;
-  let pinchStartZoom = null;
+  const pointers = new Map<number, Point>();
+  let panLast: Point | null = null;
+  let pinchStartDist: number | null = null;
+  let pinchStartZoom: number | null = null;
 
-  function toCanvasPoint(clientX, clientY) {
+  function toCanvasPoint(clientX: number, clientY: number): Point {
     const rect = canvas.getBoundingClientRect();
     return {
       x: (clientX - rect.left) * (PREVIEW_SIZE / rect.width),
@@ -167,11 +172,11 @@ function _buildEditor(img, shape, resolve) {
       const d = dist(pts[0], pts[1]);
       const midClient = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
       const focus = toCanvasPoint(midClient.x, midClient.y);
-      setZoom(pinchStartZoom * (d / pinchStartDist), focus.x, focus.y);
+        setZoom((pinchStartZoom ?? zoom) * (d / pinchStartDist), focus.x, focus.y);
     }
   });
 
-  function endPointer(e) {
+  function endPointer(e: PointerEvent): void {
     pointers.delete(e.pointerId);
     pinchStartDist = null;
     if (pointers.size === 1) {
@@ -185,15 +190,15 @@ function _buildEditor(img, shape, resolve) {
   canvas.addEventListener('pointercancel', endPointer);
 
   // ── Apply / Cancel ────────────────────────────────────────────────────
-  function close(result) {
+  function close(result: Blob | null): void {
     overlay.remove();
     resolve(result);
   }
 
-  overlay.querySelector('.crop-editor-cancel').addEventListener('click', () => close(null));
+  (overlay.querySelector('.crop-editor-cancel') as HTMLElement).addEventListener('click', () => close(null));
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
 
-  overlay.querySelector('.crop-editor-apply').addEventListener('click', () => {
+  (overlay.querySelector('.crop-editor-apply') as HTMLElement).addEventListener('click', () => {
     const exportScaleFactor = EXPORT_SIZE / PREVIEW_SIZE;
     const scale = baseScale * zoom * exportScaleFactor;
     const exportOffsetX = offsetX * exportScaleFactor;
@@ -202,7 +207,7 @@ function _buildEditor(img, shape, resolve) {
     const outCanvas = document.createElement('canvas');
     outCanvas.width = EXPORT_SIZE;
     outCanvas.height = EXPORT_SIZE;
-    const outCtx = outCanvas.getContext('2d');
+      const outCtx = outCanvas.getContext('2d') as CanvasRenderingContext2D;
     outCtx.drawImage(img, exportOffsetX, exportOffsetY, naturalW * scale, naturalH * scale);
     outCanvas.toBlob((blob) => close(blob), 'image/jpeg', 0.9);
   });

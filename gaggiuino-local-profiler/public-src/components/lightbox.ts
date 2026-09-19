@@ -4,7 +4,7 @@
 import { t } from '../i18n.js';
 import { CLOSE_ICON_SVG } from '../icons.js';
 
-export function openLightbox(url) {
+export function openLightbox(url: string | null | undefined): void {
   if (!url) return;
 
   // Built via createElement + property assignment, not innerHTML string
@@ -29,12 +29,12 @@ export function openLightbox(url) {
   overlay.appendChild(img);
   document.body.appendChild(overlay);
 
-  function close() {
+  function close(): void {
     document.removeEventListener('keydown', onKeydown);
     overlay.remove();
   }
 
-  function onKeydown(e) {
+  function onKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') close();
   }
 

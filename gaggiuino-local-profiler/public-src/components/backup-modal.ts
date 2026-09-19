@@ -6,7 +6,8 @@
 // restore, the same reasoning `lib/machines/options-adoption.js` documents
 // for tracked options.
 import { t } from '../i18n.js';
-import { apiFetch, apiFetchToBlob, apiUpload, initToken } from '../api.js';
+import { initToken } from '../api/transport.js';
+import { requestBackup, postRestore } from '../api/system.js';
 import { shareOrDownloadBlob } from '../utils.js';
 
 const SECTION_KEYS = ['shots', 'maintenance', 'orders', 'machines', 'settings', 'secrets'];
@@ -17,9 +18,9 @@ const SECTION_KEYS = ['shots', 'maintenance', 'orders', 'machines', 'settings', 
 // reasoning SECTION_PRESENCE_KEYS/SECTION_PRESENCE_BUNDLE_KEYS already
 // accept). A bare date collapsed every backup taken the same day into one
 // filename, forcing the browser to append "(1)"/"(2)" or overwrite silently.
-function backupTimestamp() {
+function backupTimestamp(): string {
     const d = new Date();
-    const pad = n => String(n).padStart(2, '0');
+    const pad = (n: number): string => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
 }
 
@@ -28,7 +29,7 @@ function backupTimestamp() {
 // Used only to decide which restore checkboxes to offer; export always
 // offers all six regardless of whether the *current* install has data in
 // them (an empty section is still a valid, deliberate choice to make).
-const SECTION_PRESENCE_KEYS = {
+const SECTION_PRESENCE_KEYS: Record<string, string[]> = {
     shots:       ['shots'],
     maintenance: ['maintenance', 'maintenance_log'],
     orders:      ['orders'],
@@ -37,10 +38,35 @@ const SECTION_PRESENCE_KEYS = {
     secrets:     ['secrets'],
 };
 
-let mode = null;       // 'export' | 'restore'
-let restoreBundle = null;    // legacy .json restore: the parsed bundle
-let restoreZipBytes = null;  // .zip restore: the raw file bytes -- mutually exclusive with restoreBundle
-let previewDebounce = null;
+interface BackupPreview {
+    shots?: number;
+    library?: unknown;
+    maintenance?: number;
+    maintenanceTotal?: number;
+    maintenanceLog?: number;
+    maintenanceLogTotal?: number;
+    orders?: number;
+    ordersTotal?: number;
+    machines?: number;
+    settings?: boolean;
+    images?: number;
+    secretsPresent?: boolean;
+    secretsRestored?: boolean;
+    sectionsPresent?: string[];
+}
+
+interface BackupRestoreResult {
+    ok?: boolean;
+    error?: string;
+    secretsPresent?: boolean;
+    secretsRestored?: boolean;
+    shots?: number;
+}
+
+let mode: 'export' | 'restore' | null = null;
+let restoreBundle: Record<string, unknown> | null = null;    // legacy .json restore: the parsed bundle
+let restoreZipBytes: ArrayBuffer | null = null;  // .zip restore: the raw file bytes -- mutually exclusive with restoreBundle
+let previewDebounce: ReturnType<typeof setTimeout> | null = null;
 
 // Enter in the passphrase/confirm-passphrase input has no default browser
 // behavior to fall back on here -- the modal is deliberately not a <form>
@@ -51,30 +77,51 @@ let previewDebounce = null;
 // not created/destroyed per open like the section checkboxes are.
 document.getElementById('backupModal')?.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
-    if (e.target.tagName !== 'INPUT') return;
+    const target = e.target as HTMLElement | null;
+    if (target?.tagName !== 'INPUT') return;
     e.preventDefault();
     document.getElementById('backupModalConfirmBtn')?.click();
 });
 
-function els() {
+interface BackupEls {
+    modal: HTMLElement;
+    title: HTMLElement;
+    desc: HTMLElement;
+    sectionsBox: HTMLElement;
+    secretsRow: HTMLElement;
+    secretsCb: HTMLInputElement;
+    passRow: HTMLElement;
+    passInput: HTMLInputElement;
+    passConfirm: HTMLInputElement;
+    passConfirmRow: HTMLElement;
+    preview: HTMLElement;
+    error: HTMLElement;
+    progress: HTMLElement;
+    progressFill: HTMLElement;
+    progressLabel: HTMLElement;
+    confirmBtn: HTMLButtonElement;
+    cancelBtn: HTMLButtonElement;
+}
+
+function els(): BackupEls {
     return {
-        modal:        document.getElementById('backupModal'),
-        title:        document.getElementById('backupModalTitle'),
-        desc:         document.getElementById('backupModalDesc'),
-        sectionsBox:  document.getElementById('backupModalSections'),
-        secretsRow:   document.getElementById('backupSecretsRow'),
-        secretsCb:    document.getElementById('backupSecretsCb'),
-        passRow:      document.getElementById('backupPassphraseRow'),
-        passInput:    document.getElementById('backupPassphraseInput'),
-        passConfirm:  document.getElementById('backupPassphraseConfirm'),
-        passConfirmRow: document.getElementById('backupPassphraseConfirmRow'),
-        preview:      document.getElementById('backupPreview'),
-        error:        document.getElementById('backupModalError'),
-        progress:     document.getElementById('backupModalProgress'),
-        progressFill: document.getElementById('backupModalProgressFill'),
-        progressLabel: document.getElementById('backupModalProgressLabel'),
-        confirmBtn:   document.getElementById('backupModalConfirmBtn'),
-        cancelBtn:    document.getElementById('backupModalCancelBtn'),
+        modal:        document.getElementById('backupModal') as HTMLElement,
+        title:        document.getElementById('backupModalTitle') as HTMLElement,
+        desc:         document.getElementById('backupModalDesc') as HTMLElement,
+        sectionsBox:  document.getElementById('backupModalSections') as HTMLElement,
+        secretsRow:   document.getElementById('backupSecretsRow') as HTMLElement,
+        secretsCb:    document.getElementById('backupSecretsCb') as HTMLInputElement,
+        passRow:      document.getElementById('backupPassphraseRow') as HTMLElement,
+        passInput:    document.getElementById('backupPassphraseInput') as HTMLInputElement,
+        passConfirm:  document.getElementById('backupPassphraseConfirm') as HTMLInputElement,
+        passConfirmRow: document.getElementById('backupPassphraseConfirmRow') as HTMLElement,
+        preview:      document.getElementById('backupPreview') as HTMLElement,
+        error:        document.getElementById('backupModalError') as HTMLElement,
+        progress:     document.getElementById('backupModalProgress') as HTMLElement,
+        progressFill: document.getElementById('backupModalProgressFill') as HTMLElement,
+        progressLabel: document.getElementById('backupModalProgressLabel') as HTMLElement,
+        confirmBtn:   document.getElementById('backupModalConfirmBtn') as HTMLButtonElement,
+        cancelBtn:    document.getElementById('backupModalCancelBtn') as HTMLButtonElement,
     };
 }
 
@@ -83,9 +130,9 @@ function els() {
 // restore phase after the upload bytes are all sent). Both the confirm and
 // the cancel button are disabled for the whole transfer (setBusy) so an
 // in-flight stream/XHR is never orphaned — there is no abort path.
-function showProgress(labelText, pct) {
+function showProgress(labelText: string, pct: number | null): void {
     const { progress, progressFill, progressLabel } = els();
-    const track = progress.querySelector('.sync-progress-track');
+    const track = progress.querySelector('.sync-progress-track') as HTMLElement;
     progress.style.display = '';
     if (pct == null) {
         track.classList.add('indeterminate');
@@ -96,14 +143,14 @@ function showProgress(labelText, pct) {
     progressLabel.textContent = labelText;
 }
 
-function hideProgress() {
+function hideProgress(): void {
     const { progress, progressFill } = els();
     progress.style.display = 'none';
     progressFill.style.width = '0%';
-    progress.querySelector('.sync-progress-track').classList.remove('indeterminate');
+    (progress.querySelector('.sync-progress-track') as HTMLElement).classList.remove('indeterminate');
 }
 
-function setBusy(on) {
+function setBusy(on: boolean): void {
     const { confirmBtn, cancelBtn } = els();
     confirmBtn.disabled = on;
     cancelBtn.disabled = on;
@@ -112,23 +159,23 @@ function setBusy(on) {
 // Clamped whole-percent for a determinate bar — never shows 100% before the
 // transfer has actually finished (the export estimate header is only
 // approximate; see routes' X-GLP-Backup-Estimate spec).
-function clampPct(done, total) {
+function clampPct(done: number, total: number): number {
     return Math.min(99, Math.floor((done / total) * 100));
 }
 
-function checkedSections() {
-    return [...document.querySelectorAll('.backup-section-cb')]
+function checkedSections(): string[] {
+    return [...document.querySelectorAll<HTMLInputElement>('.backup-section-cb')]
         .filter(cb => !cb.disabled && cb.checked)
         .map(cb => cb.value);
 }
 
-function setError(msg) {
+function setError(msg: string): void {
     const { error } = els();
     error.textContent = msg || '';
     error.style.display = msg ? '' : 'none';
 }
 
-function closeBackupModal() {
+function closeBackupModal(): void {
     const { modal, passInput, passConfirm } = els();
     modal.classList.remove('open');
     hideProgress();
@@ -136,7 +183,7 @@ function closeBackupModal() {
     mode = null;
     restoreBundle = null;
     restoreZipBytes = null;
-    clearTimeout(previewDebounce);
+    if (previewDebounce != null) clearTimeout(previewDebounce);
     // A passphrase typed in one open of the modal must never survive into
     // the next -- otherwise a cancelled/completed export leaves its
     // passphrase sitting in the field (visible as dots, easy to miss and
@@ -148,7 +195,7 @@ function closeBackupModal() {
     passConfirm.value = '';
 }
 
-function renderSectionCheckboxes(presentSections) {
+function renderSectionCheckboxes(presentSections: Set<string> | null): void {
     const { sectionsBox } = els();
     sectionsBox.innerHTML = '';
     for (const key of SECTION_KEYS) {
@@ -163,52 +210,26 @@ function renderSectionCheckboxes(presentSections) {
     }
 }
 
-// Restore accepts either an already-parsed legacy .json bundle
-// (restoreBundle) or raw .zip bytes (restoreZipBytes) -- exactly one of the
-// two is ever set (see openBackupRestoreModal()). The zip path sends
-// sections/passphrase/dryRun as headers instead of inside the (binary) body
-// -- never as a URL query parameter, matching the reasoning
-// go/internal/backup documents above POST /api/backup for why a passphrase
-// can't go in a URL. `sections === undefined` omits the header entirely,
-// which the backend reads as "fall back to the bundle's own recorded
-// `sections` field" -- used once, by openBackupRestoreModal()'s initial
-// "what's in this file" probe, before the user has touched any checkbox.
-function postRestore({ sections, passphrase, dryRun, onProgress }) {
-    if (restoreZipBytes) {
-        const headers = { 'Content-Type': 'application/zip' };
-        if (sections !== undefined) headers['X-GLP-Sections'] = JSON.stringify(sections);
-        if (passphrase !== undefined) headers['X-GLP-Passphrase'] = passphrase;
-        if (dryRun) headers['X-GLP-Dry-Run'] = 'true';
-        // The real (non-dry-run) upload gets an XHR so upload progress is
-        // observable; the shim gives back the same { ok, status, json() }
-        // shape the rest of this module already expects from a Response.
-        if (onProgress) {
-            return apiUpload('api/restore', { method: 'POST', headers, body: restoreZipBytes, onProgress })
-                .then(res => ({ ok: res.ok, status: res.status, json: async () => JSON.parse(res.text || '{}') }));
-        }
-        return apiFetch('api/restore', { method: 'POST', headers, body: restoreZipBytes });
-    }
-    return apiFetch('api/restore', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...restoreBundle, dryRun, sections, passphrase }),
-    });
-}
+// The restore request itself (URL, zip headers, JSON/zip body, upload
+// progress) is built by api/system.ts's postRestore(); this module only owns
+// the modal state (which of restoreBundle/restoreZipBytes is set) and passes
+// it in.
 
 // Only meaningful for restore: calls the dry-run path so the preview shown
 // to the user is computed by the exact same sanitizers/schemas the real
 // restore uses, instead of a second hand-rolled estimate that could drift
 // out of sync with what actually gets applied.
-async function refreshRestorePreview() {
+async function refreshRestorePreview(): Promise<void> {
     if (mode !== 'restore' || (!restoreBundle && !restoreZipBytes)) return;
     const { preview } = els();
     const sections = checkedSections();
     const passphrase = els().secretsCb.checked ? els().passInput.value : undefined;
     try {
-        const r = await postRestore({ sections, passphrase, dryRun: true });
-        const body = await r.json();
+        const r = await postRestore({ bundle: restoreBundle ?? undefined, zipBytes: restoreZipBytes, sections, passphrase, dryRun: true });
+        const body = await r.json() as { preview?: BackupPreview };
         if (!r.ok || !body.preview) { preview.textContent = ''; return; }
         const p = body.preview;
-        const lines = [];
+        const lines: string[] = [];
         if (sections.includes('shots'))       lines.push(t('backup_preview_shots', p.shots) + (p.library ? ` · ${t('backup_preview_library')}` : ''));
         if (sections.includes('maintenance')) lines.push(t('backup_preview_maintenance', p.maintenance, p.maintenanceTotal) + ', ' + t('backup_preview_maintenance_log', p.maintenanceLog, p.maintenanceLogTotal));
         if (sections.includes('orders'))      lines.push(t('backup_preview_orders', p.orders, p.ordersTotal));
@@ -224,12 +245,12 @@ async function refreshRestorePreview() {
     } catch { preview.textContent = ''; }
 }
 
-function scheduleRestorePreview() {
-    clearTimeout(previewDebounce);
+function scheduleRestorePreview(): void {
+    if (previewDebounce != null) clearTimeout(previewDebounce);
     previewDebounce = setTimeout(refreshRestorePreview, 250);
 }
 
-export function openBackupExportModal() {
+export function openBackupExportModal(): void {
     mode = 'export';
     const { modal, title, desc, secretsRow, passRow, passConfirmRow, preview, confirmBtn, cancelBtn } = els();
     title.textContent = t('backup_modal_export_title');
@@ -263,14 +284,11 @@ export function openBackupExportModal() {
             // re-serialization needed, unlike the old JSON.stringify(bundle).
             // X-GLP-Backup-Estimate is an approximate size for the bar; the
             // Go backend sends it, the Node backend doesn't (then the bar
-            // stays indeterminate). apiFetchToBlob buffers the whole zip in
+            // stays indeterminate). requestBackup() buffers the whole zip in
             // memory before the download — fine for these file sizes.
-            const res = await apiFetchToBlob('api/backup', {
-                opts: {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sections, passphrase: wantsSecrets ? passphrase : undefined }),
-                },
-                estimateHeader: 'X-GLP-Backup-Estimate',
+            const res = await requestBackup({
+                sections,
+                passphrase: wantsSecrets ? passphrase : undefined,
                 onProgress: (received, total) => {
                     if (total) showProgress(t('backup_progress_download', clampPct(received, total)), clampPct(received, total));
                     else showProgress(t('backup_progress_preparing'), null);
@@ -279,8 +297,8 @@ export function openBackupExportModal() {
             if (!res.ok) {
                 setBusy(false);
                 hideProgress();
-                let detail = res.status;
-                try { detail = JSON.parse(res.errorText).error || res.status; } catch { /* non-JSON error body */ }
+                let detail: string | number = res.status;
+                try { detail = (JSON.parse(res.errorText) as { error?: string }).error || res.status; } catch { /* non-JSON error body */ }
                 setError(t('backup_error', detail));
                 return;
             }
@@ -289,26 +307,27 @@ export function openBackupExportModal() {
             await shareOrDownloadBlob(res.blob, filename, { title: filename });
             if (window.showToast) window.showToast(t('backup_progress_done'));
             closeBackupModal();
-        } catch (e) { setBusy(false); hideProgress(); setError(t('backup_error', e.message)); }
+        } catch (e) { setBusy(false); hideProgress(); setError(t('backup_error', (e as Error).message)); }
     };
 }
 
 // Zip files always start with this 4-byte local-file-header signature (see
 // lib/zip.js) -- sniffed instead of trusting the file's extension/MIME type,
 // which a rename or a picky OS file picker can't be relied on for.
-function looksLikeZip(bytes) {
+function looksLikeZip(bytes: Uint8Array): boolean {
     return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04;
 }
 
 // `input` is the file <input> element restoreFromFile() was originally
 // wired to, so this can reset it (input.value = '') the same way the old
 // direct-restore flow always did, on every exit path.
-export async function openBackupRestoreModal(input) {
-    const file = input.files[0];
+export async function openBackupRestoreModal(input: HTMLInputElement): Promise<void> {
+    const file = input.files?.[0];
     if (!file) return;
-    const bytes = new Uint8Array(await file.arrayBuffer());
+    const arrayBuffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
 
-    let present;
+    let present: Set<string>;
     if (looksLikeZip(bytes)) {
         // A zip's backup.json can't be inspected locally the way a plain
         // .json file's contents can (no zip reader on the frontend --
@@ -319,44 +338,40 @@ export async function openBackupRestoreModal(input) {
         // gets the same section-presence information the legacy .json path
         // computes instantly and locally -- see go/internal/backup's
         // `sectionsPresent` field on the dry-run preview.
-        restoreZipBytes = bytes;
+        restoreZipBytes = arrayBuffer;
         restoreBundle = null;
         try {
-            const r = await postRestore({ sections: undefined, passphrase: undefined, dryRun: true });
-            const body = await r.json();
+            const r = await postRestore({ bundle: restoreBundle ?? undefined, zipBytes: restoreZipBytes, sections: undefined, passphrase: undefined, dryRun: true });
+            const body = await r.json() as { preview?: BackupPreview };
             if (!r.ok || !body.preview) {
                 alert(t('backup_invalid'));
                 restoreZipBytes = null;
-                // eslint-disable-next-line require-atomic-updates -- `input` is the caller's DOM element, not shared module state; nothing else writes input.value concurrently
                 input.value = '';
                 return;
             }
-            present = new Set(body.preview.sectionsPresent);
+            present = new Set(body.preview.sectionsPresent ?? []);
         } catch (e) {
-            alert(t('backup_error', e.message));
+            alert(t('backup_error', (e as Error).message));
             restoreZipBytes = null;
-            // eslint-disable-next-line require-atomic-updates -- see above
             input.value = '';
             return;
         }
     } else {
         try {
-            const bundle = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+            const bundle = JSON.parse(new TextDecoder('utf-8').decode(bytes)) as Record<string, unknown>;
             if (!bundle.glp_backup) {
                 alert(t('backup_invalid'));
-                // eslint-disable-next-line require-atomic-updates -- `input` is the caller's DOM element, not shared module state; nothing else writes input.value concurrently
                 input.value = '';
                 return;
             }
             restoreBundle = bundle;
             restoreZipBytes = null;
+            present = new Set(SECTION_KEYS.filter(key => SECTION_PRESENCE_KEYS[key].some(k => k in bundle)));
         } catch (e) {
-            alert(t('backup_error', e.message));
-            // eslint-disable-next-line require-atomic-updates -- see above
+            alert(t('backup_error', (e as Error).message));
             input.value = '';
             return;
         }
-        present = new Set(SECTION_KEYS.filter(key => SECTION_PRESENCE_KEYS[key].some(k => k in restoreBundle)));
     }
 
     mode = 'restore';
@@ -375,7 +390,7 @@ export async function openBackupRestoreModal(input) {
     confirmBtn.textContent = t('backup_modal_restore_confirm');
     modal.classList.add('open');
 
-    for (const cb of document.querySelectorAll('.backup-section-cb')) cb.onchange = scheduleRestorePreview;
+    for (const cb of document.querySelectorAll<HTMLInputElement>('.backup-section-cb')) cb.onchange = scheduleRestorePreview;
     els().secretsCb.onchange = () => { passRow.style.display = els().secretsCb.checked ? '' : 'none'; scheduleRestorePreview(); };
     els().passInput.oninput = scheduleRestorePreview;
     cancelBtn.onclick = () => { input.value = ''; closeBackupModal(); };
@@ -390,17 +405,17 @@ export async function openBackupRestoreModal(input) {
             // Legacy JSON-bundle restore is already fully in memory — no
             // upload phase to report, just the indeterminate server phase.
             const onProgress = restoreZipBytes
-                ? (sent, total) => {
+                ? (sent: number, total: number) => {
                     if (sent >= total) showProgress(t('backup_progress_restoring'), null);
                     else showProgress(t('backup_progress_upload', clampPct(sent, total)), clampPct(sent, total));
                 }
                 : undefined;
             if (!restoreZipBytes) showProgress(t('backup_progress_restoring'), null);
-            const r = await postRestore({ sections, passphrase, dryRun: undefined, onProgress });
+            const r = await postRestore({ bundle: restoreBundle ?? undefined, zipBytes: restoreZipBytes, sections, passphrase, dryRun: undefined, onProgress });
             // Upload bytes are all sent by the time the promise resolves;
             // the server-side apply is genuinely unbounded from here.
             showProgress(t('backup_progress_restoring'), null);
-            const res = await r.json();
+            const res = await r.json() as BackupRestoreResult;
             if (!res.ok) { setBusy(false); hideProgress(); setError(t('backup_error', res.error)); return; }
             // The restore may have just replaced the API token this session is
             // using -- /api/token serves any caller that can reach the port
@@ -419,10 +434,10 @@ export async function openBackupRestoreModal(input) {
             // reload after the result alert is dismissed is simpler and more
             // complete than growing a bespoke per-section refresh here.
             location.reload();
-        } catch (e) { setBusy(false); hideProgress(); setError(t('backup_error', e.message)); }
+        } catch (e) { setBusy(false); hideProgress(); setError(t('backup_error', (e as Error).message)); }
     };
 
-    refreshRestorePreview();
+    void refreshRestorePreview();
 }
 
 export { closeBackupModal };

@@ -1,23 +1,29 @@
 // First-run onboarding + demo mode UI (#274).
 import { S } from '../state/index.js';
 import { t } from '../i18n.js';
-import { apiFetch } from '../api.js';
+import { seedDemoData, endDemoData } from '../api/system.js';
 import { devBannerHeight } from './dev-banner.js';
 import { themeColor } from '../utils.js';
 import { CLOSE_ICON_SVG } from '../icons.js';
 
 const DISMISS_KEY = 'glp_onboarding_banner_dismissed';
 
+interface StatusLike {
+  machineReachable?: boolean | null;
+  machineHostname?: string | null;
+  legacyMachineOptionsPending?: boolean;
+}
+
 // ── "Machine unreachable" banner ────────────────────────────────────────
 // Dismissible per session (sessionStorage), styled the same way as the
 // update-available banner (components/update-check.js) so both can coexist
 // stacked at the top of the page.
-export function updateMachineBanner(status = null) {
+export function updateMachineBanner(status: StatusLike | null = null): void {
   // status is optional: callers that just want to re-evaluate the banner after
   // S.shots changed (e.g. loadData() once shots finish loading) can call this
   // with no argument to reuse the last known machineReachable/hostname state,
   // instead of waiting for the next status poll.
-  if (status) S.machineReachable = status.machineReachable;
+  if (status) S.machineReachable = status.machineReachable ?? null;
 
   const existing = document.getElementById('glpOnboardingBanner');
   const shouldShow = S.shots.length === 0 && S.machineReachable === false && !sessionStorage.getItem(DISMISS_KEY);
@@ -76,7 +82,7 @@ export function updateMachineBanner(status = null) {
 // -- sessionStorage here only covers "seen it, don't need it again today."
 const LEGACY_DISMISS_KEY = 'glp_legacy_machine_options_banner_dismissed';
 
-export function updateLegacyMachineOptionsBanner(status = null) {
+export function updateLegacyMachineOptionsBanner(status: StatusLike | null = null): void {
   if (status) S.legacyMachineOptionsPending = !!status.legacyMachineOptionsPending;
 
   const existing = document.getElementById('glpLegacyMachineOptionsBanner');
@@ -121,18 +127,18 @@ export function updateLegacyMachineOptionsBanner(status = null) {
 
 // ── First-run onboarding panel (shown inside #empty-state) ─────────────
 // Shown when there are zero shots AND the machine has never been reachable.
-export function updateOnboardingPanel() {
+export function updateOnboardingPanel(): void {
   const panel = document.getElementById('onboarding-panel');
   if (!panel) return;
   const show = S.shots.length === 0 && S.machineReachable === false;
   panel.style.display = show ? 'flex' : 'none';
 }
 
-export async function loadDemoData() {
-  const btn = document.getElementById('onboardingDemoBtn');
+export async function loadDemoData(): Promise<void> {
+  const btn = document.getElementById('onboardingDemoBtn') as HTMLButtonElement | null;
   if (btn) { btn.disabled = true; btn.textContent = t('onboarding_demo_loading'); }
   try {
-    const r = await apiFetch('api/demo/seed', { method: 'POST' });
+    const r = await seedDemoData();
     if (r.ok) {
       if (window.loadData) await window.loadData();
       if (window.loadLibrary) await window.loadLibrary();
@@ -145,10 +151,10 @@ export async function loadDemoData() {
   }
 }
 
-export async function endDemo() {
+export async function endDemo(): Promise<void> {
   if (!confirm(t('demo_mode_end_confirm'))) return;
   try {
-    const r = await apiFetch('api/demo/end', { method: 'POST' });
+    const r = await endDemoData();
     if (r.ok) {
       updateDemoBadge(false);
       if (window.loadData) await window.loadData();
@@ -158,7 +164,7 @@ export async function endDemo() {
 }
 
 // ── "Demo mode" badge ────────────────────────────────────────────────────
-export function updateDemoBadge(isDemo) {
+export function updateDemoBadge(isDemo: unknown): void {
   S.isDemo = !!isDemo;
   const badge = document.getElementById('glpDemoBadge');
   if (badge) badge.style.display = S.isDemo ? 'flex' : 'none';

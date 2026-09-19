@@ -371,6 +371,89 @@ func (p *Poller) fetchShot(ctx context.Context, machineURL string, id int64) (ma
 	return shot, resp.StatusCode, nil
 }
 
+// FetchShotFromMachine re-fetches a single shot from the default machine
+// without writing to the DB. Used by GET /api/sync/shot/{id}/preview.
+func (p *Poller) FetchShotFromMachine(ctx context.Context, id int64) (map[string]any, error) {
+	machine, err := p.registry.GetDefaultMachine()
+	if err != nil || machine == nil {
+		return nil, fmt.Errorf("no default machine configured")
+	}
+	if machine.Host == "" {
+		return nil, fmt.Errorf("machine host not configured")
+	}
+	base, berr := machines.BaseURLFor(ctx, machine)
+	if berr != nil {
+		return nil, fmt.Errorf("resolving machine URL: %w", berr)
+	}
+	var shot map[string]any
+	if machine.Type == "gaggimate" {
+		s, _, ferr := machines.FetchGaggiMateShot(ctx, base, id)
+		if ferr != nil {
+			return nil, ferr
+		}
+		shot = s
+	} else {
+		s, _, ferr := p.fetchShot(ctx, base+"/api/shots", id)
+		if ferr != nil {
+			return nil, ferr
+		}
+		shot = s
+	}
+	if shot["id"] == nil || shot["datapoints"] == nil {
+		return nil, fmt.Errorf("shot %d has no id/datapoints", id)
+	}
+	return shot, nil
+}
+
+// StoreFetchedShot writes a shot (previously returned by FetchShotFromMachine)
+// into the local DB. keepBoth=false overwrites the existing row (id unchanged);
+// keepBoth=true inserts as a new row with the next available id so the original
+// row is preserved alongside the fresh machine copy.
+func (p *Poller) StoreFetchedShot(ctx context.Context, shot map[string]any, keepBoth bool) (int64, error) {
+	if p.shots == nil {
+		return 0, fmt.Errorf("shots repo not wired")
+	}
+	if keepBoth {
+		nextID, err := p.shots.NextAvailableID()
+		if err != nil {
+			return 0, err
+		}
+		copy := make(map[string]any, len(shot))
+		for k, v := range shot {
+			copy[k] = v
+		}
+		copy["id"] = nextID
+		if uerr := p.shots.Upsert(shots.Shot(copy)); uerr != nil {
+			return 0, uerr
+		}
+		origID, _ := func() (int64, bool) {
+			switch v := shot["id"].(type) {
+			case int64:
+				return v, true
+			case float64:
+				return int64(v), true
+			}
+			return 0, false
+		}()
+		log.Printf("system: resync: shot %d (machine) stored as new id %d alongside original", origID, nextID)
+		return nextID, nil
+	}
+	if uerr := p.shots.Upsert(shots.Shot(shot)); uerr != nil {
+		return 0, uerr
+	}
+	id, _ := func() (int64, bool) {
+		switch v := shot["id"].(type) {
+		case int64:
+			return v, true
+		case float64:
+			return int64(v), true
+		}
+		return 0, false
+	}()
+	log.Printf("system: resync: shot %d re-fetched and stored (replace)", id)
+	return id, nil
+}
+
 // captureMachineVersionFromShot ports syncShots()'s inline
 // `if (!state.cachedMachineVersion) { ... }` firmware sniff.
 func (p *Poller) captureMachineVersionFromShot(shot map[string]any) {

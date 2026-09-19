@@ -735,6 +735,9 @@
                                 <label data-i18n="lib_grinder_zero_point">Nullpunkt</label>
                                 <input type="number" step="0.1" id="grinderFormZeroPoint">
                                 <div class="lib-form-hint" data-i18n="lib_grinder_zero_point_hint">Nach dem Reinigen: Nullpunkt hier aktualisieren, statt jedes Rezept anzupassen. Vorschläge/Vergleiche rechnen automatisch um.</div>
+                                <label data-i18n="lib_grinder_zero_point_since" style="margin-top:0.5rem">Aktiv seit (leer = jetzt)</label>
+                                <input type="date" id="grinderFormZeroPointSince">
+                                <div id="grinderFormZeroPointHistory"></div>
                             </div>
                         </div>
                         <div class="lib-form-actions">
@@ -1570,6 +1573,33 @@
              itself (routes/debug.js) independently 404s for anyone who hits
              it without GLP_DEV_BUILD set -- this hidden-by-default markup is
              just UI hygiene, not the actual safety mechanism. -->
+        <div class="settings-card">
+            <h3 class="settings-card-title" data-i18n="settings_resync_title">Shot neu synchronisieren</h3>
+            <p class="settings-card-desc" data-i18n="settings_resync_desc">Shot-Daten erneut von der Maschine abrufen — nützlich wenn ein Shot fehlt oder fehlerhafte Daten hat.</p>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <label for="resyncShotInput" data-i18n="settings_resync_label" style="font-size:0.85em">Shot-Nummer</label>
+                <input type="number" id="resyncShotInput" min="1" step="1" style="width:100px" placeholder="#">
+                <button id="resyncPreviewBtn" type="button" class="backup-btn" data-i18n="settings_resync_preview_btn">Vorschau laden</button>
+            </div>
+            <div id="resyncPreviewArea" style="display:none;margin-top:10px">
+                <table style="width:100%;font-size:0.85em;border-collapse:collapse;margin-bottom:8px">
+                    <thead><tr>
+                        <th style="text-align:left;padding:4px 8px 4px 0" data-i18n="settings_resync_machine_label">Maschine</th>
+                        <th style="text-align:left;padding:4px 8px 4px 0" data-i18n="settings_resync_local_label">Lokal (GLP)</th>
+                    </tr></thead>
+                    <tbody><tr>
+                        <td id="resyncMachineInfo" style="padding:4px 8px 4px 0;vertical-align:top"></td>
+                        <td id="resyncLocalInfo" style="padding:4px 8px 4px 0;vertical-align:top"></td>
+                    </tr></tbody>
+                </table>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button id="resyncReplaceBtn" type="button" class="lib-save-btn" data-i18n="settings_resync_replace_btn">Ersetzen</button>
+                    <button id="resyncKeepBothBtn" type="button" class="backup-btn" data-i18n="settings_resync_keep_both_btn">Beide behalten</button>
+                    <button id="resyncCancelBtn" type="button" class="lib-btn-sm" data-i18n="settings_resync_cancel_btn">Abbrechen</button>
+                </div>
+            </div>
+            <p id="resyncShotStatus" class="settings-card-desc" style="margin-top:6px;display:none"></p>
+        </div>
         <div class="settings-card" id="devToolsCard" style="display:none">
             <h3 class="settings-card-title" data-i18n="settings_devtools_title">Dev Tools</h3>
             <p class="settings-card-desc" data-i18n="settings_devtools_desc">GLP DEV channel only — never available on a real install.</p>
