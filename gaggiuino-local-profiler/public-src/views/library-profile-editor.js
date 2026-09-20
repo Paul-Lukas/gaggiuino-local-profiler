@@ -93,9 +93,8 @@ export async function editProfile(id) {
 // instead of PUTting over the original, name suffixed so the duplicate
 // is never accidentally confused with its source in the list.
 export async function duplicateProfile(id) {
-  const r = await apiFetch(`api/machine/profile/${id}?machineId=${S.activeMachineId ?? ''}`);
-  if (!r.ok) { window.showToast?.(t('profile_load_error')); return; }
-  const profile = await r.json();
+  const profile = await machinesApi.getMachineProfile(id, S.activeMachineId ?? '');
+  if (!profile) { window.showToast?.(t('profile_load_error')); return; }
   openProfileForm({ ...profile, id: undefined, name: `${profile.name}${t('profile_duplicate_suffix')}` });
 }
 

@@ -32,9 +32,8 @@ export async function openGaggiMateProfileEditor(id) {
 // its source in the list.
 export async function duplicateGaggiMateProfile(id) {
   const machineId = S.activeMachineId ?? '';
-  const r = await apiFetch(`api/machine/profile/${id}?machineId=${machineId}`);
-  if (!r.ok) { window.showToast?.(t('gm_toast_load_error')); return; }
-  const profile = await r.json();
+  const profile = await machinesApi.getMachineProfile(id, machineId);
+  if (!profile) { window.showToast?.(t('gm_toast_load_error')); return; }
   _openEditor({ ...profile, id: undefined, label: `${profile.label}${t('profile_duplicate_suffix')}` });
 }
 
