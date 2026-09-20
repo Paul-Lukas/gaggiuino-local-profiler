@@ -201,23 +201,41 @@ function onLsRecipeChange(recipeId) {
 }
 
 // Writes the current draft onto shotId's annotation — called once a shot
-// that started while this draft was active finishes syncing. Only fills
-// fields the draft actually has a value for; an empty draft results in an
-// empty payload, which is harmless (matches what auto-save would have sent
-// for an untouched annotation panel anyway). Clears the draft on success —
-// the setup is consumed by the shot it was written to, so leaving it
-// sitting in the panel afterwards reads as "this is still queued up" when
-// it's actually already applied, which is what prompted this to clear
-// instead of staying sticky for the next pull.
+// that started while this draft was active finishes syncing. Only sends
+// the fields the draft actually has a value for (an empty draft sends
+// nothing — no-ops rather than a POST) and only when the shot's annotation
+// is still blank: by the time this runs, the backend's shot-defaults
+// auto-fill (#654) may already have populated it from the bean/grinder
+// library defaults for this machine, and blindly overwriting here would
+// silently clobber that instead of merging with it — this feature only
+// ever fills a shot that would otherwise stay unannotated, same as #654
+// itself. Also guards against _pollForNewShotAndApply ever handing this an
+// older, already-annotated shot (shouldn't happen given its id watermark,
+// but corrupting a real historical annotation would be a much worse
+// failure mode than just not applying the draft). Clears the draft on
+// success — the setup is consumed by the shot it was written to, so
+// leaving it sitting in the panel afterwards reads as "this is still
+// queued up" when it's actually already applied.
 async function _applyLiveSetupToShot(shotId) {
   const draft = _loadLiveSetupDraft();
   if (!Object.keys(draft).length) return;
-  const payload = {
-    coffee: draft.coffee || '', beanId: draft.beanId ?? null,
-    basketId: draft.basketId ?? null, puckScreenId: draft.puckScreenId ?? null,
-    grinder: draft.grinder || '', grindSetting: draft.grindSetting || '',
-    dose: draft.dose ?? null, recipeId: draft.recipeId ?? null,
-  };
+  const shot = S.shots.find(s => s.id === shotId);
+  const existing = shot?.annotation || {};
+  const alreadyAnnotated = !!(existing.coffee || existing.beanId != null || existing.grinder ||
+    existing.grindSetting || existing.dose != null || existing.basketId != null ||
+    existing.puckScreenId != null || existing.recipeId != null);
+  if (alreadyAnnotated) return;
+
+  const payload = {};
+  if (draft.coffee) { payload.coffee = draft.coffee; payload.beanId = draft.beanId ?? null; }
+  if (draft.grinder) payload.grinder = draft.grinder;
+  if (draft.grindSetting) payload.grindSetting = draft.grindSetting;
+  if (draft.dose != null) payload.dose = draft.dose;
+  if (draft.basketId != null) payload.basketId = draft.basketId;
+  if (draft.puckScreenId != null) payload.puckScreenId = draft.puckScreenId;
+  if (draft.recipeId != null) payload.recipeId = draft.recipeId;
+  if (!Object.keys(payload).length) return;
+
   try {
     const r = await annotateShot(shotId, payload);
     if (r.ok) {
@@ -225,8 +243,40 @@ async function _applyLiveSetupToShot(shotId) {
       if (idx !== -1) S.shots[idx].annotation = { ...S.shots[idx].annotation, ...payload };
       localStorage.removeItem(_liveSetupStorageKey());
       renderLiveShotSetupPanel();
+    } else {
+      console.error('[GLP] annotating shot', shotId, 'with live shot setup failed: HTTP', r.status);
     }
-  } catch { /* best-effort — the shot still exists, just unannotated */ }
+  } catch (e) {
+    console.error('[GLP] applying live shot setup to shot', shotId, 'failed:', e);
+  }
+}
+
+// The Gaggiuino/GaggiMate sync that lands a just-finished shot in the local
+// DB doesn't happen instantly — a single fixed delay (previously 4s) turned
+// out to be shorter than real-world sync latency often enough that the
+// draft silently never got applied (loadData() would just not have the new
+// shot yet, so the id-watermark filter below correctly found nothing —
+// safe, but useless). Polls instead: reload the shot list every
+// POST_BREW_POLL_INTERVAL_MS, looking for the first shot on this machine
+// with an id above the pre-brew watermark, for up to
+// POST_BREW_POLL_MAX_ATTEMPTS tries before giving up.
+const POST_BREW_POLL_INTERVAL_MS = 3000;
+const POST_BREW_POLL_MAX_ATTEMPTS = 8; // ~24s total from the first attempt
+
+async function _pollForNewShotAndApply(machineId, priorNewestId, attempt = 0) {
+  if (window.loadData) await window.loadData();
+  const newest = S.shots
+    .filter(s => s.machineId === machineId && s.id > priorNewestId)
+    .sort((a, b) => b.id - a.id)[0];
+  if (newest) {
+    _applyLiveSetupToShot(newest.id);
+    return;
+  }
+  if (attempt + 1 >= POST_BREW_POLL_MAX_ATTEMPTS) {
+    console.warn('[GLP] live shot setup: no new shot for machine', machineId, 'synced within the post-brew wait window — draft left in place for the next pull');
+    return;
+  }
+  setTimeout(() => _pollForNewShotAndApply(machineId, priorNewestId, attempt + 1), POST_BREW_POLL_INTERVAL_MS);
 }
 
 // ── Live chart init ───────────────────────────────────────────────────────
@@ -478,19 +528,21 @@ export async function fetchLiveData() {
       autoApplyRefShot(msg.profileName);
     }
 
-    // Brew just ended → reload shot list after sync delay, then write the
-    // pre-shot setup panel's draft (bean/dose/grinder/grind/basket/
-    // puckscreen/recipe) onto the freshly-synced shot. Snapshotting via
-    // _applyLiveSetupToShot's own read happens after loadData resolves, not
-    // captured here, since a sticky draft is expected to still be current a
-    // few seconds later — see that function's own doc comment.
+    // Brew just ended → poll for the freshly-synced shot (see
+    // _pollForNewShotAndApply's own doc comment for why this polls instead
+    // of a single fixed-delay check) and write the pre-shot setup panel's
+    // draft (bean/dose/grinder/grind/basket/puckscreen/recipe) onto it.
+    // The target is picked by machine + id, not S.shots[length-1]: machineId
+    // is captured now (S.activeMachineId can change during the poll window
+    // in a multi-machine setup), and priorNewestId is the highest id already
+    // synced for that machine before this brew — the first id above that
+    // watermark once polling finds one is unambiguously "the shot this brew
+    // produced", never an older shot a resync happened to reorder.
     if (S.liveWasLive && !msg.isLive && msg.seq !== S.liveLastSeq) {
       S.liveLastSeq = msg.seq;
-      setTimeout(async () => {
-        if (window.loadData) await window.loadData();
-        const newest = S.shots[S.shots.length - 1];
-        if (newest) _applyLiveSetupToShot(newest.id);
-      }, 4000);
+      const machineId = S.activeMachineId;
+      const priorNewestId = S.shots.reduce((max, s) => (s.machineId === machineId && s.id > max ? s.id : max), 0);
+      setTimeout(() => _pollForNewShotAndApply(machineId, priorNewestId), POST_BREW_POLL_INTERVAL_MS);
     }
     S.liveWasLive = msg.isLive;
 
