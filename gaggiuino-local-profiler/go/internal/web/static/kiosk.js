@@ -226,8 +226,8 @@
       row.innerHTML =
         '<span class="qemoji">' + escapeHtml(item && item.emoji ? item.emoji : "☕") + '</span>' +
         '<span class="qmeta"><div class="qname">' + escapeHtml(o.customer || "?") + '</div>' +
-        '<div class="qitemname">' + escapeHtml(o.item) + " · " + (STATUS_LABEL[o.status] || o.status) + "</div></span>" +
-        '<span class="qeta">' + etaText + "</span>";
+        '<div class="qitemname">' + escapeHtml(o.item) + " · " + escapeHtml(STATUS_LABEL[o.status] || o.status) + "</div></span>" +
+        '<span class="qeta">' + escapeHtml(etaText) + "</span>";
       queueList.appendChild(row);
     });
   }
