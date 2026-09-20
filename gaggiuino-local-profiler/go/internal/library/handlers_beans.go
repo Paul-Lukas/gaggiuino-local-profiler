@@ -108,10 +108,20 @@ func (h *Handlers) newBag(w http.ResponseWriter, r *http.Request) {
 			nextSort = maxInt64(nextSort, effectiveSortOrder(bg)+1)
 		}
 	}
-	bag := Entity{"id": newID(), "roastDate": roastDate, "stock_g": stockG, "openedAt": newID(), "batchNumber": batchNumber, "price_eur": priceEur, "sortOrder": nextSort}
+	bagID := newID()
+	bag := Entity{"id": bagID, "roastDate": roastDate, "stock_g": stockG, "openedAt": newID(), "batchNumber": batchNumber, "price_eur": priceEur, "sortOrder": nextSort}
 	bean["bags"] = append(bags, bag)
-	bean["roastDate"] = roastDate
-	bean["stock_g"] = stockG
+	// Sync bean-level fields only when this new bag is the one
+	// SimulateBagQueue actually considers current (i.e. every other bag
+	// was already exhausted, so this one is drawn from immediately) — not
+	// unconditionally, which would overwrite the bean's displayed roast
+	// date/stock with a bag still queued behind the real current one.
+	if cur := resolveCurrentBagSimple(bean); cur != nil {
+		if cid, ok := idOf(cur, "id"); ok && cid == bagID {
+			bean["roastDate"] = bag["roastDate"]
+			bean["stock_g"] = bag["stock_g"]
+		}
+	}
 	lib.Beans[idx] = bean
 
 	if err := h.repo.SaveLibrary(lib); err != nil {
@@ -168,21 +178,55 @@ func (h *Handlers) reorderBags(w http.ResponseWriter, r *http.Request) {
 	// bag with 0 capacity left never advances the queue regardless of its
 	// position.
 	baseline := int64(0)
+	currentBagID := int64(-1)
 	if cur := resolveCurrentBagSimple(bean); cur != nil {
 		baseline = effectiveSortOrder(cur)
+		if cid, ok := idOf(cur, "id"); ok {
+			currentBagID = cid
+		}
 	}
-	for i, rawID := range rawIDs {
+	// bagIds must be exactly the set of "upcoming" (non-current) bags —
+	// no duplicates, none missing. Assigning sortOrder to only a subset
+	// would leave the omitted bags' old values unchanged, which can now
+	// collide with or fall between the freshly-assigned ones (the new
+	// values are baseline+1, baseline+2, ... contiguous integers, so any
+	// stale value in that range is no longer guaranteed unique); a
+	// duplicate id in the request would just assign it a sortOrder twice,
+	// silently discarding whichever assignment came first.
+	upcoming := make(map[int64]bool, len(bags))
+	for bid := range byID {
+		if bid != currentBagID {
+			upcoming[bid] = true
+		}
+	}
+	seen := make(map[int64]bool, len(rawIDs))
+	for _, rawID := range rawIDs {
 		bagID, ok := jsParseIntLoose(rawID)
 		if !ok {
 			writeError(w, http.StatusBadRequest, "invalid bagId in bagIds")
 			return
 		}
-		bg, found := byID[bagID]
-		if !found {
+		if _, found := byID[bagID]; !found {
 			writeError(w, http.StatusNotFound, "bag not found")
 			return
 		}
-		bg["sortOrder"] = baseline + int64(i+1)
+		if bagID == currentBagID {
+			writeError(w, http.StatusBadRequest, "bagIds must not include the current bag")
+			return
+		}
+		if seen[bagID] {
+			writeError(w, http.StatusBadRequest, "duplicate bagId in bagIds")
+			return
+		}
+		seen[bagID] = true
+	}
+	if len(seen) != len(upcoming) {
+		writeError(w, http.StatusBadRequest, "bagIds must list every upcoming bag exactly once")
+		return
+	}
+	for i, rawID := range rawIDs {
+		bagID, _ := jsParseIntLoose(rawID)
+		byID[bagID]["sortOrder"] = baseline + int64(i+1)
 	}
 	lib.Beans[idx] = bean
 	if err := h.repo.SaveLibrary(lib); err != nil {
