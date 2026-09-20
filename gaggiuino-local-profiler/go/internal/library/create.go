@@ -260,7 +260,9 @@ func CreateRecipe(repo *Repository, body Entity) (Entity, Library, error) {
 		"sourceUrl": safeURL(body["sourceUrl"]),
 		"steps":     parseSteps(body["steps"]),
 		"notes":     trimMax(body["notes"], 1000), "profileName": trimMax(body["profileName"], 200),
-		"beanName": trimMax(body["beanName"], 200),
+		"beanName": trimMax(body["beanName"], 200), "beanId": intOrNilFalsy(body["beanId"]),
+		"basketId": intOrNilFalsy(body["basketId"]), "grinderId": intOrNilFalsy(body["grinderId"]),
+		"puckScreenId": intOrNilFalsy(body["puckScreenId"]),
 	}
 	lib.Recipes = append(lib.Recipes, recipe)
 	if err := repo.SaveLibrary(lib); err != nil {

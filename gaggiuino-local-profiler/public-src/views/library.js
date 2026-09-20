@@ -14,6 +14,7 @@ import { openImageCropEditor } from '../components/image-crop.js';
 import { openLightbox } from '../components/lightbox.js';
 import { generateBeanQR, parseGlpQrParams } from '../glp-qr.js';
 import { calcBestGrindCombosForBean } from './shots/grind.js';
+import { _renderBasketSelect, _renderPuckScreenSelect, _renderGrinderSelect } from './shots/annotation.js';
 import { currentGrinderZeroPoint } from '../grind-zero.js';
 import { renderShotDefaultsSettingsCard } from '../components/shot-defaults-settings.js';
 import { TARGET_ICON_SVG, SLIDERS_ICON_SVG, FLAVOR_WHEEL_ICON_SVG, COFFEE_ICON_SVG, WATER_DROP_ICON_SVG, SNOWFLAKE_ICON_SVG, LINK_ICON_SVG, WRENCH_ICON_SVG, STAR_ICON_SVG, WARNING_ICON_SVG, CLOSE_ICON_SVG, EDIT_ICON_SVG } from '../icons.js';
@@ -1882,6 +1883,9 @@ export function openRecipeForm(recipe) {
   attachAutocomplete(document.getElementById('recipeFormProfile'), () => S.machineProfiles.map(p => p.name));
   document.getElementById('recipeFormBean').value         = recipe?.beanName      || '';
   attachAutocomplete(document.getElementById('recipeFormBean'), () => S.coffeeLibrary.beans.map(b => b.name));
+  _renderGrinderSelect(recipe?.grinderId ?? null, 'recipeFormGrinder');
+  _renderBasketSelect(recipe?.basketId ?? null, 'recipeFormBasket');
+  _renderPuckScreenSelect(recipe?.puckScreenId ?? null, 'recipeFormPuckScreen');
   document.getElementById('recipeFormNotes').value        = recipe?.notes         || '';
   _renderStepRows(recipe?.steps || []);
   document.getElementById('recipeAddForm').classList.add('open');
@@ -1903,6 +1907,8 @@ export function editRecipe(id) {
 export async function saveRecipe() {
   const name = document.getElementById('recipeFormName').value.trim();
   if (!name) { document.getElementById('recipeFormName').focus(); return; }
+  const beanName = document.getElementById('recipeFormBean').value.trim();
+  const matchedBean = beanName ? S.coffeeLibrary.beans.find(b => b.name === beanName) : null;
   const payload = {
     name,
     brewMethod:    document.getElementById('recipeFormBrewMethod').value,
@@ -1916,7 +1922,11 @@ export async function saveRecipe() {
     grindSize:     document.getElementById('recipeFormGrind').value.trim(),
     sourceUrl:     document.getElementById('recipeFormSourceUrl').value.trim(),
     profileName:   document.getElementById('recipeFormProfile').value.trim(),
-    beanName:      document.getElementById('recipeFormBean').value.trim(),
+    beanName,
+    beanId:        matchedBean?.id ?? null,
+    grinderId:     parseInt(document.getElementById('recipeFormGrinder').value, 10)     || null,
+    basketId:      parseInt(document.getElementById('recipeFormBasket').value, 10)      || null,
+    puckScreenId:  parseInt(document.getElementById('recipeFormPuckScreen').value, 10)  || null,
     notes:         document.getElementById('recipeFormNotes').value.trim(),
     steps:         _collectSteps(),
   };

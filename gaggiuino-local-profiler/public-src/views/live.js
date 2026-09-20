@@ -13,6 +13,8 @@ import { getDefaultMachineId } from '../components/machines-settings.js';
 import { localeFor } from '../constants.js';
 import { renderGrinderField, getGrinderFieldValue, handleGrinderFieldChange,
          _renderBeanSelect, _renderBasketSelect, _renderPuckScreenSelect, _renderRecipeSelect } from './shots/annotation.js';
+import { suggestGrindForBeanGrinder } from './shots/grind.js';
+import { annotateShot } from '../api/shots.js';
 
 // Multi-machine live gating (#325, #341) — shot sync now covers every
 // registered machine (lib/sync.js's syncOtherMachines()), but real-time
@@ -54,6 +56,29 @@ function _saveLiveSetupDraft(draft) {
 
 let _lsWired = false;
 
+// Reads the panel's current bean+grinder selection straight from the DOM
+// (always in sync with the draft by the time this runs — called from the
+// change handlers below, after the draft write) and shows a grind-setting
+// recommendation via the same heuristic dialin-wizard.js uses to seed a
+// dial-in session (suggestGrindForBeanGrinder). Both fields are required —
+// grinder alone can't disambiguate between beans, bean alone can't
+// disambiguate between grinders.
+function _renderGrindHint() {
+  const hintEl = document.getElementById('lsGrindHint');
+  if (!hintEl) return;
+  const beanSelect = document.getElementById('lsBean');
+  const beanName = beanSelect?.value || '';
+  const beanId = beanSelect?.selectedOptions[0]?.dataset.beanId
+    ? parseInt(beanSelect.selectedOptions[0].dataset.beanId, 10) : null;
+  const grinderName = getGrinderFieldValue('lsGrinder', 'lsGrinderOther');
+  if (!beanName || !grinderName) { hintEl.textContent = ''; return; }
+  const suggestion = suggestGrindForBeanGrinder(beanName, grinderName, beanId);
+  if (!suggestion || suggestion.value == null) { hintEl.textContent = ''; return; }
+  hintEl.textContent = suggestion.shotCount
+    ? t('live_grind_hint_with_count', suggestion.value, suggestion.shotCount)
+    : t('live_grind_hint', suggestion.value);
+}
+
 export function renderLiveShotSetupPanel() {
   // Some tests substitute a minimal fake `document` (getElementById only,
   // no createDocumentFragment) to exercise connectLiveStream()'s timer logic
@@ -71,6 +96,7 @@ export function renderLiveShotSetupPanel() {
   const grindEl = document.getElementById('lsGrindSetting');
   if (doseEl)  doseEl.value  = draft.dose ?? '';
   if (grindEl) grindEl.value = draft.grindSetting || '';
+  _renderGrindHint();
 
   if (_lsWired) return;
   _lsWired = true;
@@ -103,11 +129,13 @@ export function renderLiveShotSetupPanel() {
     const d = _loadLiveSetupDraft();
     d.grinder = getGrinderFieldValue('lsGrinder', 'lsGrinderOther');
     _saveLiveSetupDraft(d);
+    _renderGrindHint();
   });
   document.getElementById('lsGrinderOther')?.addEventListener('input', () => {
     const d = _loadLiveSetupDraft();
     d.grinder = getGrinderFieldValue('lsGrinder', 'lsGrinderOther');
     _saveLiveSetupDraft(d);
+    _renderGrindHint();
   });
   document.getElementById('lsGrindSetting')?.addEventListener('input', () => {
     const d = _loadLiveSetupDraft();
@@ -132,9 +160,7 @@ export function renderLiveShotSetupPanel() {
     _saveLiveSetupDraft(d);
   });
   document.getElementById('lsRecipe')?.addEventListener('change', () => {
-    const d = _loadLiveSetupDraft();
-    d.recipeId = parseInt(document.getElementById('lsRecipe').value, 10) || null;
-    _saveLiveSetupDraft(d);
+    onLsRecipeChange(parseInt(document.getElementById('lsRecipe').value, 10) || null);
   });
   document.getElementById('lsReset')?.addEventListener('click', () => {
     localStorage.removeItem(_liveSetupStorageKey());
@@ -142,11 +168,47 @@ export function renderLiveShotSetupPanel() {
   });
 }
 
+// Picking a recipe pre-fills every field it has an equipment reference for
+// (bean/grinder/basket/puckScreen/dose) — a manual override the user then
+// makes on top is preserved (this only runs on the recipe select's own
+// change event, never re-applied afterwards). Fields the recipe doesn't
+// carry a reference for (e.g. an older recipe saved before grinderId/
+// basketId/puckScreenId existed) are left untouched rather than cleared, so
+// switching recipes never wipes a manually-entered value the new recipe
+// simply has no opinion on. grinderId resolves to the grinder's current
+// name — renderGrinderField's select-with-"other" pattern matches by name,
+// same as every other grinder field in the app (annotations, dial-in);
+// there is no id-based grinder select elsewhere to stay consistent with.
+function onLsRecipeChange(recipeId) {
+  const d = _loadLiveSetupDraft();
+  d.recipeId = recipeId;
+  const recipe = recipeId != null ? (S.coffeeLibrary?.recipes || []).find(r => r.id === recipeId) : null;
+  if (recipe) {
+    if (recipe.beanId != null) {
+      const bean = (S.coffeeLibrary?.beans || []).find(b => b.id === recipe.beanId);
+      if (bean) { d.coffee = bean.name; d.beanId = bean.id; }
+    }
+    if (recipe.grinderId != null) {
+      const grinder = (S.coffeeLibrary?.grinders || []).find(g => g.id === recipe.grinderId);
+      if (grinder) d.grinder = grinder.name;
+    }
+    if (recipe.basketId != null) d.basketId = recipe.basketId;
+    if (recipe.puckScreenId != null) d.puckScreenId = recipe.puckScreenId;
+    if (recipe.targetDose_g != null) d.dose = recipe.targetDose_g;
+  }
+  _saveLiveSetupDraft(d);
+  renderLiveShotSetupPanel();
+}
+
 // Writes the current draft onto shotId's annotation — called once a shot
 // that started while this draft was active finishes syncing. Only fills
 // fields the draft actually has a value for; an empty draft results in an
 // empty payload, which is harmless (matches what auto-save would have sent
-// for an untouched annotation panel anyway).
+// for an untouched annotation panel anyway). Clears the draft on success —
+// the setup is consumed by the shot it was written to, so leaving it
+// sitting in the panel afterwards reads as "this is still queued up" when
+// it's actually already applied, which is what prompted this to clear
+// instead of staying sticky for the next pull.
 async function _applyLiveSetupToShot(shotId) {
   const draft = _loadLiveSetupDraft();
   if (!Object.keys(draft).length) return;
@@ -157,12 +219,12 @@ async function _applyLiveSetupToShot(shotId) {
     dose: draft.dose ?? null, recipeId: draft.recipeId ?? null,
   };
   try {
-    const r = await apiFetch(`api/shots/${shotId}/annotate`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-    });
+    const r = await annotateShot(shotId, payload);
     if (r.ok) {
       const idx = S.shots.findIndex(s => s.id === shotId);
       if (idx !== -1) S.shots[idx].annotation = { ...S.shots[idx].annotation, ...payload };
+      localStorage.removeItem(_liveSetupStorageKey());
+      renderLiveShotSetupPanel();
     }
   } catch { /* best-effort — the shot still exists, just unannotated */ }
 }

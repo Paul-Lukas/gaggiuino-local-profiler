@@ -308,7 +308,11 @@ components:
         sourceUrl:     { type: string }
         notes:         { type: string, maxLength: 1000 }
         profileName:   { type: string, maxLength: 200 }
-        beanName:      { type: string, maxLength: 200 }
+        beanName:      { type: string, maxLength: 200, description: "Free-text bean display fallback (older recipes / imports without a library match). beanId takes precedence when set." }
+        beanId:        { type: integer, nullable: true, description: "Library bean id — resolved server-side; a stale/unknown id becomes null." }
+        basketId:      { type: integer, nullable: true, description: "Library basket id." }
+        grinderId:     { type: integer, nullable: true, description: "Library grinder id." }
+        puckScreenId:  { type: integer, nullable: true, description: "Library puck screen id." }
         steps:
           type: array
           maxItems: 30

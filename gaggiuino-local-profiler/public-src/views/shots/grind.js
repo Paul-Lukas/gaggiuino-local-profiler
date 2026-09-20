@@ -45,6 +45,45 @@ export function _parseGrindNum(s) {
   return m ? parseFloat(m[1].replace(',', '.')) : null;
 }
 
+// Starting-grind heuristic, shared by dialin-wizard.js's session setup and
+// live.js's pre-shot grind hint: best historical (grinder, grind) combo for
+// the bean, else the bean's known-good grind for this grinder, else the
+// most recent shot on this grinder (normalized for zero-point drift), else
+// null. beanId (when known) takes priority over beanName for both the combo
+// lookup and the bean-record match, same as calcBestGrindCombosForBean's own
+// id-first convention.
+//
+// Returns { value, shotCount } — shotCount is only set for the historical-
+// combo source (the only one with a sample size worth surfacing; a single
+// knownGrindSettings entry or last-shot fallback has no "n shots" to show),
+// or null when no suggestion could be made at all.
+export function suggestGrindForBeanGrinder(beanName, grinderName, beanId) {
+  if (beanName) {
+    const combos = calcBestGrindCombosForBean(beanName, S.shots, beanId);
+    if (combos?.length) {
+      const combo = grinderName
+        ? combos.find(c => c.grinder.toLowerCase() === grinderName.toLowerCase()) || combos[0]
+        : combos[0];
+      if (combo) return { value: combo.grindSetting, shotCount: combo.shotCount };
+    }
+    const bean = beanId != null
+      ? S.coffeeLibrary?.beans?.find(b => b.id === beanId)
+      : S.coffeeLibrary?.beans?.find(b => b.name === beanName);
+    const known = bean?.knownGrindSettings?.find(k =>
+      !grinderName || k.grinder.toLowerCase() === grinderName.toLowerCase());
+    if (known) return { value: _parseGrindNum(known.grindSetting), shotCount: null };
+  }
+  if (grinderName) {
+    const last = [...S.shots]
+      .filter(s => (s.annotation?.grinder || '').toLowerCase() === grinderName.toLowerCase())
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+    const raw = _parseGrindNum(last?.annotation?.grindSetting);
+    const g = normalizeGrindToNow(S.coffeeLibrary?.grinders, grinderName, raw, last?.timestamp * 1000);
+    if (g !== null) return { value: g, shotCount: null };
+  }
+  return null;
+}
+
 // ── Grind advice ──────────────────────────────────────────────────────────
 
 export function calcGrindAdvice(shot, data) {

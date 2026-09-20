@@ -286,6 +286,17 @@ func floatOrNilFalsy(v any) any {
 	return f
 }
 
+// intOrNilFalsy is floatOrNilFalsy's counterpart for nullable id references
+// (Recipe's beanId/basketId/grinderId/puckScreenId) — an absent, unparseable,
+// or zero id all collapse to nil rather than storing a meaningless 0 id.
+func intOrNilFalsy(v any) any {
+	n, ok := jsParseIntLoose(v)
+	if !ok || n == 0 {
+		return nil
+	}
+	return n
+}
+
 // floatOrZero ports the `parseFloat(v) || 0` idiom (milk stockMl fields).
 func floatOrZero(v any) float64 {
 	f, ok := jsParseFloat(v)

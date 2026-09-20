@@ -468,6 +468,17 @@ export function _renderPuckScreenSelect(selectedId, selectId = 'annPuckScreen') 
   _fillIdSelect(select, t('ann_puckscreen_none'), S.coffeeLibrary?.puckScreens || [], selectedId, 'puckscreenId');
 }
 
+// ID-based grinder select for contexts that reference a library grinder
+// directly (Recipe's grinderId) rather than the free-text
+// select-with-"other"-fallback pattern renderGrinderField() implements for
+// shot annotations/live setup, where the recorded value is the grinder's
+// name string, not its id.
+export function _renderGrinderSelect(selectedId, selectId = 'recipeFormGrinder') {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  _fillIdSelect(select, t('lib_recipe_grinder_none'), S.coffeeLibrary?.grinders || [], selectedId, 'grinderId');
+}
+
 export function _renderRecipeSelect(selectedId, fieldId = 'recipeField', selectId = 'annRecipe') {
   const field  = document.getElementById(fieldId);
   const select = document.getElementById(selectId);

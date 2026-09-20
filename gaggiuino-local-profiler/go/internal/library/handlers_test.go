@@ -943,6 +943,21 @@ func TestRecipe_CRUD(t *testing.T) {
 		t.Errorf("targetDose_g after PUT 0 = %v, want nil (parseFloat||null quirk)", updated["targetDose_g"])
 	}
 
+	rec = doJSON(t, mux, http.MethodPut, "/api/library/recipe/"+itoa(id), mustMarshal(t, map[string]any{
+		"beanId": 7, "basketId": 8, "grinderId": 9, "puckScreenId": 10,
+	}))
+	withRefs := decodeBody(t, rec.Body.Bytes())
+	if withRefs["beanId"] != float64(7) || withRefs["basketId"] != float64(8) ||
+		withRefs["grinderId"] != float64(9) || withRefs["puckScreenId"] != float64(10) {
+		t.Errorf("equipment refs after PUT = %+v, want beanId=7 basketId=8 grinderId=9 puckScreenId=10", withRefs)
+	}
+
+	rec = doJSON(t, mux, http.MethodPut, "/api/library/recipe/"+itoa(id), mustMarshal(t, map[string]any{"grinderId": 0}))
+	zeroed := decodeBody(t, rec.Body.Bytes())
+	if zeroed["grinderId"] != nil {
+		t.Errorf("grinderId after PUT 0 = %v, want nil (parseInt||null quirk)", zeroed["grinderId"])
+	}
+
 	rec = doJSON(t, mux, http.MethodPost, "/api/library/recipe/"+itoa(id)+"/delete", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete status = %d; body=%s", rec.Code, rec.Body.String())

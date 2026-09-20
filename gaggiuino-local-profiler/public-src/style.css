@@ -1174,6 +1174,12 @@
             grid-template-columns: 1fr 1fr;
             gap: var(--sp-3);
         }
+        .ls-grind-hint {
+            font-size: var(--fs-1);
+            color: var(--gray-500);
+            margin-top: var(--sp-1);
+            min-height: 1em;
+        }
         .ls-fields-footer {
             display: flex; justify-content: flex-end;
             margin-top: var(--sp-3); padding-top: var(--sp-3);
@@ -2454,6 +2460,7 @@
             .shot-header-thumb { display: none; }
             .annotation-fields { grid-template-columns: 1fr; }
             .annotation-field.full-width { grid-column: 1; }
+            .ls-fields-grid { grid-template-columns: 1fr; }
             .chart-container, .live-chart-container { height: clamp(300px, 50vh, 400px); }
             .live-stats        { grid-template-columns: repeat(3, 1fr); }
             /* #385: icon-only machine switcher — the active machine's name is

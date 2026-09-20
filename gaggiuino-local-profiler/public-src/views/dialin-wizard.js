@@ -17,8 +17,7 @@ import { esc, detectChanneling, calcBrewRatio, scoreColor } from '../utils.js';
 import { calcShotScore } from './shots/utils.js';
 import { getShotCurve } from '../shot-curves.js';
 import { mapShotDatapoints } from '../utils.js';
-import { calcBestGrindCombosForBean, _miniShotChart, _parseGrindNum } from './shots/grind.js';
-import { normalizeGrindToNow } from '../grind-zero.js';
+import { _miniShotChart, _parseGrindNum, suggestGrindForBeanGrinder } from './shots/grind.js';
 import { calcNextGrindSuggestion, isConverged } from '../dialin-convergence.js';
 import { renderSidebar, updateSidebarHighlighting } from '../components/sidebar.js';
 
@@ -54,7 +53,7 @@ export function openDialinWizard(prefill = {}) {
     // #456: beanId (#310's session field) carries the stable link forward to
     // the final annotate payload in dialinConfirmShot below.
     const beanId = prefill.beanId ?? bean?.id ?? null;
-    const startGrind = prefill.startGrind ?? _suggestStartGrind(prefill.beanName, prefill.grinderName, beanId);
+    const startGrind = prefill.startGrind ?? suggestGrindForBeanGrinder(prefill.beanName, prefill.grinderName, beanId)?.value ?? null;
     S.dialinSession = {
       id: Date.now(),
       startedAt: Date.now(),
@@ -103,36 +102,6 @@ function _parseRatio(brewRatio) {
   const m = String(brewRatio || '').trim().match(/^1\s*:\s*([\d.]+)$/);
   const n = m ? parseFloat(m[1]) : NaN;
   return Number.isFinite(n) && n > 0 ? n : 2;
-}
-
-// Starting-grind heuristic (plan §1): best historical (grinder, grind)
-// combo for the bean, else the bean's known-good grind for this grinder,
-// else the most recent shot on this grinder, else empty.
-function _suggestStartGrind(beanName, grinderName, beanId) {
-  if (beanName) {
-    const combos = calcBestGrindCombosForBean(beanName, S.shots, beanId);
-    if (combos?.length) {
-      const combo = grinderName
-        ? combos.find(c => c.grinder.toLowerCase() === grinderName.toLowerCase()) || combos[0]
-        : combos[0];
-      if (combo) return combo.grindSetting;
-    }
-    const bean = beanId != null
-      ? S.coffeeLibrary?.beans?.find(b => b.id === beanId)
-      : S.coffeeLibrary?.beans?.find(b => b.name === beanName);
-    const known = bean?.knownGrindSettings?.find(k =>
-      !grinderName || k.grinder.toLowerCase() === grinderName.toLowerCase());
-    if (known) return _parseGrindNum(known.grindSetting);
-  }
-  if (grinderName) {
-    const last = [...S.shots]
-      .filter(s => (s.annotation?.grinder || '').toLowerCase() === grinderName.toLowerCase())
-      .sort((a, b) => b.timestamp - a.timestamp)[0];
-    const raw = _parseGrindNum(last?.annotation?.grindSetting);
-    const g = normalizeGrindToNow(S.coffeeLibrary?.grinders, grinderName, raw, last?.timestamp * 1000);
-    if (g !== null) return g;
-  }
-  return null;
 }
 
 // ── Round evaluation ────────────────────────────────────────────────────

@@ -906,6 +906,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/bean/{id}/reorder-bags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk-reassign sortOrder for the bean's not-yet-current ("upcoming") bags in one write
+         * @description Assigns sequential sortOrder values (strictly above the current bag's) to the given bags in the given order — replaces sending one PUT per bag to swap positions.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description Bag IDs in the desired queue order */
+                        bagIds: number[];
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated bean */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Bean"];
+                    };
+                };
+                /** @description bagIds missing/invalid */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bean or a referenced bag not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/bean/{id}/freeze-portions": {
         parameters: {
             query?: never;
@@ -1091,7 +1153,55 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /** Edit a bag's mutable fields (full-replace; sortOrder is the one optional/partial field — omitted keeps its current value) */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                    bagId: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: date */
+                        roastDate?: string;
+                        stock_g?: number | null;
+                        price_eur?: number | null;
+                        batchNumber?: string;
+                        sortOrder?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated bean */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Bean"];
+                    };
+                };
+                /** @description Invalid roastDate/stock_g/price_eur */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         post?: never;
         /** Delete a bag from a bean's bag history (the last remaining bag cannot be deleted) */
         delete: {
@@ -1530,6 +1640,68 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/grinder/{id}/zero-point": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Log a new zero-point activation — corrects grind-setting suggestions/comparisons for drift (e.g. after cleaning) without rewriting any past shot's recorded value */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        zeroPoint: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Updated grinder (with the new zeroPointHistory entry) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Grinder"];
+                    };
+                };
+                /** @description Invalid zeroPoint */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6594,7 +6766,11 @@ export interface components {
             sourceUrl?: string | null;
             /** Format: date */
             importedAt?: string;
-            /** @description Bag history — new-bag/freeze-portions/thaw-portion/adjust-frozen-portion/delete-bag operate on this. */
+            /** @description Computed, not stored — sum of tracked bags' stock minus consumed doses (ComputeBeanRemaining). Attribution-independent, correct regardless of bag queue order. */
+            readonly remainingG?: number;
+            /** @description Computed, not stored — sum of every tracked bag's consumedG (SimulateBagQueue). */
+            readonly consumedG?: number;
+            /** @description Bag history — new-bag/freeze-portions/thaw-portion/adjust-frozen-portion/delete-bag/reorder-bags operate on this. */
             bags?: {
                 id?: number;
                 roastDate?: string;
@@ -6602,6 +6778,14 @@ export interface components {
                 /** @description Unix ms */
                 openedAt?: number;
                 batchNumber?: string;
+                /** @description Manual queue position — lower sorts first, drawn from sooner. Bags without it (predating this field) fall back to openedAt. Set via new-bag (appended after every existing bag) or POST .../reorder-bags; also settable directly on PUT .../bag/{bagId}. */
+                sortOrder?: number;
+                /** @description Computed, not stored — grams consumed from this specific bag (SimulateBagQueue). Only present for tracked bags (stock_g set). */
+                readonly consumedG?: number;
+                /** @description Computed, not stored — stock_g minus consumedG, clamped at 0. */
+                readonly remainingG?: number;
+                /** @description Computed, not stored — true for the one bag currently being drawn from (lowest sortOrder among tracked bags with remainingG>0). */
+                readonly current?: boolean;
                 frozenPortions?: {
                     id?: number;
                     /** @description Unix ms */
@@ -6629,6 +6813,12 @@ export interface components {
             burrsResetAt?: string;
             /** @description File extension of the stored photo, if any */
             image?: string | null;
+            /** @description Chronological log of every zero-point activation (PUT .../zero-point) — the last entry is the current value. Absent/empty for a grinder that has never had one set, in which case grind settings display and compare as raw recorded values unchanged. */
+            zeroPointHistory?: {
+                zeroPoint?: number;
+                /** @description Timestamp (ms) this value became active */
+                since?: number;
+            }[];
             /** @description Computed burr-wear stats (shots/grams since burrsResetAt), added on read. */
             wear?: {
                 shots?: number;
@@ -6679,7 +6869,16 @@ export interface components {
             sourceUrl?: string;
             notes?: string;
             profileName?: string;
+            /** @description Free-text bean display fallback (older recipes / imports without a library match). beanId takes precedence when set. */
             beanName?: string;
+            /** @description Library bean id — resolved server-side; a stale/unknown id becomes null. */
+            beanId?: number | null;
+            /** @description Library basket id. */
+            basketId?: number | null;
+            /** @description Library grinder id. */
+            grinderId?: number | null;
+            /** @description Library puck screen id. */
+            puckScreenId?: number | null;
             steps?: {
                 text?: string;
                 duration_s?: number | null;
@@ -6749,6 +6948,10 @@ export interface components {
             notes?: string;
             shotCount?: number;
             machineId?: number;
+            /** @description Resolved display name for a grinder_* task, added on read */
+            grinderName?: string;
+            /** @description Resolved display label for a custom_* task, added on read */
+            label?: string;
         };
         MenuItem: {
             /** @example m_1716000000000 */

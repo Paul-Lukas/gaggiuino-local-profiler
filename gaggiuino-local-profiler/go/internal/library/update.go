@@ -381,6 +381,18 @@ func UpdateRecipe(repo *Repository, id int64, body Entity) (Entity, Library, boo
 	if v, present := trimMaxOrUndefined(body, "beanName", 200); present {
 		recipe["beanName"] = v
 	}
+	if _, present := body["beanId"]; present {
+		recipe["beanId"] = intOrNilFalsy(body["beanId"])
+	}
+	if _, present := body["basketId"]; present {
+		recipe["basketId"] = intOrNilFalsy(body["basketId"])
+	}
+	if _, present := body["grinderId"]; present {
+		recipe["grinderId"] = intOrNilFalsy(body["grinderId"])
+	}
+	if _, present := body["puckScreenId"]; present {
+		recipe["puckScreenId"] = intOrNilFalsy(body["puckScreenId"])
+	}
 	lib.Recipes[idx] = recipe
 	if err := repo.SaveLibrary(lib); err != nil {
 		return nil, Library{}, false, err
