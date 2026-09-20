@@ -579,7 +579,6 @@ func (h *Handlers) updateBag(w http.ResponseWriter, r *http.Request) {
 	h.writeEnrichedBean(w, bean)
 }
 
-
 // deleteBean ports POST /api/library/bean/:id/delete.
 func (h *Handlers) deleteBean(w http.ResponseWriter, r *http.Request) {
 	id, noMatch := parseIDParam(r.PathValue("id"))
