@@ -26,6 +26,17 @@ export async function openGaggiMateProfileEditor(id) {
   _openEditor(profile);
 }
 
+// Same "fresh unsaved copy" contract as library-profile-editor.js's
+// duplicateProfile: id cleared so saveGaggiMateProfile() POSTs instead of
+// PUTting over the original, label suffixed so it's never confused with
+// its source in the list.
+export async function duplicateGaggiMateProfile(id) {
+  const machineId = S.activeMachineId ?? '';
+  const profile = await machinesApi.getMachineProfile(id, machineId);
+  if (!profile) { window.showToast?.(t('gm_toast_load_error')); return; }
+  _openEditor({ ...profile, id: undefined, label: `${profile.label}${t('profile_duplicate_suffix')}` });
+}
+
 export function openNewGaggiMateProfile() {
   _openEditor({
     label: t('gm_new_profile_label'),
