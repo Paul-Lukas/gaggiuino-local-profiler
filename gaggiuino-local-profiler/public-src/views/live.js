@@ -13,7 +13,7 @@ import { getDefaultMachineId } from '../components/machines-settings.js';
 import { localeFor } from '../constants.js';
 import { renderGrinderField, getGrinderFieldValue, handleGrinderFieldChange,
          _renderBeanSelect, _renderBasketSelect, _renderPuckScreenSelect, _renderRecipeSelect } from './shots/annotation.js';
-import { suggestGrindForBeanGrinder } from './shots/grind.js';
+import { suggestGrindForBeanGrinder, calcComparativeGrindAdvice } from './shots/grind.js';
 import { annotateShot } from '../api/shots.js';
 
 // Multi-machine live gating (#325, #341) — shot sync now covers every
@@ -263,6 +263,19 @@ async function _applyLiveSetupToShot(shotId) {
 const POST_BREW_POLL_INTERVAL_MS = 3000;
 const POST_BREW_POLL_MAX_ATTEMPTS = 8; // ~24s total from the first attempt
 
+// Renders post-shot comparative grind advice into #lsGrindHint, replacing
+// the pre-shot suggestion with feedback from the just-completed pull.
+// Called after the new shot is confirmed synced; leaves the hint area
+// empty (falls back to pre-shot hint via _renderGrindHint) if the advice
+// API returns null (too few comparable shots to say anything meaningful).
+function _renderPostShotGrindHint(shot) {
+  const hintEl = document.getElementById('lsGrindHint');
+  if (!hintEl) return;
+  const adv = calcComparativeGrindAdvice(shot, S.shots);
+  if (!adv) { _renderGrindHint(); return; }
+  hintEl.textContent = adv.text;
+}
+
 async function _pollForNewShotAndApply(machineId, priorNewestId, attempt = 0) {
   if (window.loadData) await window.loadData();
   const newest = S.shots
@@ -270,6 +283,7 @@ async function _pollForNewShotAndApply(machineId, priorNewestId, attempt = 0) {
     .sort((a, b) => b.id - a.id)[0];
   if (newest) {
     _applyLiveSetupToShot(newest.id);
+    _renderPostShotGrindHint(newest);
     return;
   }
   if (attempt + 1 >= POST_BREW_POLL_MAX_ATTEMPTS) {
