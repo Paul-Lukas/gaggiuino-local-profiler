@@ -23,8 +23,8 @@ import (
 // ("Setting 3.5" -> 3.5, "3,5" -> 3.5 via the comma-to-dot swap below).
 var grindNumRe = regexp.MustCompile(`\d+(?:[.,]\d+)?`)
 
-// parseGrindNum ports grind.js's _parseGrindNum(s).
-func parseGrindNum(s string) (float64, bool) {
+// ParseGrindNum ports grind.js's _parseGrindNum(s).
+func ParseGrindNum(s string) (float64, bool) {
 	if s == "" {
 		return 0, false
 	}
@@ -88,7 +88,7 @@ func ComputeComparativeGrindAdvice(shot Shot, allShots []Shot) *ComparativeGrind
 		return nil
 	}
 	dose, hasDose := toFloat(ann["dose"])
-	currentGrind, hasCurrentGrind := parseGrindNum(annotationStr(ann, "grindSetting"))
+	currentGrind, hasCurrentGrind := ParseGrindNum(annotationStr(ann, "grindSetting"))
 	shotID := shot.id()
 
 	type comparableShot struct {
@@ -116,7 +116,7 @@ func ComputeComparativeGrindAdvice(shot Shot, allShots []Shot) *ComparativeGrind
 				continue
 			}
 		}
-		g, ok := parseGrindNum(annotationStr(a, "grindSetting"))
+		g, ok := ParseGrindNum(annotationStr(a, "grindSetting"))
 		if !ok {
 			continue
 		}

@@ -16,9 +16,9 @@ func TestParseGrindNum(t *testing.T) {
 		{"12", 12, true},
 	}
 	for _, c := range cases {
-		got, ok := parseGrindNum(c.in)
+		got, ok := ParseGrindNum(c.in)
 		if ok != c.wantOK || (ok && got != c.want) {
-			t.Errorf("parseGrindNum(%q) = %v, %v, want %v, %v", c.in, got, ok, c.want, c.wantOK)
+			t.Errorf("ParseGrindNum(%q) = %v, %v, want %v, %v", c.in, got, ok, c.want, c.wantOK)
 		}
 	}
 }
