@@ -106,7 +106,7 @@ func fullScoreShot(durationTenths float64) Shot {
 
 func TestCalcShotScoreDetail_FullScore(t *testing.T) {
 	shot := fullScoreShot(300)
-	detail := CalcShotScoreDetail(shot, nil)
+	detail := CalcShotScoreDetail(shot, nil, nil)
 	if detail.Score == nil {
 		t.Fatal("expected a non-nil score")
 	}
@@ -119,7 +119,7 @@ func TestCalcShotScoreDetail_FullScore(t *testing.T) {
 }
 
 func TestCalcShotScoreDetail_NilShot(t *testing.T) {
-	detail := CalcShotScoreDetail(nil, nil)
+	detail := CalcShotScoreDetail(nil, nil, nil)
 	if detail.Score != nil {
 		t.Errorf("expected nil score for a nil shot, got %v", *detail.Score)
 	}
@@ -132,7 +132,7 @@ func TestCalcShotScoreDetail_InsufficientPressureSamples(t *testing.T) {
 			"pressure": mkPoints(80, 80, 80), // only 3 samples >= 5 bar -> "not enough data"
 		},
 	}
-	detail := CalcShotScoreDetail(shot, nil)
+	detail := CalcShotScoreDetail(shot, nil, nil)
 	if detail.Score != nil {
 		t.Errorf("expected nil score with <=3 pressure samples, got %d", *detail.Score)
 	}
@@ -143,8 +143,8 @@ func TestCalcShotScoreDetail_BeanTargetUsedOnlyWhenBeanPassed(t *testing.T) {
 	beanTemp := 90.0
 	bean := &Bean{BrewTempC: &beanTemp}
 
-	withoutBean := CalcShotScoreDetail(shot, nil)
-	withBean := CalcShotScoreDetail(shot, bean)
+	withoutBean := CalcShotScoreDetail(shot, nil, nil)
+	withBean := CalcShotScoreDetail(shot, bean, nil)
 
 	if withoutBean.UsedBeanTarget {
 		t.Error("expected usedBeanTarget = false without a bean")
@@ -159,7 +159,7 @@ func TestCalcShotScoreDetail_BeanTargetUsedOnlyWhenBeanPassed(t *testing.T) {
 func TestCalcShotScoreDetail_BeanRatioTargetUsed(t *testing.T) {
 	shot := fullScoreShot(300)
 	bean := &Bean{BrewRatio: "1:2.5"} // matches the shot's actual 45/18=2.5 ratio exactly
-	detail := CalcShotScoreDetail(shot, bean)
+	detail := CalcShotScoreDetail(shot, bean, nil)
 	if !detail.UsedBeanTarget {
 		t.Error("expected usedBeanTarget = true when the bean has a parseable brewRatio")
 	}
@@ -175,7 +175,7 @@ func TestCalcShotScoreDetail_BeanRatioTargetUsed(t *testing.T) {
 func TestCalcShotScoreDetail_DurationAsInt64(t *testing.T) {
 	shot := fullScoreShot(300)
 	shot["duration"] = int64(300)
-	detail := CalcShotScoreDetail(shot, nil)
+	detail := CalcShotScoreDetail(shot, nil, nil)
 	if detail.Score == nil || *detail.Score != 100 {
 		t.Errorf("score with int64 duration = %v, want 100", detail.Score)
 	}
@@ -183,7 +183,7 @@ func TestCalcShotScoreDetail_DurationAsInt64(t *testing.T) {
 
 func TestCalcShotScore_WrapsDetail(t *testing.T) {
 	shot := fullScoreShot(300)
-	score := CalcShotScore(shot, nil)
+	score := CalcShotScore(shot, nil, nil)
 	if score == nil || *score != 100 {
 		t.Errorf("CalcShotScore = %v, want 100", score)
 	}

@@ -84,6 +84,7 @@ const fr: Partial<Translations> = {
     ach_prev:'Carte précédente', ach_next:'Carte suivante', ach_loading:'Chargement des succès …',
     verdict_no_data:"Pas encore assez de données pour un verdict.",
     verdict_bean_target_hint:"Noté selon l'objectif de préparation propre à ce café",
+    verdict_recipe_target_hint:"Noté selon l'objectif temps/ratio propre à cette recette",
     tab_time:`${CLOCK_ICON_SVG} Temps`, tab_pq:'Courbe P·Q',
     btn_fullscreen_close:`${CLOSE_ICON_SVG} Fermer`, btn_fullscreen_tooltip:'Plein écran',
     btn_compare_tooltip:'Sélectionner comme shot de comparaison (B). Astuce : cliquez sur le nom pour Shot A.', btn_delete_tooltip:'Supprimer le shot',

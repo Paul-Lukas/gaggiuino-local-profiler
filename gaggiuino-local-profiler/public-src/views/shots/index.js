@@ -643,9 +643,15 @@ export async function updateView() {
     // #457: compact hint icon when the score was weighed against the bean's
     // own brewTempC/brewRatio recommendation (#450) rather than the generic
     // fallback band — native title tooltip, no new permanent header text.
-    const beanTargetHint = shotUsedBeanTarget(shotA)
-      ? `<span class="verdict-bean-target-hint" title="${esc(t('verdict_bean_target_hint'))}">${TARGET_ICON_SVG}</span>` : '';
-    document.getElementById('verdictHeadline').innerHTML = (advice ? `${advice.icon} ${esc(advice.text)}` : esc(t('verdict_no_data'))) + beanTargetHint;
+    // usedRecipeTarget wins over usedBeanTarget for the same icon slot (only
+    // one hint is shown; recipe target is more specific than bean target).
+    let targetHint = '';
+    if (shotA.usedRecipeTarget) {
+      targetHint = `<span class="verdict-bean-target-hint" title="${esc(t('verdict_recipe_target_hint'))}">${TARGET_ICON_SVG}</span>`;
+    } else if (shotUsedBeanTarget(shotA)) {
+      targetHint = `<span class="verdict-bean-target-hint" title="${esc(t('verdict_bean_target_hint'))}">${TARGET_ICON_SVG}</span>`;
+    }
+    document.getElementById('verdictHeadline').innerHTML = (advice ? `${advice.icon} ${esc(advice.text)}` : esc(t('verdict_no_data'))) + targetHint;
     // #838: duration and avg pressure dropped — they're already shown once
     // each, in the Dauer recipe card (incl. phase breakdown) and the
     // Process-zone pressure card, so repeating them here was pure duplication.

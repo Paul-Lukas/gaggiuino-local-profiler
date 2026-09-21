@@ -80,11 +80,11 @@ func (h *Handlers) listPage(w http.ResponseWriter, r *http.Request) {
 
 	rows := make([]templates.ShotRow, len(live))
 	for i, shot := range live {
-		rows[i] = toShotRow(shot, h.shots.ComputeScore(shot))
+		rows[i] = toShotRow(shot, h.shots.ComputeScore(shot, nil))
 	}
 	trashRows := make([]templates.ShotRow, len(trashed))
 	for i, shot := range trashed {
-		trashRows[i] = toShotRow(shot, h.shots.ComputeScore(shot))
+		trashRows[i] = toShotRow(shot, h.shots.ComputeScore(shot, nil))
 	}
 
 	var detail *templates.ShotDetail
@@ -152,8 +152,8 @@ func (h *Handlers) detailFragment(w http.ResponseWriter, r *http.Request) {
 			}
 			if compareShot != nil {
 				cd := templates.ShotCompareDetail{
-					A: toShotDetail(shot, h.shots.ComputeScore(shot)),
-					B: toShotDetail(compareShot, h.shots.ComputeScore(compareShot)),
+					A: toShotDetail(shot, h.shots.ComputeScore(shot, nil)),
+					B: toShotDetail(compareShot, h.shots.ComputeScore(compareShot, nil)),
 				}
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				if err := templates.ShotCompareFragment(cd).Render(r.Context(), w); err != nil {
@@ -171,7 +171,7 @@ func (h *Handlers) detailFragment(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := make([]templates.ShotRow, len(live))
 	for i, s := range live {
-		rows[i] = toShotRow(s, h.shots.ComputeScore(s))
+		rows[i] = toShotRow(s, h.shots.ComputeScore(s, nil))
 	}
 	detail, err := h.buildDetail(shot, rows)
 	if err != nil {
@@ -193,7 +193,7 @@ func (h *Handlers) detailFragment(w http.ResponseWriter, r *http.Request) {
 // []templates.ShotRow list both callers have anyway — reused here only for
 // compareOptions' dropdown, no extra query.
 func (h *Handlers) buildDetail(shot shots.Shot, rows []templates.ShotRow) (templates.ShotDetail, error) {
-	score := h.shots.ComputeScore(shot)
+	score := h.shots.ComputeScore(shot, nil)
 	detail := toShotDetail(shot, score)
 
 	previousShot, err := h.shots.GetPreviousByProfile(shot)
@@ -202,7 +202,7 @@ func (h *Handlers) buildDetail(shot shots.Shot, rows []templates.ShotRow) (templ
 	}
 	var previousScore *int
 	if previousShot != nil {
-		previousScore = h.shots.ComputeScore(previousShot)
+		previousScore = h.shots.ComputeScore(previousShot, nil)
 	}
 	compAdvice, err := h.shots.GetComparativeGrindAdvice(shot)
 	if err != nil {

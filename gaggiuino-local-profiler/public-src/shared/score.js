@@ -46,15 +46,22 @@ function _parseBrewRatioTarget(brewRatio) {
 // against this bean's target" hint. calcShotScore stays a thin wrapper
 // around it so every existing caller that only wants the number (there are
 // many, across both backend and frontend) is untouched.
-function calcShotScoreDetail(shot, bean) {
-  if (!shot) return { score: null, usedBeanTarget: false };
+//
+// recipe is an optional library recipe entity (plain object with
+// targetTime_s / targetYield_g / targetDose_g). When set, recipe targets
+// override the generic fixed duration/ratio bands — and override bean
+// targets for the same fields — so the score reflects "how well did this
+// shot hit its recipe" rather than "how well did it hit the generic ideal".
+function calcShotScoreDetail(shot, bean, recipe) {
+  if (!shot) return { score: null, usedBeanTarget: false, usedRecipeTarget: false };
   const d = shot.datapoints || {};
   const p = (d.pressure || []).map(v => v / 10);
   const pVals = p.filter(v => v >= 5);
-  if (pVals.length <= 3) return { score: null, usedBeanTarget: false };
+  if (pVals.length <= 3) return { score: null, usedBeanTarget: false, usedRecipeTarget: false };
 
   const scores = [], weights = [];
   let usedBeanTarget = false;
+  let usedRecipeTarget = false;
 
   const avgP = pVals.reduce((a, b) => a + b, 0) / pVals.length;
   let s = avgP >= 7 && avgP <= 9.5 ? 100
@@ -91,11 +98,18 @@ function calcShotScoreDetail(shot, bean) {
 
   const secs = (shot.duration || 0) / 10;
   if (secs > 5) {
-    s = secs >= 25 && secs <= 35 ? 100
-      : (secs >= 20 && secs < 25) || (secs > 35 && secs <= 42) ? 82
-      : secs > 42 && secs <= 55   ? 62
-      : secs < 20 ? Math.max(15, 70 - (20 - secs) * 5)
-                  : Math.max(15, 62 - (secs - 55) * 3);
+    const recipeTgt = recipe && recipe.targetTime_s > 0 ? recipe.targetTime_s : null;
+    if (recipeTgt != null) {
+      const dev = Math.abs(secs - recipeTgt);
+      s = dev <= 5 ? 100 : dev <= 12 ? 82 : dev <= 17 ? 62 : Math.max(15, 62 - (dev - 17) * 3);
+      usedRecipeTarget = true;
+    } else {
+      s = secs >= 25 && secs <= 35 ? 100
+        : (secs >= 20 && secs < 25) || (secs > 35 && secs <= 42) ? 82
+        : secs > 42 && secs <= 55   ? 62
+        : secs < 20 ? Math.max(15, 70 - (20 - secs) * 5)
+                    : Math.max(15, 62 - (secs - 55) * 3);
+    }
     scores.push(Math.round(s)); weights.push(20);
   }
 
@@ -104,10 +118,15 @@ function calcShotScoreDetail(shot, bean) {
   const finalW = wArr.length ? Math.max(...wArr.map(v => v / 10)) : 0;
   if (ann.dose && ann.dose > 0 && finalW) {
     const r = finalW / ann.dose;
-    // Bean's own brewRatio recommendation (#450) replaces the generic
-    // 1.8–2.5 band as the target when set.
+    // Recipe target ratio wins over bean target, both win over generic band.
+    const recipeRatioTarget = recipe && recipe.targetYield_g > 0 && recipe.targetDose_g > 0
+      ? recipe.targetYield_g / recipe.targetDose_g : null;
     const beanRatioTarget = bean ? _parseBrewRatioTarget(bean.brewRatio) : null;
-    if (beanRatioTarget != null) {
+    if (recipeRatioTarget != null) {
+      const dev = Math.abs(r - recipeRatioTarget);
+      s = dev <= 0.35 ? 100 : dev <= 0.75 ? 75 : Math.max(15, 75 - (dev - 0.75) * 30);
+      usedRecipeTarget = true;
+    } else if (beanRatioTarget != null) {
       const dev = Math.abs(r - beanRatioTarget);
       s = dev <= 0.35 ? 100 : dev <= 0.75 ? 75 : Math.max(15, 75 - (dev - 0.75) * 30);
       usedBeanTarget = true;
@@ -135,11 +154,11 @@ function calcShotScoreDetail(shot, bean) {
 
   const tw = weights.reduce((a, b) => a + b, 0);
   const score = tw ? Math.round(scores.reduce((acc, v, i) => acc + v * weights[i], 0) / tw) : null;
-  return { score, usedBeanTarget: score !== null && usedBeanTarget };
+  return { score, usedBeanTarget: score !== null && usedBeanTarget, usedRecipeTarget: score !== null && usedRecipeTarget };
 }
 
-function calcShotScore(shot, bean) {
-  return calcShotScoreDetail(shot, bean).score;
+function calcShotScore(shot, bean, recipe) {
+  return calcShotScoreDetail(shot, bean, recipe).score;
 }
 
 export { calcShotScore, calcShotScoreDetail };

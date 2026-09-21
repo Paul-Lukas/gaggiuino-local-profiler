@@ -84,6 +84,7 @@ const it: Partial<Translations> = {
     ach_prev:'Carta precedente', ach_next:'Carta successiva', ach_loading:'Caricamento obiettivi …',
     verdict_no_data:'Dati ancora insufficienti per un giudizio.',
     verdict_bean_target_hint:'Valutato in base al target di preparazione di questo caffè',
+    verdict_recipe_target_hint:'Valutato in base al target di tempo/ratio di questa ricetta',
     tab_time:`${CLOCK_ICON_SVG} Tempo`, tab_pq:'Curva P·Q',
     btn_fullscreen_close:`${CLOSE_ICON_SVG} Chiudi`, btn_fullscreen_tooltip:'Schermo intero',
     btn_compare_tooltip:'Seleziona come shot di confronto (B). Suggerimento: clicca sul nome per Shot A.', btn_delete_tooltip:'Elimina shot',

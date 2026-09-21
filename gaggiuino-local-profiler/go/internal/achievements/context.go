@@ -190,7 +190,7 @@ func scoreForShot(shot shots.Shot, beans []library.Entity) *int {
 		}
 		bean = &b
 	}
-	return shots.CalcShotScoreDetail(shot, bean).Score
+	return shots.CalcShotScoreDetail(shot, bean, nil).Score
 }
 
 // shotScore reads the injected ["score"] as *int.

@@ -212,6 +212,43 @@ func buildApp(ctx context.Context, cfg appConfig) (http.Handler, *sql.DB, error)
 	libraryHandlers := library.NewHandlers(libRepo, shotsRepo)
 	libraryHandlers.RegisterRoutes(mux)
 
+	// Wire recipe targets into shot scoring: shots handler calls this once
+	// per request and maps recipe id → *shots.Recipe so CalcShotScoreDetail
+	// can substitute recipe-specific duration/ratio bands for the generic
+	// fixed ones when a shot is annotated with a recipeId.
+	shotsHandlers.SetRecipeLoader(func() map[int64]*shots.Recipe {
+		lib, err := libRepo.GetLibrary()
+		if err != nil {
+			log.Printf("shots: loading recipes for score: %v", err)
+			return nil
+		}
+		m := make(map[int64]*shots.Recipe, len(lib.Recipes))
+		for _, r := range lib.Recipes {
+			var id int64
+			switch v := r["id"].(type) {
+			case int64:
+				id = v
+			case float64:
+				id = int64(v)
+			}
+			if id == 0 {
+				continue
+			}
+			rec := &shots.Recipe{}
+			if v, ok := r["targetTime_s"].(float64); ok && v > 0 {
+				rec.TargetTimeS = &v
+			}
+			if v, ok := r["targetYield_g"].(float64); ok && v > 0 {
+				rec.TargetYieldG = &v
+			}
+			if v, ok := r["targetDose_g"].(float64); ok && v > 0 {
+				rec.TargetDoseG = &v
+			}
+			m[id] = rec
+		}
+		return m
+	})
+
 	// #961: one-time optimization of an already-populated image library —
 	// downscale oversized JPEG/PNG photos, strip their metadata, and
 	// generate thumbnails. Runs in the background (a large library is a lot

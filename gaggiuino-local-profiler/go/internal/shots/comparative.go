@@ -120,7 +120,7 @@ func ComputeComparativeGrindAdvice(shot Shot, allShots []Shot) *ComparativeGrind
 		if !ok {
 			continue
 		}
-		score := CalcShotScore(s, nil)
+		score := CalcShotScore(s, nil, nil)
 		if score == nil {
 			continue
 		}

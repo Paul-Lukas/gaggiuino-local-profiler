@@ -84,6 +84,7 @@ const de: Partial<Translations> = {
     ach_prev:'Vorherige Karte', ach_next:'Nächste Karte', ach_loading:'Achievements werden geladen …',
     verdict_no_data:'Noch nicht genug Daten für ein Urteil.',
     verdict_bean_target_hint:'Bewertet anhand des eigenen Brew-Ziels dieser Bohne',
+    verdict_recipe_target_hint:'Bewertet anhand der eigenen Ziel-Zeit/Ratio des Rezepts',
     tab_time:`${CLOCK_ICON_SVG} Zeit`, tab_pq:'P·Q Kurve',
     btn_fullscreen_close:`${CLOSE_ICON_SVG} Schließen`, btn_fullscreen_tooltip:'Vollbild',
     btn_compare_tooltip:'Als Vergleichs-Shot (B) wählen. Tipp: Klick auf den Namen wählt Shot A.', btn_delete_tooltip:'Shot löschen',

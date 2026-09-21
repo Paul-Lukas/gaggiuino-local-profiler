@@ -39,11 +39,56 @@ const jsonBodyLimit = 16 * 1024 // express.json({ limit: '16kb' }) — server.js
 // Handlers wires Service (+ its Repository, for the defaults/blocklist
 // calls that don't go through Service) into net/http handlers.
 type Handlers struct {
-	service  *Service
-	repo     *Repository
-	imageDir string
-	card     cardDeps
-	rl       *ratelimit.KeyedLimiter
+	service      *Service
+	repo         *Repository
+	imageDir     string
+	card         cardDeps
+	rl           *ratelimit.KeyedLimiter
+	recipeLoader func() map[int64]*Recipe // optional; nil = no recipe scoring
+}
+
+// SetRecipeLoader wires a recipe loader so scored shot responses can
+// substitute recipe-specific duration/ratio bands for the generic fixed ones.
+// The loader is called at most once per request and must return all recipes
+// indexed by id — cmd/server passes a closure over library.Repository that
+// calls GetLibrary() and builds the map; tests leave it nil (nil = generic
+// bands, same behavior as before this was added).
+func (h *Handlers) SetRecipeLoader(fn func() map[int64]*Recipe) {
+	h.recipeLoader = fn
+}
+
+// loadRecipes calls the recipe loader once per request (nil-safe) and
+// returns the result — a map of recipe id → *Recipe, or nil when no loader
+// is wired (in which case every recipeOf call below will return nil).
+func (h *Handlers) loadRecipes() map[int64]*Recipe {
+	if h.recipeLoader == nil {
+		return nil
+	}
+	return h.recipeLoader()
+}
+
+// recipeOf extracts the recipeId from a shot's annotation and looks it up
+// in the pre-loaded recipes map. Returns nil when the map is nil, the shot
+// has no recipeId, or the id is not in the map.
+func recipeOf(recipes map[int64]*Recipe, shot Shot) *Recipe {
+	if recipes == nil {
+		return nil
+	}
+	ann, _ := shot["annotation"].(map[string]any)
+	if ann == nil {
+		return nil
+	}
+	var id int64
+	switch v := ann["recipeId"].(type) {
+	case int64:
+		id = v
+	case float64:
+		id = int64(v)
+	}
+	if id == 0 {
+		return nil
+	}
+	return recipes[id]
 }
 
 // cardRateLimitPerMin is the dedicated per-IP ceiling for
@@ -122,6 +167,7 @@ func withScore(shot Shot, detail ScoreDetail) Shot {
 	out := shot.clone()
 	out["score"] = detail.Score
 	out["usedBeanTarget"] = detail.UsedBeanTarget
+	out["usedRecipeTarget"] = detail.UsedRecipeTarget
 	return out
 }
 
@@ -212,9 +258,10 @@ func (h *Handlers) listShots(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
+	recipes := h.loadRecipes()
 	out := make([]Shot, len(list))
 	for i, shot := range list {
-		out[i] = withScore(shot, h.service.ComputeScoreDetail(shot))
+		out[i] = withScore(shot, h.service.ComputeScoreDetail(shot, recipeOf(recipes, shot)))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -304,7 +351,8 @@ func (h *Handlers) lastShot(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, withScore(last, h.service.ComputeScoreDetail(last)))
+	recipes := h.loadRecipes()
+	writeJSON(w, http.StatusOK, withScore(last, h.service.ComputeScoreDetail(last, recipeOf(recipes, last))))
 }
 
 // getDefaults ports GET /api/shots/defaults (#654).
@@ -388,10 +436,11 @@ func (h *Handlers) getShot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := withScore(shot, h.service.ComputeScoreDetail(shot))
+	recipes := h.loadRecipes()
+	resp := withScore(shot, h.service.ComputeScoreDetail(shot, recipeOf(recipes, shot)))
 	if previous != nil {
 		resp["previousShotId"] = previous["id"]
-		resp["previousShot"] = withScore(previous, h.service.ComputeScoreDetail(previous))
+		resp["previousShot"] = withScore(previous, h.service.ComputeScoreDetail(previous, recipeOf(recipes, previous)))
 	} else {
 		resp["previousShotId"] = nil
 		resp["previousShot"] = nil
@@ -435,7 +484,7 @@ func (h *Handlers) getCard(w http.ResponseWriter, r *http.Request) {
 	accent := r.URL.Query().Get("accent")
 	theme := r.URL.Query().Get("theme")
 
-	png, err := renderShareCard(shot, h.service.ComputeScore(shot), format, accent, theme, h.card)
+	png, err := renderShareCard(shot, h.service.ComputeScore(shot, recipeOf(h.loadRecipes(), shot)), format, accent, theme, h.card)
 	if err != nil {
 		log.Printf("shots: share-card render for shot %d failed: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "Internal server error")
@@ -641,7 +690,7 @@ func (h *Handlers) postImage(w http.ResponseWriter, r *http.Request) {
 	// routes/shots.js's `res.json({ ...updated, score:
 	// shotService.computeScore(updated) })` exactly.
 	resp := updated.clone()
-	resp["score"] = h.service.ComputeScore(updated)
+	resp["score"] = h.service.ComputeScore(updated, recipeOf(h.loadRecipes(), updated))
 	writeJSON(w, http.StatusOK, resp)
 }
 

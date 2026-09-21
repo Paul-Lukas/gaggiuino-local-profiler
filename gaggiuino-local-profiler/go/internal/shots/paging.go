@@ -252,7 +252,7 @@ func (r *Repository) scanPageRow(sc rowScanner) (PageRow, *scoreCacheRow, error)
 		return row, nil, nil
 	}
 
-	detail := CalcShotScoreDetail(shot, nil)
+	detail := CalcShotScoreDetail(shot, nil, nil)
 	row.Score = detail.Score
 	row.UsedBeanTarget = detail.UsedBeanTarget
 	return row, &scoreCacheRow{

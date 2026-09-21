@@ -211,12 +211,12 @@ func (s *Service) AppendToBlocklist(value string) error {
 // brewTempC/brewRatio recommendation — see score.go's CalcShotScoreDetail
 // doc comment for exactly what that does and doesn't change. Wire a real
 // bean lookup in here once the Library phase lands.
-func (s *Service) ComputeScoreDetail(shot Shot) ScoreDetail {
-	return CalcShotScoreDetail(shot, nil)
+func (s *Service) ComputeScoreDetail(shot Shot, recipe *Recipe) ScoreDetail {
+	return CalcShotScoreDetail(shot, nil, recipe)
 }
 
 // ComputeScore ports ShotService.js's computeScore — see
 // ComputeScoreDetail's doc comment for the same bean-resolution caveat.
-func (s *Service) ComputeScore(shot Shot) *int {
-	return CalcShotScore(shot, nil)
+func (s *Service) ComputeScore(shot Shot, recipe *Recipe) *int {
+	return CalcShotScore(shot, nil, recipe)
 }

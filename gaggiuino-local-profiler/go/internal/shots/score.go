@@ -35,8 +35,18 @@ type Bean struct {
 // return shape. Score is nil for JS's `null` (not enough datapoints to
 // score at all).
 type ScoreDetail struct {
-	Score          *int
-	UsedBeanTarget bool
+	Score            *int
+	UsedBeanTarget   bool
+	UsedRecipeTarget bool
+}
+
+// Recipe holds the scoring-relevant subset of a library recipe — the
+// duration and ratio targets CalcShotScoreDetail can substitute for the
+// generic fixed bands when a shot is annotated with a recipeId.
+type Recipe struct {
+	TargetTimeS  *float64 // nil = not set
+	TargetYieldG *float64 // nil = not set
+	TargetDoseG  *float64 // nil = not set
 }
 
 // jsRound matches JS's Math.round: round-half-up (towards +Infinity), not
@@ -379,7 +389,13 @@ func toFloat(v any) (float64, bool) {
 // shot without a bean-specific target scores exactly like Node today; shots
 // that would use a bean's own brewTempC/brewRatio target instead fall back
 // to the generic band until the Library phase wires bean resolution in.
-func CalcShotScoreDetail(shot Shot, bean *Bean) ScoreDetail {
+//
+// recipe, if non-nil, overrides the generic fixed duration/ratio bands when
+// the corresponding target fields are set — the same pattern bean uses for
+// brewTempC/brewRatio. Recipe targets win over bean targets for the fields
+// they cover; fields the recipe leaves nil fall through to bean, then to the
+// fixed band.
+func CalcShotScoreDetail(shot Shot, bean *Bean, recipe *Recipe) ScoreDetail {
 	if shot == nil {
 		return ScoreDetail{}
 	}
@@ -399,6 +415,7 @@ func CalcShotScoreDetail(shot Shot, bean *Bean) ScoreDetail {
 	var scores []int
 	var weights []int
 	usedBeanTarget := false
+	usedRecipeTarget := false
 
 	avgP := avg(pVals)
 	var sPressure float64
@@ -482,17 +499,35 @@ func CalcShotScoreDetail(shot Shot, bean *Bean) ScoreDetail {
 	secs := durationRaw / 10
 	if secs > 5 {
 		var sDur float64
-		switch {
-		case secs >= 25 && secs <= 35:
-			sDur = 100
-		case (secs >= 20 && secs < 25) || (secs > 35 && secs <= 42):
-			sDur = 82
-		case secs > 42 && secs <= 55:
-			sDur = 62
-		case secs < 20:
-			sDur = math.Max(15, 70-(20-secs)*5)
-		default:
-			sDur = math.Max(15, 62-(secs-55)*3)
+		if recipe != nil && recipe.TargetTimeS != nil && *recipe.TargetTimeS > 0 {
+			// Recipe target replaces the generic 25-35s band: same ±5s/±12s/
+			// ±17s tier widths, just centered on the recipe's target time.
+			tgt := *recipe.TargetTimeS
+			dev := math.Abs(secs - tgt)
+			switch {
+			case dev <= 5:
+				sDur = 100
+			case dev <= 12:
+				sDur = 82
+			case dev <= 17:
+				sDur = 62
+			default:
+				sDur = math.Max(15, 62-(dev-17)*3)
+			}
+			usedRecipeTarget = true
+		} else {
+			switch {
+			case secs >= 25 && secs <= 35:
+				sDur = 100
+			case (secs >= 20 && secs < 25) || (secs > 35 && secs <= 42):
+				sDur = 82
+			case secs > 42 && secs <= 55:
+				sDur = 62
+			case secs < 20:
+				sDur = math.Max(15, 70-(20-secs)*5)
+			default:
+				sDur = math.Max(15, 62-(secs-55)*3)
+			}
 		}
 		scores = append(scores, jsRound(sDur))
 		weights = append(weights, 20)
@@ -511,12 +546,30 @@ func CalcShotScoreDetail(shot Shot, bean *Bean) ScoreDetail {
 	if dose > 0 && finalW != 0 {
 		r := finalW / dose
 		var sRatio float64
+		// Recipe target ratio wins over bean target; both win over fixed band.
+		var recipeTarget float64
+		var hasRecipeTarget bool
+		if recipe != nil && recipe.TargetYieldG != nil && recipe.TargetDoseG != nil && *recipe.TargetDoseG > 0 {
+			recipeTarget = *recipe.TargetYieldG / *recipe.TargetDoseG
+			hasRecipeTarget = recipeTarget > 0
+		}
 		var beanTarget float64
 		var hasBeanTarget bool
 		if bean != nil {
 			beanTarget, hasBeanTarget = parseBrewRatioTarget(bean.BrewRatio)
 		}
-		if hasBeanTarget {
+		if hasRecipeTarget {
+			dev := math.Abs(r - recipeTarget)
+			switch {
+			case dev <= 0.35:
+				sRatio = 100
+			case dev <= 0.75:
+				sRatio = 75
+			default:
+				sRatio = math.Max(15, 75-(dev-0.75)*30)
+			}
+			usedRecipeTarget = true
+		} else if hasBeanTarget {
 			dev := math.Abs(r - beanTarget)
 			switch {
 			case dev <= 0.35:
@@ -581,11 +634,11 @@ func CalcShotScoreDetail(shot Shot, bean *Bean) ScoreDetail {
 		weighted += float64(s * weights[i])
 	}
 	score := jsRound(weighted / float64(totalWeight))
-	return ScoreDetail{Score: &score, UsedBeanTarget: usedBeanTarget}
+	return ScoreDetail{Score: &score, UsedBeanTarget: usedBeanTarget, UsedRecipeTarget: usedRecipeTarget}
 }
 
 // CalcShotScore ports lib/score.js's calcShotScore: the score-only wrapper
 // every non-detail caller uses.
-func CalcShotScore(shot Shot, bean *Bean) *int {
-	return CalcShotScoreDetail(shot, bean).Score
+func CalcShotScore(shot Shot, bean *Bean, recipe *Recipe) *int {
+	return CalcShotScoreDetail(shot, bean, recipe).Score
 }

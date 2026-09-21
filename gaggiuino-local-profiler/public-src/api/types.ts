@@ -90,6 +90,8 @@ export interface HydratedShot extends Shot {
   score: number | null;
   /** Whether scoring detected the shot hit the bean's target. */
   usedBeanTarget: boolean;
+  /** Whether scoring used this shot's linked recipe's time/ratio target. */
+  usedRecipeTarget?: boolean;
   /** Paged list only: whether a chartable series exists. */
   hasChartData?: boolean;
   /** Paged list only: temperature-stability deviation. */

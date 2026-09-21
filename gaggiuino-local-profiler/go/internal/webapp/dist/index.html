@@ -16,9 +16,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="GLP">
     <meta name="theme-color" content="#18181b">
-  <script type="module" crossorigin src="./assets/main-PIE2N2AX.js"></script>
+  <script type="module" crossorigin src="./assets/main-MDC3TJ6C.js"></script>
   <link rel="modulepreload" crossorigin href="./assets/chunk-QH3SRDGB.js">
-  <link rel="stylesheet" crossorigin href="./assets/main-4DYZACF2.css">
+  <link rel="stylesheet" crossorigin href="./assets/main-HWNWFOGY.css">
 </head>
 
 <body>
@@ -816,6 +816,18 @@
                                 <input type="text" id="recipeFormBean" placeholder="Ethiopia …">
                             </div>
                             <div class="lib-form-field">
+                                <label data-i18n="lib_recipe_grinder">Mühle</label>
+                                <select id="recipeFormGrinder"></select>
+                            </div>
+                            <div class="lib-form-field">
+                                <label data-i18n="lib_recipe_basket">Sieb</label>
+                                <select id="recipeFormBasket"></select>
+                            </div>
+                            <div class="lib-form-field">
+                                <label data-i18n="lib_recipe_puck_screen">Puck Screen</label>
+                                <select id="recipeFormPuckScreen"></select>
+                            </div>
+                            <div class="lib-form-field">
                                 <label data-i18n="lib_recipe_notes">Notizen</label>
                                 <input type="text" id="recipeFormNotes" placeholder="Notizen …">
                             </div>
@@ -1154,6 +1166,7 @@
                         <div class="annotation-field">
                             <label for="lsGrindSetting" data-i18n="ann_grind_setting">Mahlgrad</label>
                             <input type="text" id="lsGrindSetting">
+                            <div id="lsGrindHint" class="ls-grind-hint"></div>
                         </div>
                         <div class="annotation-field">
                             <label for="lsBasket" data-i18n="ann_basket">Sieb</label>

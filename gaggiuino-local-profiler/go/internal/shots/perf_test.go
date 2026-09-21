@@ -116,7 +116,7 @@ func TestListShots_ScoreMatchesRawAndMapDatapoints(t *testing.T) {
 			rawScore := list[0]["score"]
 
 			mapShot := Shot{"datapoints": dp, "duration": int64(300), "annotation": ann}
-			want := CalcShotScoreDetail(mapShot, nil).Score
+			want := CalcShotScoreDetail(mapShot, nil, nil).Score
 			switch {
 			case rawScore == nil && want == nil:
 			case rawScore == nil || want == nil:
@@ -280,7 +280,7 @@ func BenchmarkListShots_LegacyHydrate(b *testing.B) {
 				rows.Close()
 				b.Fatal(err)
 			}
-			out = append(out, withScore(shot, svc.ComputeScoreDetail(shot)))
+			out = append(out, withScore(shot, svc.ComputeScoreDetail(shot, nil)))
 		}
 		rows.Close()
 		if _, err := stdjson.Marshal(out); err != nil {
